@@ -266,22 +266,111 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ---
 
+## 📥 Download & Installation
+
+### 📦 Direct Download Links
+
+| Version | Download |
+|---------|----------|
+| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip) |
+| 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip.zip) |
+| 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi) |
+
+---
+
 ## 🔧 Installation
 
 ### 🔹 Microsoft Edge (Chromium)
 
-1. Download the archive: **SoundForge_EQ_Edge_v3.22.8.zip**
+1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip)
 2. Extract to any folder
 3. Open Edge → `edge://extensions/`
 4. Enable **"Developer mode"**
-5. Click **"Load unpacked"** → select the folder
+5. Click **"Load unpacked"** → select the **Microsoft Edge** folder
+
+---
 
 ### 🔹 Firefox ESR
 
-1. Download the archive: **SoundForge_EQ_Firefox_v3.22.8.zip**
+> **⚠️ Important:** This extension is NOT signed by Mozilla, so Firefox may block installation. Follow these steps to install it.
+
+#### Option 1 — Quick Install (XPI file)
+
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
+2. **Drag and drop** the `.xpi` file into an open Firefox window
+3. Click **"Add"**
+
+> **If Firefox blocks the installation:** Skip to Option 3 below to disable signature verification.
+
+---
+
+#### Option 2 — Manual Install (ZIP file)
+
+1. Download [**SoundForge-Equalizer-v3.22.8-Firefox.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip.zip)
 2. Extract to any folder
 3. Open Firefox → `about:debugging#/runtime/this-firefox`
 4. Click **"Load Temporary Add-on"**
+5. Select `manifest.json` from the extracted **Firefox** folder
+
+---
+
+#### Option 3 — Disable Signature Verification (for permanent install)
+
+Firefox blocks unsigned extensions by default. To install this extension permanently, you need to disable signature verification:
+
+1. Open Firefox and type in the address bar: `about:config`
+2. Click **"Accept the Risk and Continue"**
+3. In the search bar, type: `xpinstall.signatures.required`
+4. Double-click on the preference to set it to **`false`**
+5. **Restart Firefox**
+6. After restart, go to `about:addons` → click the gear icon ⚙️
+7. Select **"Install Add-on From File..."**
+8. Choose `manifest.json` from the extracted **Firefox** folder
+
+---
+
+#### Option 4 — Disable Signature Verification (via user.js)
+
+1. Close Firefox
+2. Open your Firefox profile folder:
+   - Windows: `%APPDATA%\Mozilla\Firefox\Profiles\`
+   - Linux: `~/.mozilla/firefox/`
+   - macOS: `~/Library/Application Support/Firefox/Profiles/`
+3. Find your profile folder (e.g., `xxxxxxxx.default-release`)
+4. Create a file named `user.js` in the profile folder
+5. Add this line: `user_pref("xpinstall.signatures.required", false);`
+6. Save the file and restart Firefox
+
+---
+
+#### Option 5 — Use Firefox ESR (Enterprise)
+
+If you're using **Firefox ESR** (Extended Support Release), signature verification is more flexible:
+
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
+2. Drag and drop the `.xpi` file into Firefox ESR
+3. Click **"Add"**
+
+> **Note:** Firefox ESR 153.0+ has improved support for unsigned extensions in enterprise environments.
+
+---
+
+### 🔸 Installation Summary
+
+| Method | Difficulty | Permanent | Notes |
+|--------|------------|-----------|-------|
+| **XPI Drag & Drop** | ⭐ Easy | ❌ Temporary | Quickest method |
+| **ZIP via about:debugging** | ⭐ Easy | ❌ Temporary | Good for testing |
+| **about:config disable** | ⭐⭐ Medium | ✅ Permanent | Requires restart |
+| **user.js method** | ⭐⭐⭐ Hard | ✅ Permanent | For advanced users |
+| **Firefox ESR** | ⭐ Easy | ✅ Permanent | Enterprise version |
+
+---
+
+### ⚠️ Important Security Note
+
+> **Disabling signature verification makes Firefox less secure** — only install extensions you trust.  
+> SoundForge Equalizer is **open source** and you can review the code at any time.
 
 ---
 
