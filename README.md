@@ -28,11 +28,7 @@
   <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API">
     <img src="https://img.shields.io/badge/Web%20Audio%20API-Supported-orange.svg?style=for-the-badge&logo=web-audio" alt="Web Audio API"/>
   </a>
-  <a href="https://github.com/Maximka1993271/SoundForge-Equalizer/wiki">
-    <img src="https://img.shields.io/badge/Wiki-📖-0078D7.svg?style=for-the-badge" alt="Wiki"/>
-  </a>
-</p>
-
+  
 <p align="center">
   <img src="https://github.com/Maximka1993271/SoundForge-Equalizer/raw/main/Screenshots/Full%20Equalizer.png" alt="SoundForge Equalizer" width="600"/>
 </p>
