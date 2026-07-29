@@ -293,10 +293,14 @@ No advertisements, tracking, telemetry, analytics or user data collection.
         <br/>
         <b>🎛️ Full Equalizer</b>
       </td>
+      <td align="center">
+        <img src="https://github.com/Maximka1993271/SoundForge-Equalizer/raw/main/Screenshots/On%20Player.png" alt="On Player" width="400"/>
+        <br/>
+        <b>🎵 On Player</b>
+      </td>
     </tr>
   </table>
 </div>
-
 ---
 
 ## ⌨️ Keyboard Shortcuts
