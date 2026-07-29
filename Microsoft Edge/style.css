@@ -1,0 +1,1785 @@
+/* ============================================
+   STYLE.CSS - v3.22.8
+   SoundForge Equalizer - Стили оформления
+   Светлая / Темная / Системная тема
+   ============================================ */
+
+/* ============================================
+   1. БАЗОВЫЕ СТИЛИ ВСЕХ ЭЛЕМЕНТОВ
+   ============================================ */
+
+* {
+  margin: 0;                    /* Убираем внешние отступы у всех элементов */
+  padding: 0;                   /* Убираем внутренние отступы у всех элементов */
+  box-sizing: border-box;       /* Ширина элемента считается вместе с padding и border */
+}
+
+/* ============================================
+   2. СТИЛИ ОСНОВНОГО КОНТЕЙНЕРА (body)
+   ============================================ */
+
+body {
+  width: 480px;                 /* Ширина окна - 480 пикселей */
+  max-height: 700px;            /* Максимальная высота окна - 700 пикселей */
+  padding: 18px;                /* Внутренние отступы со всех сторон по 18px */
+  font-family: 'Segoe UI', Arial, sans-serif;  /* Основной шрифт интерфейса */
+  background: linear-gradient(145deg, #0d0d1a, #1a1a2e);  /* Градиентный темный фон */
+  color: #ffffff;               /* Белый цвет текста */
+  border-radius: 16px;          /* Скругление углов окна на 16px */
+  user-select: none;            /* Запрещаем выделение текста */
+  overflow-y: auto;             /* Включаем вертикальную прокрутку если нужно */
+  overflow-x: hidden;           /* Отключаем горизонтальную прокрутку */
+  position: relative;           /* Относительное позиционирование для вложенных элементов */
+  transition: width 0.3s, max-height 0.3s, background 0.4s ease, color 0.4s ease;  /* Плавные анимации при изменениях */
+}
+
+/* ============================================
+   3. СТИЛИ ДЛЯ РАСШИРЕННОГО РЕЖИМА (НА ВЕСЬ ЭКРАН)
+   ============================================ */
+
+body.expanded {
+  width: 100% !important;       /* Растягиваем на всю ширину окна */
+  max-height: 100vh !important; /* Растягиваем на всю высоту экрана */
+  border-radius: 0 !important;  /* Убираем скругление углов */
+  overflow: auto !important;    /* Включаем прокрутку */
+}
+
+/* ============================================
+   4. СТИЛИЗАЦИЯ ПОЛОСЫ ПРОКРУТКИ (Scrollbar)
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 4px;                   /* Толщина полосы прокрутки - 4 пикселя */
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);  /* Полупрозрачный фон дорожки */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e94560;          /* Красный цвет ползунка прокрутки */
+  border-radius: 10px;          /* Скругление ползунка */
+}
+
+/* ============================================
+   5. АНИМАЦИИ
+   ============================================ */
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }     /* Начало вращения - 0 градусов */
+  100% { transform: rotate(360deg); } /* Конец вращения - 360 градусов */
+}
+
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }   /* Градиент слева */
+  50% { background-position: 100% 50%; }      /* Градиент справа (перелив) */
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }      /* Нормальный размер */
+  50% { opacity: 0.5; transform: scale(0.8); }       /* Уменьшение и затемнение */
+}
+
+@keyframes glowGreen {
+  0%, 100% { opacity: 1; }      /* Полная видимость */
+  50% { opacity: 0.7; }         /* Легкое затемнение */
+}
+
+@keyframes glowYellow {
+  0%, 100% { opacity: 1; transform: scale(1); }      /* Нормальный размер */
+  50% { opacity: 0.6; transform: scale(0.97); }      /* Уменьшение и затемнение */
+}
+
+@keyframes glowOrange {
+  0%, 100% { opacity: 1; transform: scale(1); }      /* Нормальный размер */
+  50% { opacity: 0.5; transform: scale(0.95); }      /* Уменьшение и затемнение */
+}
+
+@keyframes glowRed {
+  0%, 100% { opacity: 1; transform: scale(1); }      /* Нормальный размер */
+  50% { opacity: 0.4; transform: scale(0.92); }      /* Уменьшение и затемнение */
+}
+
+/* ============================================
+   6. ШАПКА (HEADER)
+   ============================================ */
+
+.header {
+  display: flex;                    /* Включаем гибкую верстку */
+  justify-content: space-between;   /* Размещаем элементы по краям */
+  align-items: center;              /* Выравниваем по вертикали по центру */
+  margin-bottom: 14px;              /* Отступ снизу 14px */
+  border-bottom: 2px solid rgba(233, 69, 96, 0.25);  /* Красная полоса снизу */
+  padding-bottom: 12px;             /* Отступ внутри снизу 12px */
+  position: relative;               /* Относительное позиционирование */
+  flex-shrink: 0;                   /* Запрещаем сжатие шапки */
+  transition: border-color 0.3s ease;  /* Плавное изменение цвета границы */
+}
+
+.header h1 {
+  font-size: 22px;                  /* Размер шрифта заголовка */
+  font-weight: 800;                 /* Жирность шрифта */
+  background: linear-gradient(90deg, #e94560, #ff6b8a, #e94560);  /* Градиент для текста */
+  background-size: 200% 100%;       /* Растягиваем градиент для анимации */
+  -webkit-background-clip: text;    /* Обрезаем фон по тексту (WebKit) */
+  -webkit-text-fill-color: transparent;  /* Делаем текст прозрачным, виден градиент */
+  letter-spacing: 0.5px;            /* Межбуквенный интервал */
+  animation: shimmer 3s ease-in-out infinite;  /* Анимация перелива градиента */
+}
+
+.header-controls {
+  display: flex;                    /* Гибкая верстка для кнопок в шапке */
+  gap: 8px;                         /* Расстояние между кнопками 8px */
+  align-items: center;              /* Выравнивание по центру */
+  flex-shrink: 0;                   /* Запрещаем сжатие блока с кнопками */
+}
+
+/* ============================================
+   7. КНОПКИ В ШАПКЕ (Переключение языка, Развернуть)
+   ============================================ */
+
+.lang-toggle, .expand-toggle {
+  position: relative;               /* Относительное позиционирование */
+}
+
+.lang-toggle::before, .lang-toggle::after,
+.expand-toggle::before, .expand-toggle::after {
+  display: none !important;         /* Отключаем псевдоэлементы */
+  content: none !important;         /* Убираем содержимое псевдоэлементов */
+}
+
+.lang-toggle {
+  background: rgba(255, 255, 255, 0.04);  /* Полупрозрачный фон */
+  border: 1px solid rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+  border-radius: 50%;               /* Круглая форма */
+  width: 30px;                      /* Ширина 30px */
+  height: 30px;                     /* Высота 30px */
+  cursor: pointer;                  /* Курсор-указатель при наведении */
+  font-size: 14px;                  /* Размер шрифта */
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  justify-content: center;          /* По центру горизонтали */
+  transition: all 0.3s;             /* Плавные переходы */
+  z-index: 100;                     /* Поверх других элементов */
+  color: #fff;                      /* Белый цвет */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.lang-toggle:hover {
+  transform: scale(1.1);            /* Увеличение при наведении на 10% */
+  background: rgba(255, 255, 255, 0.08);  /* Усиление фона при наведении */
+}
+
+.expand-toggle {
+  background: rgba(255, 255, 255, 0.04);  /* Полупрозрачный фон */
+  border: 1px solid rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+  border-radius: 50%;               /* Круглая форма */
+  width: 30px;                      /* Ширина 30px */
+  height: 30px;                     /* Высота 30px */
+  cursor: pointer;                  /* Курсор-указатель при наведении */
+  font-size: 14px;                  /* Размер шрифта */
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  justify-content: center;          /* По центру горизонтали */
+  transition: all 0.3s;             /* Плавные переходы */
+  z-index: 100;                     /* Поверх других элементов */
+  color: #fff;                      /* Белый цвет */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.expand-toggle:hover {
+  transform: scale(1.1);            /* Увеличение при наведении на 10% */
+  background: rgba(255, 255, 255, 0.08);  /* Усиление фона при наведении */
+}
+
+/* ============================================
+   8. ПЕРЕКЛЮЧАТЕЛЬ ТЕМ (Светлая/Темная/Системная)
+   ============================================ */
+
+.theme-selector {
+  display: flex;                    /* Гибкая верстка */
+  gap: 4px;                         /* Расстояние между иконками тем 4px */
+  background: rgba(255, 255, 255, 0.05);  /* Полупрозрачный фон */
+  border-radius: 20px;              /* Сильное скругление */
+  padding: 3px;                     /* Внутренние отступы 3px */
+  border: 1px solid rgba(255, 255, 255, 0.08);  /* Полупрозрачная граница */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+}
+
+.theme-option {
+  width: 28px;                      /* Ширина иконки темы */
+  height: 28px;                     /* Высота иконки темы */
+  border-radius: 50%;               /* Круглая форма */
+  border: none;                     /* Убираем стандартную границу */
+  cursor: pointer;                  /* Курсор-указатель */
+  font-size: 13px;                  /* Размер шрифта */
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  justify-content: center;          /* По центру горизонтали */
+  transition: all 0.3s ease;        /* Плавные переходы */
+  background: transparent;          /* Прозрачный фон */
+  color: #667799;                   /* Цвет иконок (серо-синий) */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.theme-option:hover {
+  transform: scale(1.15);           /* Увеличение при наведении на 15% */
+  background: rgba(255, 255, 255, 0.08);  /* Полупрозрачный фон при наведении */
+  color: #fff;                      /* Белый цвет при наведении */
+}
+
+.theme-option.active {
+  background: rgba(233, 69, 96, 0.25);  /* Красный полупрозрачный фон у активной темы */
+  color: #fff;                      /* Белый цвет текста */
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.15);  /* Красное свечение */
+  transform: scale(1.05);           /* Легкое увеличение */
+}
+
+.theme-option.active::after {
+  content: '';                      /* Добавляем псевдоэлемент */
+  position: absolute;               /* Абсолютное позиционирование */
+  bottom: -2px;                     /* Отступ снизу */
+  left: 50%;                        /* Выравнивание по центру */
+  transform: translateX(-50%);      /* Сдвиг для точного центрирования */
+  width: 6px;                       /* Ширина полоски */
+  height: 2px;                      /* Высота полоски */
+  background: #e94560;              /* Красный цвет */
+  border-radius: 2px;               /* Скругление */
+}
+
+/* Размер шрифта для иконок тем */
+.theme-option[data-theme="system"] { font-size: 14px; }
+.theme-option[data-theme="dark"] { font-size: 14px; }
+.theme-option[data-theme="light"] { font-size: 14px; }
+
+/* ============================================
+   9. СВЕТЛАЯ ТЕМА (Для кнопок в шапке)
+   ============================================ */
+
+[data-theme="light"] .lang-toggle,
+[data-theme="light"] .expand-toggle {
+  background: rgba(0, 0, 0, 0.04);     /* Светлый полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.08);   /* Темная полупрозрачная граница */
+  color: #1a1a2e;                       /* Темный цвет текста */
+}
+
+[data-theme="light"] .lang-toggle:hover,
+[data-theme="light"] .expand-toggle:hover {
+  background: rgba(0, 0, 0, 0.08);      /* Усиление фона при наведении */
+}
+
+[data-theme="light"] .theme-selector {
+  background: rgba(0, 0, 0, 0.04);      /* Светлый фон селектора тем */
+  border-color: rgba(0, 0, 0, 0.08);    /* Темная граница */
+}
+
+[data-theme="light"] .theme-option {
+  color: #8899bb;                       /* Серо-синий цвет иконок */
+}
+
+[data-theme="light"] .theme-option:hover {
+  background: rgba(0, 0, 0, 0.06);      /* Полупрозрачный фон при наведении */
+  color: #1a1a2e;                       /* Темный цвет */
+}
+
+[data-theme="light"] .theme-option.active {
+  background: rgba(233, 69, 96, 0.15);  /* Красный полупрозрачный фон */
+  color: #e94560;                       /* Красный цвет */
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.1);  /* Красное свечение */
+}
+
+/* ============================================
+   10. СИСТЕМНАЯ ТЕМА (СВЕТЛАЯ)
+   ============================================ */
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .lang-toggle,
+  [data-theme="system"] .expand-toggle {
+    background: rgba(0, 0, 0, 0.04);     /* Светлый фон */
+    border-color: rgba(0, 0, 0, 0.08);   /* Темная граница */
+    color: #1a1a2e;                       /* Темный цвет текста */
+  }
+  [data-theme="system"] .lang-toggle:hover,
+  [data-theme="system"] .expand-toggle:hover {
+    background: rgba(0, 0, 0, 0.08);      /* Усиление фона при наведении */
+  }
+  [data-theme="system"] .theme-selector {
+    background: rgba(0, 0, 0, 0.04);      /* Светлый фон */
+    border-color: rgba(0, 0, 0, 0.08);    /* Темная граница */
+  }
+  [data-theme="system"] .theme-option {
+    color: #8899bb;                       /* Серо-синий цвет */
+  }
+  [data-theme="system"] .theme-option:hover {
+    background: rgba(0, 0, 0, 0.06);      /* Полупрозрачный фон */
+    color: #1a1a2e;                       /* Темный цвет */
+  }
+  [data-theme="system"] .theme-option.active {
+    background: rgba(233, 69, 96, 0.15);  /* Красный полупрозрачный фон */
+    color: #e94560;                       /* Красный цвет */
+    box-shadow: 0 0 20px rgba(233, 69, 96, 0.1);  /* Красное свечение */
+  }
+}
+
+/* ============================================
+   11. СИСТЕМНАЯ ТЕМА (ТЕМНАЯ)
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] .lang-toggle,
+  [data-theme="system"] .expand-toggle {
+    background: rgba(255, 255, 255, 0.04);  /* Темный полупрозрачный фон */
+    border-color: rgba(255, 255, 255, 0.06); /* Светлая полупрозрачная граница */
+    color: #fff;                              /* Белый цвет текста */
+  }
+  [data-theme="system"] .lang-toggle:hover,
+  [data-theme="system"] .expand-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);    /* Усиление фона при наведении */
+  }
+  [data-theme="system"] .theme-selector {
+    background: rgba(255, 255, 255, 0.05);    /* Темный фон селектора */
+    border-color: rgba(255, 255, 255, 0.08);  /* Светлая граница */
+  }
+  [data-theme="system"] .theme-option {
+    color: #667799;                           /* Серо-синий цвет */
+  }
+  [data-theme="system"] .theme-option:hover {
+    background: rgba(255, 255, 255, 0.08);    /* Полупрозрачный фон при наведении */
+    color: #fff;                              /* Белый цвет */
+  }
+  [data-theme="system"] .theme-option.active {
+    background: rgba(233, 69, 96, 0.25);      /* Красный полупрозрачный фон */
+    color: #fff;                              /* Белый цвет текста */
+    box-shadow: 0 0 20px rgba(233, 69, 96, 0.15);  /* Красное свечение */
+  }
+}
+
+/* ============================================
+   12. СТАТУС-БАР (Информация о состоянии)
+   ============================================ */
+
+.status-bar {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* Размещаем по краям */
+  align-items: center;              /* По центру вертикали */
+  background: rgba(255, 255, 255, 0.03);  /* Полупрозрачный фон */
+  border-radius: 10px;              /* Скругление углов */
+  padding: 8px 12px;                /* Внутренние отступы */
+  margin-bottom: 12px;              /* Отступ снизу */
+  border: 1px solid rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  flex-wrap: wrap;                  /* Перенос элементов на новую строку */
+  gap: 6px;                         /* Расстояние между элементами */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+}
+
+.status-indicator {
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  gap: 8px;                         /* Расстояние между точкой и текстом */
+  font-size: 11px;                  /* Размер шрифта */
+  color: #8888aa;                   /* Серо-синий цвет текста */
+}
+
+.status-dot {
+  width: 8px;                       /* Ширина индикатора состояния */
+  height: 8px;                      /* Высота индикатора состояния */
+  border-radius: 50%;               /* Круглая форма */
+  background: #4CAF50;              /* Зеленый цвет (активный) */
+  transition: all 0.3s;             /* Плавные переходы */
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.3);  /* Зеленое свечение */
+}
+
+.status-dot.inactive {
+  background: #ff6b6b;              /* Красный цвет (неактивный) */
+  box-shadow: 0 0 12px rgba(255, 107, 107, 0.3);  /* Красное свечение */
+}
+
+.status-dot.connecting {
+  background: #ffc107;              /* Желтый цвет (подключение) */
+  box-shadow: 0 0 12px rgba(255, 193, 7, 0.3);  /* Желтое свечение */
+  animation: pulse 1s ease-in-out infinite;  /* Анимация пульсации */
+}
+
+.status-dot.reset {
+  background: #6c5ce7;              /* Фиолетовый цвет (сброс) */
+  box-shadow: 0 0 12px rgba(108, 92, 231, 0.3);  /* Фиолетовое свечение */
+}
+
+/* Цвета текста статуса */
+.status-text.active { color: #4CAF50; }     /* Зеленый текст для активного */
+.status-text.inactive { color: #ff6b6b; }   /* Красный текст для неактивного */
+.status-text.connecting { color: #ffc107; } /* Желтый текст для подключения */
+.status-text.reset { color: #6c5ce7; }      /* Фиолетовый текст для сброса */
+
+.site-info {
+  font-size: 10px;                  /* Размер шрифта */
+  color: #66ccff;                   /* Голубой цвет текста */
+  background: rgba(102, 204, 255, 0.08);  /* Голубой полупрозрачный фон */
+  padding: 2px 10px;                /* Внутренние отступы */
+  border-radius: 12px;              /* Скругление углов */
+  border: 1px solid rgba(102, 204, 255, 0.08);  /* Голубая граница */
+  max-width: 140px;                 /* Максимальная ширина */
+  overflow: hidden;                 /* Скрываем переполнение */
+  text-overflow: ellipsis;          /* Троеточие при обрезке текста */
+  white-space: nowrap;              /* Запрещаем перенос текста на новую строку */
+}
+
+.btn-group {
+  display: flex;                    /* Гибкая верстка */
+  gap: 6px;                         /* Расстояние между кнопками 6px */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+/* ============================================
+   13. КНОПКИ (Общие стили)
+   ============================================ */
+
+.btn {
+  padding: 4px 14px;                /* Внутренние отступы */
+  border-radius: 20px;              /* Сильное скругление углов */
+  border: none;                     /* Убираем стандартную границу */
+  font-size: 11px;                  /* Размер шрифта */
+  font-weight: 600;                 /* Полужирное начертание */
+  cursor: pointer;                  /* Курсор-указатель */
+  transition: all 0.2s;             /* Плавные переходы */
+  font-family: 'Segoe UI', Arial, sans-serif;  /* Шрифт как у основного текста */
+}
+
+.btn:hover { transform: scale(1.04); }   /* Увеличение при наведении на 4% */
+.btn:active { transform: scale(0.96); }  /* Уменьшение при нажатии на 4% */
+
+.btn-connect {
+  background: linear-gradient(135deg, #4CAF50, #2e7d32);  /* Зеленый градиент */
+  color: #fff;                      /* Белый цвет текста */
+  box-shadow: 0 2px 12px rgba(76, 175, 80, 0.25);  /* Зеленое свечение */
+}
+
+.btn-connect:hover {
+  box-shadow: 0 4px 20px rgba(76, 175, 80, 0.35);  /* Усиленное свечение */
+}
+
+.btn-connect.disconnect {
+  background: linear-gradient(135deg, #e94560, #c0392b);  /* Красный градиент */
+  box-shadow: 0 2px 12px rgba(233, 69, 96, 0.25);  /* Красное свечение */
+}
+
+.btn-connect.disconnect:hover {
+  box-shadow: 0 4px 20px rgba(233, 69, 96, 0.35);  /* Усиленное свечение */
+}
+
+.btn-reset {
+  background: rgba(108, 92, 231, 0.2);  /* Фиолетовый полупрозрачный фон */
+  color: #6c5ce7;                   /* Фиолетовый цвет текста */
+  border: 1px solid rgba(108, 92, 231, 0.2);  /* Фиолетовая граница */
+}
+
+.btn-reset:hover {
+  background: rgba(108, 92, 231, 0.35);  /* Усиление фона при наведении */
+}
+
+/* ============================================
+   14. ДОПОЛНИТЕЛЬНЫЕ КНОПКИ (Экспорт, Импорт, Пресеты, A/B)
+   ============================================ */
+
+.extra-buttons {
+  display: flex;                    /* Гибкая верстка */
+  gap: 6px;                         /* Расстояние между кнопками 6px */
+  margin-bottom: 10px;              /* Отступ снизу */
+  flex-wrap: wrap;                  /* Перенос на новую строку */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.extra-buttons .btn {
+  padding: 3px 10px;                /* Внутренние отступы */
+  font-size: 10px;                  /* Размер шрифта */
+  border-radius: 12px;              /* Скругление углов */
+  background: rgba(255, 255, 255, 0.04);  /* Полупрозрачный фон */
+  border: 1px solid rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+  color: #8899bb;                   /* Серо-синий цвет текста */
+}
+
+.extra-buttons .btn:hover {
+  background: rgba(255, 255, 255, 0.08);  /* Усиление фона при наведении */
+  color: #fff;                      /* Белый цвет текста */
+}
+
+/* Цвета при наведении для разных кнопок */
+.extra-buttons .btn-export:hover { border-color: #4CAF50; color: #4CAF50; }   /* Экспорт - зеленый */
+.extra-buttons .btn-import:hover { border-color: #66ccff; color: #66ccff; }   /* Импорт - голубой */
+.extra-buttons .btn-save-preset:hover { border-color: #ffc107; color: #ffc107; }  /* Сохранить пресет - желтый */
+.extra-buttons .btn-ab-compare:hover { border-color: #e94560; color: #e94560; }  /* A/B сравнение - красный */
+
+/* ============================================
+   15. ВИЗУАЛИЗАЦИЯ (Спектр, VU-метр, График АЧХ)
+   ============================================ */
+
+.visualization-container {
+  background: rgba(0, 0, 0, 0.2);    /* Полупрозрачный черный фон */
+  border-radius: 10px;              /* Скругление углов */
+  padding: 8px 10px;                /* Внутренние отступы */
+  margin-bottom: 10px;              /* Отступ снизу */
+  border: 1px solid rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  overflow: hidden;                 /* Скрываем переполнение */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+}
+
+.spectrum-wrapper {
+  position: relative;               /* Относительное позиционирование */
+  margin-bottom: 4px;               /* Отступ снизу */
+  overflow: hidden;                 /* Скрываем переполнение */
+}
+
+#spectrumCanvas {
+  width: 100%;                      /* На всю ширину контейнера */
+  height: 60px;                     /* Высота 60 пикселей */
+  border-radius: 6px;               /* Скругление углов */
+  background: rgba(0, 0, 0, 0.3);   /* Полупрозрачный черный фон */
+  display: block;                   /* Блочный элемент */
+  max-width: 100%;                  /* Максимальная ширина */
+  height: 60px !important;          /* Фиксированная высота */
+}
+
+body:not(.expanded) #spectrumCanvas {
+  height: 50px !important;          /* В свернутом режиме высота 50px */
+}
+
+body.expanded #spectrumCanvas {
+  height: 80px !important;          /* В развернутом режиме высота 80px */
+}
+
+.spectrum-labels {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* Равномерное распределение */
+  font-size: 7px;                   /* Мелкий размер шрифта */
+  color: #8899bb;                   /* Серо-синий цвет */
+  padding: 0 2px;                   /* Внутренние отступы */
+  margin-top: 2px;                  /* Отступ сверху */
+}
+
+.spectrum-labels span {
+  flex: 1;                          /* Равномерное растяжение */
+  text-align: center;               /* Текст по центру */
+}
+
+/* ============================================
+   16. VU-МЕТР (Индикатор уровня громкости)
+   ============================================ */
+
+.vu-meter-container {
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  gap: 10px;                        /* Расстояние между элементами */
+  margin-top: 4px;                  /* Отступ сверху */
+  overflow: hidden;                 /* Скрываем переполнение */
+}
+
+.vu-meter {
+  flex: 1;                          /* Растягиваем на всю доступную ширину */
+  position: relative;               /* Относительное позиционирование */
+  height: 14px;                     /* Высота индикатора */
+  background: rgba(0, 0, 0, 0.3);   /* Полупрозрачный черный фон */
+  border-radius: 7px;               /* Скругление углов */
+  overflow: visible;                /* Разрешаем выход за пределы */
+  border: 1px solid rgba(255, 255, 255, 0.05);  /* Полупрозрачная граница */
+  min-width: 40px;                  /* Минимальная ширина */
+}
+
+.vu-track {
+  width: 100%;                      /* На всю ширину родителя */
+  height: 100%;                     /* На всю высоту родителя */
+  border-radius: 7px;               /* Скругление углов */
+  overflow: hidden;                 /* Скрываем переполнение */
+  position: relative;               /* Относительное позиционирование */
+}
+
+.vu-fill {
+  height: 100%;                     /* На всю высоту */
+  border-radius: 7px;               /* Скругление углов */
+  transition: width 0.05s linear;   /* Быстрая анимация изменения ширины */
+  background: linear-gradient(90deg, #4CAF50, #6bcb77, #ffd93d, #ff6b6b);  /* Градиент от зеленого к красному */
+}
+
+.vu-peak {
+  position: absolute;               /* Абсолютное позиционирование */
+  top: -2px;                        /* Сдвиг вверх */
+  width: 3px;                       /* Ширина пикового маркера */
+  height: 18px;                     /* Высота пикового маркера */
+  background: #fff;                 /* Белый цвет */
+  border-radius: 2px;               /* Скругление углов */
+  transition: left 0.05s linear;    /* Быстрая анимация перемещения */
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);  /* Белое свечение */
+  pointer-events: none;             /* Запрещаем взаимодействие с мышью */
+}
+
+.vu-labels {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* Равномерное распределение */
+  font-size: 7px;                   /* Мелкий размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  padding: 0 2px;                   /* Внутренние отступы */
+  margin-top: 1px;                  /* Отступ сверху */
+}
+
+.vu-value {
+  font-size: 10px;                  /* Размер шрифта */
+  font-weight: 700;                 /* Жирное начертание */
+  color: #aabbdd;                   /* Светло-синий цвет */
+  min-width: 50px;                  /* Минимальная ширина */
+  text-align: right;                /* Текст по правому краю */
+  font-variant-numeric: tabular-nums;  /* Моноширинные цифры */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+/* ============================================
+   17. ГРАФИК АЧХ С ТОЧКАМИ (КАК НА ФОТО)
+   ============================================ */
+
+.eq-graph-container {
+  position: relative;               /* Относительное позиционирование */
+  margin-bottom: 10px;              /* Отступ снизу */
+  padding: 10px 8px 12px 20px;      /* Внутренние отступы: слева 20px для цифр 12 */
+  background: rgba(0, 0, 0, 0.2);   /* Полупрозрачный черный фон */
+  border-radius: 8px;               /* Скругление углов */
+  border: 1px solid rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  overflow: hidden;                 /* Скрываем переполнение */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+  height: 100px;                    /* Фиксированная высота для графика с точками */
+}
+
+/* Цифры 12 слева (сверху и снизу) */
+.eq-graph-left-values {
+  position: absolute;               /* Абсолютное позиционирование */
+  left: 2px;                        /* Отступ слева */
+  top: 10px;                        /* Отступ сверху */
+  font-size: 8px;                   /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  display: flex;                    /* Гибкая верстка */
+  flex-direction: column;           /* Колонка */
+  align-items: flex-start;          /* По левому краю */
+  justify-content: space-between;   /* Равномерное распределение */
+  height: 70px;                     /* Высота как у канваса */
+  font-weight: 700;                 /* Жирное начертание */
+  opacity: 0.6;                     /* Полупрозрачные */
+  line-height: 1;                   /* Межстрочный интервал */
+}
+
+.eq-graph-left-values span {
+  display: block;                   /* Блочный элемент */
+}
+
+#eqGraphCanvas {
+  width: 100%;                      /* На всю ширину */
+  height: 70px;                     /* Высота 70 пикселей */
+  display: block;                   /* Блочный элемент */
+  border-radius: 4px;               /* Скругление углов */
+  max-width: 100%;                  /* Максимальная ширина */
+  margin-bottom: 4px;               /* Отступ снизу */
+}
+
+/* Метки частот внизу графика (31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k) */
+.eq-graph-labels {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* Равномерное распределение */
+  font-size: 8px;                   /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  padding: 0 6px 0 6px;             /* Внутренние отступы */
+  margin-top: 2px;                  /* Отступ сверху */
+  font-weight: 500;                 /* Средняя жирность */
+  letter-spacing: 0.3px;            /* Межбуквенный интервал */
+}
+
+.eq-graph-labels span {
+  flex: 1;                          /* Равномерное растяжение */
+  text-align: center;               /* Текст по центру */
+  min-width: 20px;                  /* Минимальная ширина */
+}
+
+/* Значения справа (+12, 0, -12) */
+.eq-graph-right-values {
+  position: absolute;               /* Абсолютное позиционирование */
+  right: 6px;                       /* Отступ справа */
+  top: 12px;                        /* Отступ сверху */
+  font-size: 8px;                   /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  display: flex;                    /* Гибкая верстка */
+  flex-direction: column;           /* Колонка */
+  align-items: flex-end;            /* По правому краю */
+  gap: 6px;                         /* Расстояние между строками */
+  line-height: 1;                   /* Межстрочный интервал */
+  font-weight: 600;                 /* Полужирное начертание */
+  opacity: 0.6;                     /* Полупрозрачные */
+}
+
+.eq-graph-right-values span {
+  display: block;                   /* Блочный элемент */
+}
+
+/* ============================================
+   18. ПРЕСЕТЫ (Информация и выбор)
+   ============================================ */
+
+.preset-info {
+  font-size: 10px;                  /* Размер шрифта */
+  color: #66ccff;                   /* Голубой цвет текста */
+  background: rgba(102, 204, 255, 0.08);  /* Голубой полупрозрачный фон */
+  padding: 4px 10px;                /* Внутренние отступы */
+  border-radius: 12px;              /* Скругление углов */
+  border: 1px solid rgba(102, 204, 255, 0.08);  /* Голубая граница */
+  text-align: center;               /* Текст по центру */
+  margin-bottom: 8px;               /* Отступ снизу */
+  overflow: hidden;                 /* Скрываем переполнение */
+  text-overflow: ellipsis;          /* Троеточие при обрезке */
+  white-space: nowrap;              /* Запрещаем перенос */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+}
+
+.preset-selector {
+  position: relative;               /* Относительное позиционирование */
+  margin-bottom: 10px;              /* Отступ снизу */
+  overflow: hidden;                 /* Скрываем переполнение */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.preset-selector select {
+  width: 100%;                      /* На всю ширину */
+  padding: 7px 35px 7px 14px;       /* Внутренние отступы */
+  font-size: 11px;                  /* Размер шрифта */
+  font-weight: 600;                 /* Полужирное начертание */
+  color: #fff;                      /* Белый цвет текста */
+  background: linear-gradient(145deg, #1a1a2e, #252545);  /* Темный градиентный фон */
+  border: 1px solid rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+  border-radius: 10px;              /* Скругление углов */
+  cursor: pointer;                  /* Курсор-указатель */
+  appearance: none;                 /* Убираем стандартный вид */
+  -webkit-appearance: none;         /* Убираем стандартный вид для WebKit */
+  transition: all 0.3s;             /* Плавные переходы */
+  font-family: 'Segoe UI', Arial, sans-serif;  /* Основной шрифт */
+  max-width: 100%;                  /* Максимальная ширина */
+}
+
+.preset-selector select:hover {
+  border-color: rgba(233, 69, 96, 0.3);  /* Красная граница при наведении */
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.05);  /* Красное свечение */
+}
+
+.preset-selector select:focus {
+  outline: none;                    /* Убираем стандартный контур */
+  border-color: #e94560;            /* Красная граница при фокусе */
+  box-shadow: 0 0 25px rgba(233, 69, 96, 0.12);  /* Красное свечение */
+}
+
+.preset-selector select option,
+.preset-selector select optgroup {
+  background: #1a1a2e;              /* Темный фон опций */
+  color: #fff;                      /* Белый цвет текста */
+  padding: 4px 10px;                /* Внутренние отступы */
+}
+
+.preset-selector select optgroup {
+  font-weight: 700;                 /* Жирное начертание для групп */
+  color: #66ccff;                   /* Голубой цвет текста для групп */
+}
+
+.preset-selector::after {
+  content: '▾';                     /* Стрелка вниз */
+  position: absolute;               /* Абсолютное позиционирование */
+  right: 14px;                      /* Отступ справа */
+  top: 50%;                         /* По центру вертикали */
+  transform: translateY(-50%);      /* Сдвиг для центрирования */
+  font-size: 12px;                  /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  pointer-events: none;             /* Запрещаем взаимодействие */
+  transition: transform 0.3s;       /* Плавный переход */
+}
+
+.preset-selector:hover::after {
+  color: #e94560;                   /* Красный цвет при наведении */
+}
+
+/* ============================================
+   19. СЛАЙДЕРЫ ЭКВАЛАЙЗЕРА (Горизонтальные - старый дизайн)
+   ============================================ */
+
+.eq-container {
+  display: flex;                    /* Гибкая верстка */
+  flex-direction: column;           /* Вертикальная колонка */
+  gap: 4px;                         /* Расстояние между слайдерами 4px */
+  margin-bottom: 8px;               /* Отступ снизу */
+  overflow: hidden !important;      /* Скрываем переполнение */
+  max-width: 100% !important;       /* Максимальная ширина */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.slider-row {
+  display: flex;                    /* Гибкая верстка */
+  align-items: center;              /* По центру вертикали */
+  gap: 10px;                        /* Расстояние между элементами */
+  padding: 2px 4px;                 /* Внутренние отступы */
+  border-radius: 6px;               /* Скругление углов */
+  transition: background 0.2s;      /* Плавная смена фона */
+  overflow: hidden !important;      /* Скрываем переполнение */
+  max-width: 100% !important;       /* Максимальная ширина */
+  flex-wrap: nowrap !important;     /* Запрещаем перенос */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.slider-row:hover {
+  background: rgba(255, 255, 255, 0.02);  /* Полупрозрачный фон при наведении */
+}
+
+.slider-row .freq-label {
+  width: 36px;                      /* Ширина метки частоты */
+  font-size: 10px;                  /* Размер шрифта */
+  font-weight: 700;                 /* Жирное начертание */
+  color: #8899bb;                   /* Серо-синий цвет */
+  text-align: right;                /* Текст по правому краю */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  min-width: 30px;                  /* Минимальная ширина */
+  max-width: 36px;                  /* Максимальная ширина */
+}
+
+.slider-row .freq-label .unit {
+  font-size: 8px;                   /* Мелкий размер для единиц измерения */
+  color: #556688;                   /* Темно-серо-синий цвет */
+}
+
+/* Стилизация ползунков (range input) */
+input[type="range"] {
+  -webkit-appearance: none;         /* Убираем стандартный вид для WebKit */
+  appearance: none;                 /* Убираем стандартный вид */
+  flex: 1;                          /* Растягиваем на всю доступную ширину */
+  height: 4px;                      /* Высота ползунка */
+  background: linear-gradient(90deg, #2a2a4a, #3a3a6a);  /* Градиентный фон */
+  border-radius: 10px;              /* Скругление углов */
+  outline: none;                    /* Убираем контур */
+  transition: background 0.2s;      /* Плавная смена фона */
+  min-width: 40px !important;       /* Минимальная ширина */
+  max-width: 100% !important;       /* Максимальная ширина */
+  flex-shrink: 1 !important;        /* Разрешаем сжатие */
+}
+
+/* Ползунок для WebKit (Chrome, Safari) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;         /* Убираем стандартный вид */
+  appearance: none;                 /* Убираем стандартный вид */
+  width: 14px;                      /* Ширина бегунка */
+  height: 14px;                     /* Высота бегунка */
+  border-radius: 50%;               /* Круглая форма */
+  background: linear-gradient(135deg, #e94560, #c0392b);  /* Красный градиент */
+  cursor: pointer;                  /* Курсор-указатель */
+  box-shadow: 0 0 15px rgba(233, 69, 96, 0.2);  /* Красное свечение */
+  transition: all 0.2s;             /* Плавные переходы */
+  border: 2px solid rgba(255, 255, 255, 0.1);  /* Полупрозрачная граница */
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);           /* Увеличение при наведении */
+  box-shadow: 0 0 25px rgba(233, 69, 96, 0.4);  /* Усиленное свечение */
+}
+
+/* Ползунок для Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: 14px;                      /* Ширина бегунка */
+  height: 14px;                     /* Высота бегунка */
+  border-radius: 50%;               /* Круглая форма */
+  background: linear-gradient(135deg, #e94560, #c0392b);  /* Красный градиент */
+  cursor: pointer;                  /* Курсор-указатель */
+  border: 2px solid rgba(255, 255, 255, 0.1);  /* Полупрозрачная граница */
+}
+
+/* Значение усиления (Gain) */
+.slider-row .gain-value {
+  width: 32px;                      /* Ширина */
+  text-align: center;               /* Текст по центру */
+  font-size: 11px;                  /* Размер шрифта */
+  font-weight: 700;                 /* Жирное начертание */
+  color: #ddddee;                   /* Светлый цвет текста */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  font-variant-numeric: tabular-nums;  /* Моноширинные цифры */
+  transition: color 0.2s;           /* Плавная смена цвета */
+  min-width: 28px;                  /* Минимальная ширина */
+  max-width: 32px;                  /* Максимальная ширина */
+}
+
+/* Цвета для значений усиления */
+.slider-row .gain-value.positive { color: #4CAF50; }  /* Зеленый для положительных */
+.slider-row .gain-value.negative { color: #ff6b6b; }  /* Красный для отрицательных */
+.slider-row .gain-value.zero { color: #556688; }     /* Серый для нуля */
+
+/* ============================================
+   20. МЕТКИ ЧАСТОТ (Под слайдерами)
+   ============================================ */
+
+.freq-labels {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* Равномерное распределение */
+  padding: 0 48px 0 48px;           /* Внутренние отступы */
+  font-size: 7px;                   /* Мелкий размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  letter-spacing: 0.5px;            /* Межбуквенный интервал */
+  margin-top: -2px;                 /* Отступ сверху (отрицательный) */
+  margin-bottom: 4px;               /* Отступ снизу */
+  overflow: hidden;                 /* Скрываем переполнение */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+.freq-labels span {
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+}
+
+/* ============================================
+   21. ДОПОЛНИТЕЛЬНЫЕ КОНТРОЛЫ (Громкость и Bass Boost)
+   ============================================ */
+
+.extra-controls {
+  display: flex;                    /* Гибкая верстка */
+  gap: 16px;                        /* Расстояние между контролами */
+  padding: 8px 4px;                 /* Внутренние отступы */
+  margin-bottom: 8px;               /* Отступ снизу */
+  background: rgba(255, 255, 255, 0.02);  /* Полупрозрачный фон */
+  border-radius: 8px;               /* Скругление углов */
+  border: 1px solid rgba(255, 255, 255, 0.03);  /* Полупрозрачная граница */
+  overflow: hidden;                 /* Скрываем переполнение */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: all 0.3s ease;        /* Плавные переходы */
+}
+
+.extra-control {
+  flex: 1;                          /* Равномерное растяжение */
+  display: flex;                    /* Гибкая верстка */
+  flex-direction: column;           /* Вертикальная колонка */
+  gap: 2px;                         /* Расстояние между элементами */
+  min-width: 0;                     /* Минимальная ширина */
+  overflow: hidden;                 /* Скрываем переполнение */
+}
+
+.extra-control label {
+  font-size: 8px;                   /* Мелкий размер шрифта (для свернутого окна) */
+  color: #667799;                   /* Серо-синий цвет */
+  font-weight: 600;                 /* Полужирное начертание */
+  text-transform: uppercase;        /* Заглавные буквы */
+  letter-spacing: 0.3px;            /* Межбуквенный интервал */
+  overflow: hidden;                 /* Скрываем переполнение */
+  text-overflow: ellipsis;          /* Троеточие при обрезке */
+  white-space: nowrap;              /* Запрещаем перенос */
+  min-width: 40px;                  /* Минимальная ширина */
+  flex-shrink: 1;                   /* Разрешаем сжатие */
+}
+
+.extra-control .value-display {
+  font-size: 10px;                  /* Размер шрифта */
+  font-weight: 700;                 /* Жирное начертание */
+  color: #ddddee;                   /* Светлый цвет */
+  text-align: center;               /* Текст по центру */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  min-width: 30px;                  /* Минимальная ширина */
+}
+
+/* Одинаковые стили для ползунков громкости и баса */
+.extra-control input[type="range"] {
+  -webkit-appearance: none;         /* Убираем стандартный вид для WebKit */
+  appearance: none;                 /* Убираем стандартный вид */
+  width: 100%;                      /* На всю ширину */
+  height: 3px !important;           /* Высота 3px (одинаковая) */
+  border-radius: 10px;              /* Скругление углов */
+  outline: none;                    /* Убираем контур */
+  transition: background 0.2s;      /* Плавная смена фона */
+  min-width: 20px !important;       /* Минимальная ширина */
+  margin: 2px 0;                    /* Отступы сверху и снизу */
+}
+
+/* Бегунки для WebKit */
+.extra-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;         /* Убираем стандартный вид */
+  appearance: none;                 /* Убираем стандартный вид */
+  width: 10px;                      /* Ширина бегунка (одинаковая) */
+  height: 10px;                     /* Высота бегунка (одинаковая) */
+  border-radius: 50%;               /* Круглая форма */
+  cursor: pointer;                  /* Курсор-указатель */
+  transition: all 0.2s;             /* Плавные переходы */
+  border: 2px solid rgba(255, 255, 255, 0.1);  /* Полупрозрачная граница */
+}
+
+.extra-control input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);           /* Увеличение при наведении */
+}
+
+/* Бегунки для Firefox */
+.extra-control input[type="range"]::-moz-range-thumb {
+  width: 10px;                      /* Ширина бегунка (одинаковая) */
+  height: 10px;                     /* Высота бегунка (одинаковая) */
+  border-radius: 50%;               /* Круглая форма */
+  cursor: pointer;                  /* Курсор-указатель */
+  border: 2px solid rgba(255, 255, 255, 0.1);  /* Полупрозрачная граница */
+}
+
+/* Ползунок ГРОМКОСТИ */
+#volumeSlider {
+  height: 3px !important;           /* Высота 3px */
+  background: linear-gradient(90deg, #2a2a4a, #4a2a6a, #6a2a4a, #e94560);  /* Красный градиент */
+}
+
+#volumeSlider::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #ff6b8a, #e94560);  /* Красный градиент */
+}
+
+#volumeSlider::-moz-range-thumb {
+  background: linear-gradient(135deg, #ff6b8a, #e94560);  /* Красный градиент */
+}
+
+/* Ползунок BASS BOOST */
+#bassSlider {
+  height: 3px !important;           /* Высота 3px */
+  background: linear-gradient(90deg, #2a2a4a, #4a2a6a, #2a2a4a);  /* Фиолетовый градиент */
+}
+
+#bassSlider::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);  /* Фиолетовый градиент */
+}
+
+#bassSlider::-moz-range-thumb {
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);  /* Фиолетовый градиент */
+}
+
+/* Общие стили для одинаковой толщины ползунков */
+#volumeSlider, #bassSlider {
+  height: 3px !important;           /* Одинаковая высота */
+}
+
+#volumeSlider::-webkit-slider-thumb,
+#bassSlider::-webkit-slider-thumb {
+  width: 10px !important;           /* Одинаковая ширина бегунка */
+  height: 10px !important;          /* Одинаковая высота бегунка */
+}
+
+#volumeSlider::-moz-range-thumb,
+#bassSlider::-moz-range-thumb {
+  width: 10px !important;           /* Одинаковая ширина бегунка */
+  height: 10px !important;          /* Одинаковая высота бегунка */
+}
+
+/* Хедер громкости (статус) */
+.volume-header {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* По краям */
+  align-items: center;              /* По центру вертикали */
+  width: 100%;                      /* На всю ширину */
+  gap: 2px;                         /* Расстояние между элементами */
+  min-width: 0;                     /* Минимальная ширина */
+}
+
+.volume-status {
+  font-size: 7px;                   /* Мелкий размер (для свернутого окна) */
+  font-weight: 700;                 /* Жирное начертание */
+  padding: 1px 6px;                 /* Внутренние отступы */
+  border-radius: 10px;              /* Скругление углов */
+  background: rgba(255, 255, 255, 0.05);  /* Полупрозрачный фон */
+  transition: all 0.3s ease;        /* Плавные переходы */
+  letter-spacing: 0.2px;            /* Межбуквенный интервал */
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.05);  /* Тень текста */
+  white-space: nowrap;              /* Запрещаем перенос */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  min-width: 20px;                  /* Минимальная ширина */
+  text-align: center;               /* Текст по центру */
+}
+
+/* Цвета статуса в светлой теме */
+[data-theme="light"] .volume-status {
+  background: rgba(0, 0, 0, 0.05);  /* Светлый фон */
+}
+
+[data-theme="light"] .volume-status[style*="color: #4CAF50"] {
+  background: rgba(76, 175, 80, 0.1);  /* Зеленый фон для статуса */
+}
+
+[data-theme="light"] .volume-status[style*="color: #FFC107"] {
+  background: rgba(255, 193, 7, 0.1);   /* Желтый фон для статуса */
+}
+
+[data-theme="light"] .volume-status[style*="color: #FF9800"] {
+  background: rgba(255, 152, 0, 0.1);   /* Оранжевый фон для статуса */
+}
+
+[data-theme="light"] .volume-status[style*="color: #f44336"] {
+  background: rgba(244, 67, 54, 0.1);   /* Красный фон для статуса */
+}
+
+/* Цвета статуса в темной теме */
+[data-theme="dark"] .volume-status[style*="color: #4CAF50"] {
+  background: rgba(76, 175, 80, 0.15);  /* Зеленый фон для статуса */
+}
+
+[data-theme="dark"] .volume-status[style*="color: #FFC107"] {
+  background: rgba(255, 193, 7, 0.15);  /* Желтый фон для статуса */
+}
+
+[data-theme="dark"] .volume-status[style*="color: #FF9800"] {
+  background: rgba(255, 152, 0, 0.15);  /* Оранжевый фон для статуса */
+}
+
+[data-theme="dark"] .volume-status[style*="color: #f44336"] {
+  background: rgba(244, 67, 54, 0.15);  /* Красный фон для статуса */
+}
+
+/* ============================================
+   22. ФУТЕР (Подвал)
+   ============================================ */
+
+.footer {
+  display: flex;                    /* Гибкая верстка */
+  justify-content: space-between;   /* По краям */
+  align-items: center;              /* По центру вертикали */
+  border-top: 1px solid rgba(255, 255, 255, 0.04);  /* Полупрозрачная верхняя граница */
+  padding-top: 10px;                /* Отступ сверху */
+  margin-top: 4px;                  /* Отступ сверху */
+  flex-wrap: wrap;                  /* Перенос на новую строку */
+  gap: 4px;                         /* Расстояние между элементами */
+  flex-shrink: 0;                   /* Запрещаем сжатие */
+  transition: border-color 0.3s ease;  /* Плавная смена цвета границы */
+}
+
+.footer .author {
+  font-size: 10px;                  /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+}
+
+.footer .author span {
+  background: linear-gradient(90deg, #e94560, #ff6b8a);  /* Красный градиент */
+  -webkit-background-clip: text;    /* Обрезаем фон по тексту */
+  -webkit-text-fill-color: transparent;  /* Прозрачный текст, виден градиент */
+  font-weight: 700;                 /* Жирное начертание */
+}
+
+.footer .stats {
+  font-size: 10px;                  /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+}
+
+.footer .stats span {
+  color: #e94560;                   /* Красный цвет для цифр */
+}
+
+.footer .version {
+  font-size: 10px;                  /* Размер шрифта */
+  color: #667799;                   /* Серо-синий цвет */
+  font-weight: 700;                 /* Жирное начертание */
+}
+
+.visualization-status {
+  font-size: 9px;                   /* Размер шрифта */
+  color: #4CAF50;                   /* Зеленый цвет */
+  opacity: 0.7;                     /* Полупрозрачность */
+}
+
+/* ============================================
+   23. СВЕТЛАЯ ТЕМА (Полная)
+   ============================================ */
+
+[data-theme="light"] body {
+  background: linear-gradient(145deg, #f0f0f5, #e0e0ea);  /* Светлый градиентный фон */
+  color: #1a1a2e;                   /* Темный цвет текста */
+}
+
+[data-theme="light"] .status-bar {
+  background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .header {
+  border-bottom-color: rgba(233, 69, 96, 0.25);  /* Красная граница */
+}
+
+[data-theme="light"] .status-indicator {
+  color: #667799;                   /* Серо-синий цвет текста */
+}
+
+[data-theme="light"] .site-info {
+  color: #4a8bc2;                   /* Синий цвет текста */
+  background: rgba(102, 204, 255, 0.1);  /* Голубой фон */
+  border-color: rgba(102, 204, 255, 0.15);  /* Голубая граница */
+}
+
+[data-theme="light"] .preset-info {
+  color: #4a8bc2;                   /* Синий цвет текста */
+  background: rgba(102, 204, 255, 0.1);  /* Голубой фон */
+  border-color: rgba(102, 204, 255, 0.15);  /* Голубая граница */
+}
+
+[data-theme="light"] .preset-selector select {
+  color: #1a1a2e;                   /* Темный цвет текста */
+  background: linear-gradient(145deg, #e8e8f0, #d8d8e8);  /* Светлый градиент */
+  border-color: rgba(0, 0, 0, 0.08);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .preset-selector select option,
+[data-theme="light"] .preset-selector select optgroup {
+  background: #e8e8f0;              /* Светлый фон опций */
+  color: #1a1a2e;                   /* Темный цвет текста */
+}
+
+[data-theme="light"] .preset-selector::after {
+  color: #8899bb;                   /* Серо-синий цвет */
+}
+
+[data-theme="light"] input[type="range"] {
+  background: linear-gradient(90deg, #d0d0e0, #b0b0d0);  /* Светлый градиент */
+}
+
+[data-theme="light"] .slider-row .freq-label {
+  color: #556688;                   /* Темно-серо-синий */
+}
+
+[data-theme="light"] .slider-row .freq-label .unit {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .slider-row .gain-value {
+  color: #1a1a2e;                   /* Темный цвет */
+}
+
+[data-theme="light"] .slider-row .gain-value.zero {
+  color: #8899bb;                   /* Серо-синий для нуля */
+}
+
+[data-theme="light"] .freq-labels {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .extra-controls {
+  background: rgba(0, 0, 0, 0.02);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.05);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .extra-control label {
+  color: #667799;                   /* Серо-синий */
+}
+
+[data-theme="light"] .extra-control .value-display {
+  color: #1a1a2e;                   /* Темный цвет */
+}
+
+[data-theme="light"] .footer {
+  border-top-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .footer .author {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .footer .stats {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .btn-reset {
+  background: rgba(233, 69, 96, 0.1);  /* Красный полупрозрачный фон */
+  color: #e94560;                   /* Красный цвет */
+  border-color: rgba(233, 69, 96, 0.15);  /* Красная граница */
+}
+
+[data-theme="light"] .btn-reset:hover {
+  background: rgba(233, 69, 96, 0.2);  /* Усиление фона */
+}
+
+[data-theme="light"] .slider-row:hover {
+  background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон при наведении */
+}
+
+[data-theme="light"] .btn-connect {
+  background: linear-gradient(135deg, #4CAF50, #2e7d32);  /* Зеленый градиент */
+  color: #fff;                      /* Белый цвет */
+}
+
+[data-theme="light"] .btn-connect.disconnect {
+  background: linear-gradient(135deg, #e94560, #c0392b);  /* Красный градиент */
+  color: #fff;                      /* Белый цвет */
+}
+
+[data-theme="light"] .visualization-container {
+  background: rgba(0, 0, 0, 0.04);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] #spectrumCanvas {
+  background: rgba(0, 0, 0, 0.06);  /* Полупрозрачный фон */
+}
+
+[data-theme="light"] .eq-graph-container {
+  background: rgba(0, 0, 0, 0.04);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .vu-meter {
+  background: rgba(0, 0, 0, 0.06);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.08);  /* Полупрозрачная граница */
+}
+
+[data-theme="light"] .vu-value {
+  color: #445566;                   /* Темно-серо-синий */
+}
+
+[data-theme="light"] .spectrum-labels {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .eq-graph-labels {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .eq-graph-values {
+  color: #8899bb;                   /* Серо-синий */
+}
+
+[data-theme="light"] .visualization-status {
+  color: #2e7d32;                   /* Темно-зеленый */
+}
+
+[data-theme="light"] .extra-buttons .btn {
+  background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон */
+  border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+  color: #667799;                   /* Серо-синий */
+}
+
+[data-theme="light"] .extra-buttons .btn:hover {
+  background: rgba(0, 0, 0, 0.06);  /* Усиление фона */
+  color: #1a1a2e;                   /* Темный цвет */
+}
+
+/* Цвета при наведении для дополнительных кнопок в светлой теме */
+[data-theme="light"] .extra-buttons .btn-export:hover { border-color: #4CAF50; color: #4CAF50; }
+[data-theme="light"] .extra-buttons .btn-import:hover { border-color: #4a8bc2; color: #4a8bc2; }
+[data-theme="light"] .extra-buttons .btn-save-preset:hover { border-color: #f9a825; color: #f9a825; }
+[data-theme="light"] .extra-buttons .btn-ab-compare:hover { border-color: #e94560; color: #e94560; }
+
+[data-theme="light"] #loadingOverlay {
+  background: rgba(255, 255, 255, 0.8);  /* Полупрозрачный белый фон */
+}
+
+[data-theme="light"] #loadingOverlay div:last-child {
+  color: #1a1a2e;                   /* Темный цвет текста */
+}
+
+[data-theme="light"] .volume-status {
+  background: rgba(0, 0, 0, 0.05);  /* Полупрозрачный фон */
+}
+
+/* ============================================
+   24. СИСТЕМНАЯ ТЕМА (СВЕТЛАЯ) - @media
+   ============================================ */
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] body {
+    background: linear-gradient(145deg, #f0f0f5, #e0e0ea);  /* Светлый фон */
+    color: #1a1a2e;                   /* Темный текст */
+  }
+  [data-theme="system"] .status-bar {
+    background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .header {
+    border-bottom-color: rgba(233, 69, 96, 0.25);  /* Красная граница */
+  }
+  [data-theme="system"] .status-indicator {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .site-info {
+    color: #4a8bc2;                   /* Синий */
+    background: rgba(102, 204, 255, 0.1);  /* Голубой фон */
+    border-color: rgba(102, 204, 255, 0.15);  /* Голубая граница */
+  }
+  [data-theme="system"] .preset-info {
+    color: #4a8bc2;                   /* Синий */
+    background: rgba(102, 204, 255, 0.1);  /* Голубой фон */
+    border-color: rgba(102, 204, 255, 0.15);  /* Голубая граница */
+  }
+  [data-theme="system"] .preset-selector select {
+    color: #1a1a2e;                   /* Темный текст */
+    background: linear-gradient(145deg, #e8e8f0, #d8d8e8);  /* Светлый градиент */
+    border-color: rgba(0, 0, 0, 0.08);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .preset-selector select option,
+  [data-theme="system"] .preset-selector select optgroup {
+    background: #e8e8f0;              /* Светлый фон опций */
+    color: #1a1a2e;                   /* Темный текст */
+  }
+  [data-theme="system"] .preset-selector::after {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] input[type="range"] {
+    background: linear-gradient(90deg, #d0d0e0, #b0b0d0);  /* Светлый градиент */
+  }
+  [data-theme="system"] .slider-row .freq-label {
+    color: #556688;                   /* Темно-серо-синий */
+  }
+  [data-theme="system"] .slider-row .freq-label .unit {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .slider-row .gain-value {
+    color: #1a1a2e;                   /* Темный */
+  }
+  [data-theme="system"] .slider-row .gain-value.zero {
+    color: #8899bb;                   /* Серо-синий для нуля */
+  }
+  [data-theme="system"] .freq-labels {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-controls {
+    background: rgba(0, 0, 0, 0.02);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.05);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .extra-control label {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-control .value-display {
+    color: #1a1a2e;                   /* Темный */
+  }
+  [data-theme="system"] .footer {
+    border-top-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .footer .author {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .footer .stats {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .btn-reset {
+    background: rgba(233, 69, 96, 0.1);  /* Красный полупрозрачный фон */
+    color: #e94560;                   /* Красный цвет */
+    border-color: rgba(233, 69, 96, 0.15);  /* Красная граница */
+  }
+  [data-theme="system"] .btn-reset:hover {
+    background: rgba(233, 69, 96, 0.2);  /* Усиление фона */
+  }
+  [data-theme="system"] .slider-row:hover {
+    background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон при наведении */
+  }
+  [data-theme="system"] .visualization-container {
+    background: rgba(0, 0, 0, 0.04);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] #spectrumCanvas {
+    background: rgba(0, 0, 0, 0.06);  /* Полупрозрачный фон */
+  }
+  [data-theme="system"] .eq-graph-container {
+    background: rgba(0, 0, 0, 0.04);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .vu-meter {
+    background: rgba(0, 0, 0, 0.06);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.08);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .vu-value {
+    color: #445566;                   /* Темно-серо-синий */
+  }
+  [data-theme="system"] .spectrum-labels {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .eq-graph-labels {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .eq-graph-values {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .visualization-status {
+    color: #2e7d32;                   /* Темно-зеленый */
+  }
+  [data-theme="system"] .extra-buttons .btn {
+    background: rgba(0, 0, 0, 0.03);  /* Полупрозрачный фон */
+    border-color: rgba(0, 0, 0, 0.06);  /* Полупрозрачная граница */
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-buttons .btn:hover {
+    background: rgba(0, 0, 0, 0.06);  /* Усиление фона */
+    color: #1a1a2e;                   /* Темный */
+  }
+  [data-theme="system"] .extra-buttons .btn-export:hover { border-color: #4CAF50; color: #4CAF50; }
+  [data-theme="system"] .extra-buttons .btn-import:hover { border-color: #4a8bc2; color: #4a8bc2; }
+  [data-theme="system"] .extra-buttons .btn-save-preset:hover { border-color: #f9a825; color: #f9a825; }
+  [data-theme="system"] .extra-buttons .btn-ab-compare:hover { border-color: #e94560; color: #e94560; }
+  [data-theme="system"] #loadingOverlay {
+    background: rgba(255, 255, 255, 0.8);  /* Полупрозрачный белый фон */
+  }
+  [data-theme="system"] #loadingOverlay div:last-child {
+    color: #1a1a2e;                   /* Темный текст */
+  }
+  [data-theme="system"] .volume-status {
+    background: rgba(0, 0, 0, 0.05);  /* Полупрозрачный фон */
+  }
+}
+
+/* ============================================
+   25. СИСТЕМНАЯ ТЕМА (ТЕМНАЯ) - @media
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] body {
+    background: linear-gradient(145deg, #0d0d1a, #1a1a2e);  /* Темный фон */
+    color: #ffffff;                   /* Белый текст */
+  }
+  [data-theme="system"] .status-bar {
+    background: rgba(255, 255, 255, 0.03);  /* Полупрозрачный фон */
+    border-color: rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .header {
+    border-bottom-color: rgba(233, 69, 96, 0.25);  /* Красная граница */
+  }
+  [data-theme="system"] .status-indicator {
+    color: #8888aa;                   /* Серо-синий */
+  }
+  [data-theme="system"] .site-info {
+    color: #66ccff;                   /* Голубой */
+    background: rgba(102, 204, 255, 0.08);  /* Голубой фон */
+    border-color: rgba(102, 204, 255, 0.08);  /* Голубая граница */
+  }
+  [data-theme="system"] .preset-info {
+    color: #66ccff;                   /* Голубой */
+    background: rgba(102, 204, 255, 0.08);  /* Голубой фон */
+    border-color: rgba(102, 204, 255, 0.08);  /* Голубая граница */
+  }
+  [data-theme="system"] .preset-selector select {
+    color: #fff;                      /* Белый текст */
+    background: linear-gradient(145deg, #1a1a2e, #252545);  /* Темный градиент */
+    border-color: rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .preset-selector select option,
+  [data-theme="system"] .preset-selector select optgroup {
+    background: #1a1a2e;              /* Темный фон опций */
+    color: #fff;                      /* Белый текст */
+  }
+  [data-theme="system"] .preset-selector::after {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] input[type="range"] {
+    background: linear-gradient(90deg, #2a2a4a, #3a3a6a);  /* Темный градиент */
+  }
+  [data-theme="system"] .slider-row .freq-label {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .slider-row .freq-label .unit {
+    color: #556688;                   /* Темно-серо-синий */
+  }
+  [data-theme="system"] .slider-row .gain-value {
+    color: #ddddee;                   /* Светлый */
+  }
+  [data-theme="system"] .slider-row .gain-value.zero {
+    color: #556688;                   /* Темно-серо-синий для нуля */
+  }
+  [data-theme="system"] .freq-labels {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-controls {
+    background: rgba(255, 255, 255, 0.02);  /* Полупрозрачный фон */
+    border-color: rgba(255, 255, 255, 0.03);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .extra-control label {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-control .value-display {
+    color: #ddddee;                   /* Светлый */
+  }
+  [data-theme="system"] .footer {
+    border-top-color: rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .footer .author {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .footer .stats {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .btn-reset {
+    background: rgba(108, 92, 231, 0.2);  /* Фиолетовый полупрозрачный фон */
+    color: #6c5ce7;                   /* Фиолетовый цвет */
+    border-color: rgba(108, 92, 231, 0.2);  /* Фиолетовая граница */
+  }
+  [data-theme="system"] .btn-reset:hover {
+    background: rgba(108, 92, 231, 0.35);  /* Усиление фона */
+  }
+  [data-theme="system"] .slider-row:hover {
+    background: rgba(255, 255, 255, 0.02);  /* Полупрозрачный фон при наведении */
+  }
+  [data-theme="system"] .visualization-container {
+    background: rgba(0, 0, 0, 0.2);    /* Полупрозрачный черный фон */
+    border-color: rgba(255, 255, 255, 0.04);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] #spectrumCanvas {
+    background: rgba(0, 0, 0, 0.3);    /* Полупрозрачный черный фон */
+  }
+  [data-theme="system"] .eq-graph-container {
+    background: rgba(0, 0, 0, 0.15);   /* Полупрозрачный черный фон */
+    border-color: rgba(255, 255, 255, 0.03);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .vu-meter {
+    background: rgba(0, 0, 0, 0.3);    /* Полупрозрачный черный фон */
+    border-color: rgba(255, 255, 255, 0.05);  /* Полупрозрачная граница */
+  }
+  [data-theme="system"] .vu-value {
+    color: #aabbdd;                   /* Светло-синий */
+  }
+  [data-theme="system"] .spectrum-labels {
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .eq-graph-labels {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .eq-graph-values {
+    color: #667799;                   /* Серо-синий */
+  }
+  [data-theme="system"] .visualization-status {
+    color: #4CAF50;                   /* Зеленый */
+  }
+  [data-theme="system"] .extra-buttons .btn {
+    background: rgba(255, 255, 255, 0.04);  /* Полупрозрачный фон */
+    border-color: rgba(255, 255, 255, 0.06);  /* Полупрозрачная граница */
+    color: #8899bb;                   /* Серо-синий */
+  }
+  [data-theme="system"] .extra-buttons .btn:hover {
+    background: rgba(255, 255, 255, 0.08);  /* Усиление фона */
+    color: #fff;                      /* Белый */
+  }
+  [data-theme="system"] #loadingOverlay {
+    background: rgba(0, 0, 0, 0.7);    /* Полупрозрачный черный фон */
+  }
+  [data-theme="system"] #loadingOverlay div:last-child {
+    color: #fff;                      /* Белый текст */
+  }
+  [data-theme="system"] .volume-status {
+    background: rgba(255, 255, 255, 0.05);  /* Полупрозрачный фон */
+  }
+}
+
+/* ============================================
+   26. ОГРАНИЧЕНИЯ ПО РАЗМЕРАМ
+   ============================================ */
+
+.eq-container,
+.extra-controls,
+.visualization-container,
+.eq-graph-container,
+.preset-selector,
+.extra-buttons,
+.header,
+.status-bar,
+.footer,
+.preset-info,
+.vu-meter-container {
+  max-width: 100% !important;       /* Максимальная ширина 100% */
+  overflow: hidden !important;      /* Скрываем переполнение */
+  box-sizing: border-box !important;  /* Ширина с padding и border */
+}
+
+.eq-container *,
+.extra-controls *,
+.visualization-container *,
+.eq-graph-container *,
+.preset-selector *,
+.extra-buttons * {
+  max-width: 100% !important;       /* Максимальная ширина 100% для всех вложенных */
+  box-sizing: border-box !important;  /* Ширина с padding и border */
+}
+
+/* Ограничения в свернутом режиме */
+body:not(.expanded) .eq-container {
+  max-width: 100% !important;       /* Максимальная ширина 100% */
+  overflow: hidden !important;      /* Скрываем переполнение */
+}
+
+body:not(.expanded) .slider-row {
+  max-width: 100% !important;       /* Максимальная ширина 100% */
+  overflow: hidden !important;      /* Скрываем переполнение */
+}
+
+body:not(.expanded) .slider-row input[type="range"] {
+  max-width: calc(100% - 80px) !important;  /* Ширина с учетом меток */
+  min-width: 30px !important;       /* Минимальная ширина */
+}
+
+body:not(.expanded) .slider-row .gain-value {
+  min-width: 28px !important;       /* Минимальная ширина */
+  max-width: 32px !important;       /* Максимальная ширина */
+}
+
+body:not(.expanded) .slider-row .freq-label {
+  min-width: 30px !important;       /* Минимальная ширина */
+  max-width: 36px !important;       /* Максимальная ширина */
+}
+
+body:not(.expanded) .eq-graph-container {
+  height: 90px !important;          /* Уменьшенная высота графика в свернутом режиме */
+}
+
+body:not(.expanded) #eqGraphCanvas {
+  height: 60px !important;          /* Уменьшенная высота канваса */
+}
+
+/* ============================================
+   27. АДАПТИВ ДЛЯ МАЛЫХ ЭКРАНОВ (до 480px)
+   ============================================ */
+
+@media (max-width: 480px) {
+  body:not(.expanded) .slider-row {
+    gap: 4px !important;            /* Уменьшаем расстояние между элементами */
+    padding: 2px 2px !important;    /* Уменьшаем внутренние отступы */
+  }
+  
+  body:not(.expanded) .slider-row .freq-label {
+    font-size: 8px !important;      /* Уменьшаем размер шрифта */
+    min-width: 24px !important;     /* Уменьшаем минимальную ширину */
+    max-width: 28px !important;     /* Уменьшаем максимальную ширину */
+  }
+  
+  body:not(.expanded) .slider-row .gain-value {
+    font-size: 9px !important;      /* Уменьшаем размер шрифта */
+    min-width: 22px !important;     /* Уменьшаем минимальную ширину */
+    max-width: 26px !important;     /* Уменьшаем максимальную ширину */
+  }
+  
+  body:not(.expanded) .slider-row input[type="range"] {
+    max-width: calc(100% - 60px) !important;  /* Корректируем ширину */
+    min-width: 20px !important;     /* Уменьшаем минимальную ширину */
+  }
+  
+  body:not(.expanded) .freq-labels {
+    padding: 0 30px 0 30px !important;  /* Уменьшаем отступы */
+    font-size: 6px !important;      /* Уменьшаем размер шрифта */
+  }
+  
+  body:not(.expanded) .eq-graph-container {
+    height: 80px !important;        /* Еще меньше высота */
+  }
+  
+  body:not(.expanded) #eqGraphCanvas {
+    height: 50px !important;        /* Еще меньше высота канваса */
+  }
+  
+  body:not(.expanded) .eq-graph-labels {
+    font-size: 7px !important;      /* Меньше шрифт меток */
+  }
+  
+  body:not(.expanded) .eq-graph-values {
+    font-size: 7px !important;      /* Меньше шрифт значений */
+    right: 4px !important;          /* Меньше отступ */
+    top: 10px !important;           /* Меньше отступ */
+  }
+}
+
+/* ============================================
+   28. СОВМЕСТИМОСТЬ (Скрытые элементы)
+   ============================================ */
+
+.compat-info {
+  display: none !important;         /* Скрываем элемент совместимости */
+}
+
+/* ============================================
+   29. ВЕРСИЯ (Комментарий)
+   ============================================ */
+
+/* 
+   SoundForge Equalizer v3.22.8
+   Стили оформления
+   (c) 2026 Maxim Melnikov
+*/
