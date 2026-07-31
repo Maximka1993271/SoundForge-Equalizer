@@ -18,8 +18,8 @@ export function addHistoryEntry(action, data, metadata = {}) {
     id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: Date.now(),
     action: action,
-    data: data,
-    metadata: metadata,
+    data: data || {},
+    metadata: metadata || {},
     url: metadata.url || '',
     site: metadata.site || ''
   };
@@ -227,7 +227,7 @@ export function initHistoryTracking() {
         const oldValue = changes[key].oldValue;
         const newValue = changes[key].newValue;
         
-        if (oldValue !== newValue) {
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
           addHistoryEntry('settings_change', {
             key: key,
             oldValue: oldValue,
@@ -246,24 +246,25 @@ export function initHistoryTracking() {
       addHistoryEntry('preset_applied', {
         preset: request.preset
       }, {
-        source: request.source || 'ui',
-        site: getCurrentSite()
+        source: request.source || 'ui'
       });
-      sendResponse({ status: 'ok' });
-      return true;
     }
     
     if (request.action === 'connect') {
       addHistoryEntry('eq_enabled', {}, {
-        source: request.source || 'ui',
-        site: getCurrentSite()
+        source: request.source || 'ui'
       });
     }
     
     if (request.action === 'disconnect') {
       addHistoryEntry('eq_disabled', {}, {
-        source: request.source || 'ui',
-        site: getCurrentSite()
+        source: request.source || 'ui'
+      });
+    }
+    
+    if (request.action === 'reset') {
+      addHistoryEntry('settings_reset', {}, {
+        source: request.source || 'ui'
       });
     }
     
@@ -271,23 +272,6 @@ export function initHistoryTracking() {
   });
   
   console.log('✅ Отслеживание истории активировано');
-}
-
-function getCurrentSite() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs.length > 0 && tabs[0].url) {
-        try {
-          const url = new URL(tabs[0].url);
-          resolve(url.hostname.replace('www.', ''));
-        } catch {
-          resolve('unknown');
-        }
-      } else {
-        resolve('unknown');
-      }
-    });
-  });
 }
 
 // ============================================

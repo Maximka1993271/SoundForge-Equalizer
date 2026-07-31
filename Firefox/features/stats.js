@@ -1,17 +1,36 @@
 // ============================================
 //  STATS.JS - Статистика использования (v3.22.8)
-//  Энергосбережение: снижение частоты обновлений
+//  ИСПРАВЛЕНО: инициализация _stats
+//  ИСПРАВЛЕНО: обработка ошибок
 // ============================================
 
 const CONFIG = {
   storageKey: 'usageStats',
   maxDays: 30,
-  powerSaveInterval: 5000, // 5 секунд в эконом-режиме
-  normalInterval: 50 // 50 мс в обычном режиме
+  powerSaveInterval: 5000,
+  normalInterval: 50
 };
 
 let _powerSaveMode = false;
 let _stats = null;
+let _statsInterval = null;
+let _isTracking = false;
+
+// ============================================
+//  ПОЛУЧЕНИЕ ДЕФОЛТНОЙ СТАТИСТИКИ
+// ============================================
+
+function getDefaultStats() {
+  return {
+    firstUse: Date.now(),
+    totalSessions: 0,
+    totalTime: 0,
+    presetsUsed: {},
+    sitesUsed: {},
+    dailyStats: {},
+    lastUpdate: Date.now()
+  };
+}
 
 // ============================================
 //  ИНИЦИАЛИЗАЦИЯ СТАТИСТИКИ
@@ -28,16 +47,25 @@ export function initStats() {
 // ============================================
 
 function loadStats() {
+  if (typeof chrome === 'undefined' || !chrome.storage) {
+    _stats = getDefaultStats();
+    return;
+  }
+  
   chrome.storage.local.get([CONFIG.storageKey], (result) => {
-    _stats = result[CONFIG.storageKey] || {
-      firstUse: Date.now(),
-      totalSessions: 0,
-      totalTime: 0,
-      presetsUsed: {},
-      sitesUsed: {},
-      dailyStats: {},
-      lastUpdate: Date.now()
-    };
+    if (chrome.runtime.lastError) {
+      console.warn('⚠️ Ошибка загрузки статистики:', chrome.runtime.lastError);
+      _stats = getDefaultStats();
+      return;
+    }
+    
+    _stats = result[CONFIG.storageKey] || getDefaultStats();
+    
+    // Убеждаемся, что все поля существуют
+    if (!_stats.dailyStats) _stats.dailyStats = {};
+    if (!_stats.presetsUsed) _stats.presetsUsed = {};
+    if (!_stats.sitesUsed) _stats.sitesUsed = {};
+    
     saveStats();
   });
 }
@@ -47,7 +75,17 @@ function loadStats() {
 // ============================================
 
 function saveStats() {
-  chrome.storage.local.set({ [CONFIG.storageKey]: _stats });
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
+  
+  if (typeof chrome === 'undefined' || !chrome.storage) return;
+  
+  chrome.storage.local.set({ [CONFIG.storageKey]: _stats }, () => {
+    if (chrome.runtime.lastError) {
+      console.warn('⚠️ Ошибка сохранения статистики:', chrome.runtime.lastError);
+    }
+  });
 }
 
 // ============================================
@@ -55,9 +93,15 @@ function saveStats() {
 // ============================================
 
 function startTracking() {
+  if (_isTracking) return;
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
+  
+  _isTracking = true;
+  
   const day = getDayKey();
   
-  // Инициализация дневной статистики
   if (!_stats.dailyStats[day]) {
     _stats.dailyStats[day] = {
       date: day,
@@ -70,30 +114,54 @@ function startTracking() {
     };
   }
   
-  // Счетчик сессий
   _stats.totalSessions++;
   _stats.dailyStats[day].sessions++;
   
   const startTime = Date.now();
   
-  // Отслеживаем активность
-  const interval = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    const dayKey = getDayKey();
-    
-    // Обновляем дневную статистику
-    if (_stats.dailyStats[dayKey]) {
-      _stats.dailyStats[dayKey].time += 1000;
+  if (_statsInterval) {
+    clearInterval(_statsInterval);
+    _statsInterval = null;
+  }
+  
+  _statsInterval = setInterval(() => {
+    if (!_stats) {
+      _stats = getDefaultStats();
     }
     
+    const dayKey = getDayKey();
+    
+    if (!_stats.dailyStats[dayKey]) {
+      _stats.dailyStats[dayKey] = {
+        date: dayKey,
+        sessions: 0,
+        time: 0,
+        presetsUsed: {},
+        eqChanges: 0,
+        volumeChanges: 0,
+        maxVolume: 0
+      };
+    }
+    
+    _stats.dailyStats[dayKey].time += 1000;
     _stats.totalTime += 1000;
     _stats.lastUpdate = Date.now();
     
     saveStats();
   }, 1000);
-  
-  // Сохраняем интервал для очистки
-  window._statsInterval = interval;
+}
+
+// ============================================
+//  ОСТАНОВКА ОТСЛЕЖИВАНИЯ
+// ============================================
+
+export function stopTracking() {
+  if (_statsInterval) {
+    clearInterval(_statsInterval);
+    _statsInterval = null;
+  }
+  _isTracking = false;
+  console.log('📊 Отслеживание статистики остановлено');
 }
 
 // ============================================
@@ -101,18 +169,32 @@ function startTracking() {
 // ============================================
 
 export function trackPresetUsage(preset) {
-  if (!_stats) return;
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   
   const day = getDayKey();
   
-  // Глобальная статистика
+  if (!_stats.presetsUsed) _stats.presetsUsed = {};
   _stats.presetsUsed[preset] = (_stats.presetsUsed[preset] || 0) + 1;
   
-  // Дневная статистика
-  if (_stats.dailyStats[day]) {
-    _stats.dailyStats[day].presetsUsed[preset] = 
-      (_stats.dailyStats[day].presetsUsed[preset] || 0) + 1;
+  if (!_stats.dailyStats[day]) {
+    _stats.dailyStats[day] = {
+      date: day,
+      sessions: 0,
+      time: 0,
+      presetsUsed: {},
+      eqChanges: 0,
+      volumeChanges: 0,
+      maxVolume: 0
+    };
   }
+  
+  if (!_stats.dailyStats[day].presetsUsed) {
+    _stats.dailyStats[day].presetsUsed = {};
+  }
+  _stats.dailyStats[day].presetsUsed[preset] = 
+    (_stats.dailyStats[day].presetsUsed[preset] || 0) + 1;
   
   saveStats();
 }
@@ -122,14 +204,17 @@ export function trackPresetUsage(preset) {
 // ============================================
 
 export function trackSiteUsage(url) {
-  if (!_stats) return;
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   
   try {
     const domain = new URL(url).hostname.replace('www.', '');
+    if (!_stats.sitesUsed) _stats.sitesUsed = {};
     _stats.sitesUsed[domain] = (_stats.sitesUsed[domain] || 0) + 1;
     saveStats();
   } catch (e) {
-    // Игнорируем
+    // Игнорируем ошибки парсинга URL
   }
 }
 
@@ -138,21 +223,33 @@ export function trackSiteUsage(url) {
 // ============================================
 
 export function trackChange(type, value) {
-  if (!_stats) return;
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   
   const day = getDayKey();
   
-  if (_stats.dailyStats[day]) {
-    if (type === 'eq') {
-      _stats.dailyStats[day].eqChanges++;
-    } else if (type === 'volume') {
-      _stats.dailyStats[day].volumeChanges++;
-      if (value > _stats.dailyStats[day].maxVolume) {
-        _stats.dailyStats[day].maxVolume = value;
-      }
-    }
-    saveStats();
+  if (!_stats.dailyStats[day]) {
+    _stats.dailyStats[day] = {
+      date: day,
+      sessions: 0,
+      time: 0,
+      presetsUsed: {},
+      eqChanges: 0,
+      volumeChanges: 0,
+      maxVolume: 0
+    };
   }
+  
+  if (type === 'eq') {
+    _stats.dailyStats[day].eqChanges++;
+  } else if (type === 'volume') {
+    _stats.dailyStats[day].volumeChanges++;
+    if (value > _stats.dailyStats[day].maxVolume) {
+      _stats.dailyStats[day].maxVolume = value;
+    }
+  }
+  saveStats();
 }
 
 // ============================================
@@ -168,16 +265,24 @@ function getDayKey() {
 // ============================================
 
 export function getStats() {
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   return _stats;
 }
 
 export function getDailyStats(day = null) {
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   if (!day) day = getDayKey();
-  return _stats?.dailyStats[day] || null;
+  return _stats.dailyStats[day] || null;
 }
 
 export function getTopPresets(limit = 10) {
-  if (!_stats) return [];
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   
   const presets = Object.entries(_stats.presetsUsed || {})
     .sort((a, b) => b[1] - a[1])
@@ -187,7 +292,9 @@ export function getTopPresets(limit = 10) {
 }
 
 export function getTopSites(limit = 10) {
-  if (!_stats) return [];
+  if (!_stats) {
+    _stats = getDefaultStats();
+  }
   
   const sites = Object.entries(_stats.sitesUsed || {})
     .sort((a, b) => b[1] - a[1])
@@ -203,14 +310,48 @@ export function getTopSites(limit = 10) {
 export function setPowerSaveMode(enabled) {
   _powerSaveMode = enabled;
   
-  chrome.storage.local.set({ powerSaveMode: enabled });
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.local.set({ powerSaveMode: enabled }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка сохранения powerSaveMode:', chrome.runtime.lastError);
+      }
+    });
+  }
   
-  // Уведомляем другие части расширения
-  chrome.runtime.sendMessage({
-    action: 'powerSaveModeChanged',
-    enabled: enabled,
-    interval: enabled ? CONFIG.powerSaveInterval : CONFIG.normalInterval
-  });
+  if (typeof chrome !== 'undefined' && chrome.runtime) {
+    chrome.runtime.sendMessage({
+      action: 'powerSaveModeChanged',
+      enabled: enabled,
+      interval: enabled ? CONFIG.powerSaveInterval : CONFIG.normalInterval
+    });
+  }
+  
+  // Обновляем интервал отслеживания
+  if (_statsInterval) {
+    clearInterval(_statsInterval);
+    const interval = enabled ? CONFIG.powerSaveInterval : 1000;
+    _statsInterval = setInterval(() => {
+      if (!_stats) {
+        _stats = getDefaultStats();
+      }
+      const dayKey = getDayKey();
+      if (!_stats.dailyStats[dayKey]) {
+        _stats.dailyStats[dayKey] = {
+          date: dayKey,
+          sessions: 0,
+          time: 0,
+          presetsUsed: {},
+          eqChanges: 0,
+          volumeChanges: 0,
+          maxVolume: 0
+        };
+      }
+      _stats.dailyStats[dayKey].time += interval;
+      _stats.totalTime += interval;
+      _stats.lastUpdate = Date.now();
+      saveStats();
+    }, interval);
+  }
   
   console.log(`⚡ Режим энергосбережения: ${enabled ? 'ВКЛ' : 'ВЫКЛ'}`);
 }
@@ -224,17 +365,19 @@ export function getPowerSaveMode() {
 // ============================================
 
 export function clearStats() {
-  _stats = {
-    firstUse: Date.now(),
-    totalSessions: 0,
-    totalTime: 0,
-    presetsUsed: {},
-    sitesUsed: {},
-    dailyStats: {},
-    lastUpdate: Date.now()
-  };
+  _stats = getDefaultStats();
   saveStats();
   console.log('🗑️ Статистика очищена');
+}
+
+// ============================================
+//  ПОЛНАЯ ОСТАНОВКА
+// ============================================
+
+export function destroyStats() {
+  stopTracking();
+  _stats = null;
+  console.log('📊 Статистика уничтожена');
 }
 
 // ============================================
@@ -243,6 +386,8 @@ export function clearStats() {
 
 export default {
   initStats,
+  stopTracking,
+  destroyStats,
   getStats,
   getDailyStats,
   getTopPresets,

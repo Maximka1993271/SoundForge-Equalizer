@@ -32,38 +32,84 @@ export function getSiteKey(url) {
   return 'site_' + domain.replace(/[^a-zA-Z0-9]/g, '_');
 }
 
+/**
+ * Санитизация настроек сайта
+ */
+export function sanitizeSiteSettings(settings) {
+  if (!settings || typeof settings !== 'object') {
+    return null;
+  }
+  
+  const result = {};
+  
+  // Санитизация Gain-ов
+  if (settings.gains && typeof settings.gains === 'object') {
+    const allowedFreqs = ['31', '62', '125', '250', '500', '1000', '2000', '4000', '8000', '16000'];
+    result.gains = {};
+    for (const freq of allowedFreqs) {
+      if (settings.gains[freq] !== undefined) {
+        const value = Number(settings.gains[freq]);
+        result.gains[freq] = isNaN(value) ? 0 : Math.max(-12, Math.min(12, value));
+      }
+    }
+  }
+  
+  // Громкость
+  if (settings.volume !== undefined) {
+    const volume = Number(settings.volume);
+    result.volume = isNaN(volume) ? 1.0 : Math.max(0, Math.min(8.0, volume));
+  }
+  
+  // Бас
+  if (settings.bass !== undefined) {
+    const bass = Number(settings.bass);
+    result.bass = isNaN(bass) ? 0 : Math.max(-12, Math.min(12, bass));
+  }
+  
+  // Пресет
+  if (settings.preset && typeof settings.preset === 'string') {
+    result.preset = settings.preset;
+  }
+  
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 // ============================================
 //  СОХРАНЕНИЕ НАСТРОЕК ДЛЯ САЙТА
 // ============================================
 
 export async function saveSiteSettings(url, settings) {
-  if (!CONFIG.siteSettingsEnabled) return;
+  if (!CONFIG.siteSettingsEnabled) return false;
   
   const key = getSiteKey(url);
-  if (!key) return;
+  if (!key) return false;
+  
+  const sanitized = sanitizeSiteSettings(settings);
+  if (!sanitized) return false;
   
   try {
     const data = await getSiteSettingsData();
     data[key] = {
-      settings: settings,
+      settings: sanitized,
       updated: Date.now(),
-      url: url
+      url: url,
+      domain: getSiteDomain(url)
     };
     
-    // Ограничиваем историю
+    // Ограничиваем количество сохраненных сайтов
     const keys = Object.keys(data);
     if (keys.length > CONFIG.maxHistoryPerSite) {
-      // Удаляем самые старые
       const sorted = keys.sort((a, b) => data[a].updated - data[b].updated);
       const toRemove = sorted.slice(0, keys.length - CONFIG.maxHistoryPerSite);
       toRemove.forEach((k) => delete data[k]);
     }
     
-    chrome.storage.local.set({ siteSettings: data });
+    await chrome.storage.local.set({ siteSettings: data });
     console.log(`💾 Настройки сохранены для сайта: ${key}`);
-    
+    return true;
   } catch (e) {
     console.error('❌ Ошибка сохранения настроек сайта:', e);
+    return false;
   }
 }
 
@@ -83,7 +129,7 @@ export async function loadSiteSettings(url) {
     
     if (siteData) {
       console.log(`📥 Загружены настройки для сайта: ${key}`);
-      return siteData.settings;
+      return siteData.settings || null;
     }
     
     return null;
@@ -116,7 +162,7 @@ export async function deleteSiteSettings(url) {
   try {
     const data = await getSiteSettingsData();
     delete data[key];
-    chrome.storage.local.set({ siteSettings: data });
+    await chrome.storage.local.set({ siteSettings: data });
     console.log(`🗑️ Настройки удалены для сайта: ${key}`);
   } catch (e) {
     console.error('❌ Ошибка удаления настроек сайта:', e);
@@ -157,37 +203,37 @@ export function initAutoDisable() {
   if (!CONFIG.autoDisableOnSiteChange) return;
   
   let lastSite = null;
+  let lastTabId = null;
   
   // Отслеживаем активацию вкладок
   chrome.tabs.onActivated.addListener((activeInfo) => {
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
       if (tab.url) {
-        checkSiteChange(tab.url);
+        checkSiteChange(tab.url, activeInfo.tabId);
       }
     });
   });
   
   // Отслеживаем обновление вкладок
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.url || changeInfo.status === 'complete') {
-      if (tab.active && tab.url) {
-        checkSiteChange(tab.url);
-      }
+    if ((changeInfo.url || changeInfo.status === 'complete') && tab.active && tab.url) {
+      checkSiteChange(tab.url, tabId);
     }
   });
   
   // Отслеживаем навигацию
   chrome.webNavigation.onCompleted.addListener((details) => {
     if (details.frameId === 0 && details.url) {
-      checkSiteChange(details.url);
+      checkSiteChange(details.url, details.tabId);
     }
   });
   
-  function checkSiteChange(url) {
+  function checkSiteChange(url, tabId) {
     const currentSite = getSiteDomain(url);
+    if (!currentSite) return;
     
-    if (currentSite && lastSite && lastSite !== currentSite) {
+    if (lastSite && lastSite !== currentSite && lastTabId !== tabId) {
       console.log(`🔄 Смена сайта: ${lastSite} → ${currentSite}`);
       
       // Загружаем настройки для нового сайта
@@ -222,6 +268,7 @@ export function initAutoDisable() {
     }
     
     lastSite = currentSite;
+    lastTabId = tabId;
   }
   
   console.log('🔄 Автовыключение при смене сайта активировано');
@@ -236,7 +283,7 @@ function applySiteSettings(settings) {
   
   const { gains, volume, bass, preset } = settings;
   
-  if (gains) {
+  if (gains && typeof gains === 'object') {
     chrome.runtime.sendMessage({ 
       action: 'updateEQ', 
       gains: gains,
@@ -247,21 +294,24 @@ function applySiteSettings(settings) {
   if (volume !== undefined) {
     chrome.runtime.sendMessage({ 
       action: 'setVolume', 
-      value: volume 
+      value: volume,
+      instant: true 
     });
   }
   
   if (bass !== undefined) {
     chrome.runtime.sendMessage({ 
       action: 'setBass', 
-      value: bass 
+      value: bass,
+      instant: true 
     });
   }
   
   if (preset) {
     chrome.runtime.sendMessage({ 
       action: 'applyPreset', 
-      preset: preset 
+      preset: preset,
+      source: 'site_settings'
     });
   }
 }
@@ -273,6 +323,7 @@ function applySiteSettings(settings) {
 export default {
   getSiteDomain,
   getSiteKey,
+  sanitizeSiteSettings,
   saveSiteSettings,
   loadSiteSettings,
   deleteSiteSettings,
