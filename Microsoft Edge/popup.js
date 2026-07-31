@@ -39,7 +39,7 @@ import {
   formatPresetAppliedReference,
   formatPresetApplied
 } from './modules/i18n.js';
-import { PRESETS, PRESET_INFO } from './modules/config.js';
+import { PRESETS, PRESET_INFO, PRESET_ORDER } from './modules/config.js';
 import { 
   setStatus, 
   updateConnectButton, 
@@ -68,7 +68,8 @@ import {
   initVisualization,
   resetVisualization,
   initVisualizationEffects,
-  updateEffectButtonLabel
+  updateEffectButtonLabel,
+  syncEffect
 } from './modules/visualization.js';
 import { 
   getUserPresets, 
@@ -599,78 +600,89 @@ function restoreConnectionState() {
 //  ПРИМЕНЕНИЕ ПРЕСЕТА В POPUP
 // ============================================
 
-function applyPresetInPopup(name) {
-  const preset = PRESETS[name];
+function syncPresetUIInPopup(name) {
+  const userPresets = getUserPresets();
+  const isUserPreset = !!userPresets[name];
+  const preset = isUserPreset ? userPresets[name] : PRESETS[name];
   if (!preset) {
-    console.warn(`⚠️ Пресет "${name}" не найден`);
-    return;
+    console.warn(`⚠️ Пресет "${name}" не найден для синхронизации UI`);
+    return false;
   }
-  
-  console.log(`🎵 Применяем пресет в popup: ${name}`);
-  
+
   state.currentPreset = name;
   updatePresetInfo(name);
-  if (dom.presetSelect) dom.presetSelect.value = name;
+  if (dom.presetSelect) dom.presetSelect.value = isUserPreset ? 'user_' + name : name;
 
   const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
   const gains = preset.gains || {};
-
   sliders.forEach((slider) => {
     const freq = slider.dataset.freq;
     if (gains[freq] !== undefined) {
-      const value = gains[freq];
+      const value = Number(gains[freq]) || 0;
       slider.value = value;
       const valueSpan = slider.parentElement.querySelector('.gain-value');
       if (valueSpan) {
         valueSpan.textContent = value.toFixed(1);
-        if (value > 0.1) {
-          valueSpan.className = 'gain-value positive';
-        } else if (value < -0.1) {
-          valueSpan.className = 'gain-value negative';
-        } else {
-          valueSpan.className = 'gain-value zero';
-        }
+        valueSpan.className = value > 0.1 ? 'gain-value positive' : (value < -0.1 ? 'gain-value negative' : 'gain-value zero');
       }
     }
   });
 
   if (dom.volumeSlider && dom.volumeDisplay) {
-    const vol = preset.volume || 100;
-    dom.volumeSlider.value = Math.min(800, Math.max(0, vol));
-    dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol)) + '%';
+    const vol = Number.isFinite(Number(preset.volume)) ? Math.min(800, Math.max(0, Number(preset.volume))) : 100;
+    dom.volumeSlider.value = vol;
+    dom.volumeDisplay.textContent = vol + '%';
     updateVolumeStatus(vol);
   }
 
   if (dom.bassSlider && dom.bassDisplay) {
-    const bass = preset.bass || 0;
-    dom.bassSlider.value = Math.max(-12, Math.min(12, bass));
+    const bass = Number.isFinite(Number(preset.bass)) ? Math.max(-12, Math.min(12, Number(preset.bass))) : 0;
+    dom.bassSlider.value = bass;
     dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
   }
 
+  updateEQGraph();
+  return true;
+}
+
+function applyPresetInPopup(name) {
+  const userPresets = getUserPresets();
+  const isUserPreset = !!userPresets[name];
+  const preset = isUserPreset ? userPresets[name] : PRESETS[name];
+  if (!preset) {
+    console.warn(`⚠️ Пресет "${name}" не найден`);
+    return;
+  }
+
+  console.log(`🎵 Применяем пресет в popup: ${name}`);
+  if (!syncPresetUIInPopup(name)) return;
+
+  const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
   const gainsData = {};
   sliders.forEach((slider) => {
-    gainsData[slider.dataset.freq] = parseFloat(slider.value);
+    gainsData[slider.dataset.freq] = parseFloat(slider.value) || 0;
   });
-  
-  chrome.runtime.sendMessage({ 
-    action: 'updateEQ', 
-    gains: gainsData, 
-    instant: true,
+
+  chrome.runtime.sendMessage({
+    action: 'applyPreset',
+    preset: name,
+    presetData: {
+      gains: gainsData,
+      volume: Number.isFinite(Number(preset.volume)) ? Number(preset.volume) : 100,
+      bass: Number.isFinite(Number(preset.bass)) ? Number(preset.bass) : 0
+    },
     source: 'popup'
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn('⚠️ Не удалось применить пресет:', chrome.runtime.lastError.message);
+      return;
+    }
+    if (response && response.status === 'disconnected') {
+      console.warn('⚠️ Пресет сохранён, но аудиовкладка сейчас отключена');
+    }
   });
-  chrome.runtime.sendMessage({ 
-    action: 'setVolume', 
-    value: (preset.volume || 100) / 100, 
-    instant: true 
-  });
-  chrome.runtime.sendMessage({ 
-    action: 'setBass', 
-    value: preset.bass || 0, 
-    instant: true 
-  });
-  
+
   saveAllSettings();
-  updateEQGraph();
   setStatus('ready', formatPresetApplied(name));
 }
 
@@ -948,17 +960,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       state.spectrumData[i] = data[i] || 0;
     }
     if (request.rms !== undefined) {
-      state.rmsValue = request.rms;
+      state.rmsValue = Math.max(0, Math.min(1, Number(request.rms) || 0));
     }
-    state.hasAudio = true;
+    if (request.peak !== undefined) {
+      state.peakValue = Math.max(0, Math.min(1, Number(request.peak) || 0));
+    }
+    state.isClipping = request.clipping === true;
+    state.hasAudio = request.hasAudio === true;
     sendResponse({ status: 'ok' });
     return true;
   }
   
   if (request.action === 'presetChanged' && request.preset) {
-    console.log(`🔄 Пресет изменен через горячие клавиши (background): ${request.preset}`);
-    if (PRESETS[request.preset]) {
-      applyPresetInPopup(request.preset);
+    console.log(`🔄 Пресет синхронизирован из background: ${request.preset}`);
+    if (syncPresetUIInPopup(request.preset)) {
       setStatus('ready', formatPresetApplied(request.preset));
     }
     sendResponse({ status: 'ok' });
@@ -992,6 +1007,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     updateEQGraph();
     setStatus('ready', formatSettingsReset());
     sendResponse({ status: 'ok' });
+    return true;
+  }
+  
+  if (request.action === 'effectChanged' && request.effect) {
+    try {
+      syncEffect(request.effect);
+      console.log('🎨 Popup синхронизировал эффект:', request.effect);
+    } catch (e) {
+      console.warn('⚠️ Не удалось синхронизировать эффект в Popup:', e);
+    }
+    sendResponse({ status: 'ok', effect: request.effect });
     return true;
   }
   
@@ -1278,31 +1304,14 @@ async function initPopup() {
   }
 
   if (dom.abCompareBtn) {
-    dom.abCompareBtn.addEventListener('click', () => {
-      state.abMode = !state.abMode;
-      if (state.abMode) {
-        state.abPresetA = {
-          gains: getSliderGains(),
-          volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
-          bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
-        };
-        if (dom.abCompareBtn) {
-          dom.abCompareBtn.textContent = '🔀 A';
-          dom.abCompareBtn.style.background = '#4CAF50';
-          dom.abCompareBtn.style.color = '#fff';
-        }
-        setStatus('ready', formatABSaved());
-      } else {
-        state.abPresetA = null;
-        state.abPresetB = null;
-        if (dom.abCompareBtn) {
-          dom.abCompareBtn.textContent = t('compare');
-          dom.abCompareBtn.style.background = '';
-          dom.abCompareBtn.style.color = '';
-        }
-        setStatus('ready', t('status_ready'));
+    dom.abCompareBtn.onclick = () => {
+      try {
+        toggleABCompare();
+      } catch (e) {
+        console.error('❌ A/B compare error:', e);
+        setStatus('disconnected', t('error'));
       }
-    });
+    };
   }
 
   if (dom.expandBtn) {
@@ -1334,9 +1343,8 @@ async function initPopup() {
     console.log('📈 График АЧХ обновлен');
   }, 200);
 
-  setInterval(() => {
-    chrome.runtime.sendMessage({ action: 'getSpectrum' });
-  }, 50);
+  // inject.js pushes spectrum snapshots directly; request one initial sample only.
+  setTimeout(() => chrome.runtime.sendMessage({ action: 'getSpectrum' }), 250);
 
   setInterval(() => {
     chrome.runtime.sendMessage({ action: 'getStatus' }, (response) => {
@@ -1351,15 +1359,11 @@ async function initPopup() {
   chrome.runtime.sendMessage({ action: 'getUserPresets' });
 
   setTimeout(() => {
-    let hasData = false;
-    for (let i = 0; i < state.spectrumData.length; i++) {
-      if (state.spectrumData[i] > 0.01) { hasData = true; break; }
-    }
-    if (!hasData) {
-      chrome.runtime.sendMessage({ action: 'getSpectrum' });
-      for (let i = 0; i < 64; i++) {
-        state.spectrumData[i] = Math.random() * 0.5 + 0.1;
-      }
+    if (!state.hasAudio) {
+      state.spectrumData.fill(0);
+      state.rmsValue = 0;
+      state.peakValue = 0;
+      state.isClipping = false;
       updateSpectrum();
     }
   }, 3000);
@@ -1400,6 +1404,7 @@ async function initPopup() {
         };
       },
       applyPreset: applyPresetInPopup,
+  syncPresetUI: syncPresetUIInPopup,
       getCurrentPreset: () => state.currentPreset,
       getEffect: () => {
         import('./modules/visualization-effects.js').then(({ getCurrentEffect, getEffectName }) => {
@@ -1435,7 +1440,7 @@ async function initPopup() {
   }
 
   console.log('✅ SoundForge Popup v3.22.8 (Единое хранилище + Эффекты) готов!');
-  console.log('📊 Всего пресетов: ' + Object.keys(PRESETS).length);
+  console.log('📊 Всего пресетов: ' + PRESET_ORDER.length);
   console.log('🔘 РУЧНОЕ ПОДКЛЮЧЕНИЕ - нажмите кнопку "Подключить"');
   console.log('🎨 ЭФФЕКТЫ: Спектр | Волны | Огонь | Неон');
   console.log('🎨 ТЕМЫ: Светлая 🌞 / Темная 🌙 / Системная 💻');

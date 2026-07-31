@@ -17,21 +17,18 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "web_accessible_resources": [
     {
       "resources": [
-        "inject.js",
-        "window.html",
-        "window.js",
-        "js/window-fullscreen.js",
-        "window.css",
-        "config.js",
         "icons/SoundForge.png",
         "icons/SoundForge-off.png"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "commands": {
