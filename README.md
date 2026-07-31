@@ -20,7 +20,7 @@
     <img src="https://img.shields.io/badge/Open%20Source-✅-brightgreen.svg?style=for-the-badge" alt="Open Source"/>
   </a>
   <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
-    <img src="https://img.shields.io/badge/Last%20Commit-2026--07--29-blue.svg?style=for-the-badge&logo=github" alt="Last Commit"/>
+    <img src="https://img.shields.io/badge/Last%20Commit-2026--07--31-blue.svg?style=for-the-badge&logo=github" alt="Last Commit"/>
   </a>
   <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
     <img src="https://img.shields.io/badge/Code%20Style-ES2020-yellow.svg?style=for-the-badge&logo=javascript" alt="Code Style"/>
@@ -28,15 +28,22 @@
   <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API">
     <img src="https://img.shields.io/badge/Web%20Audio%20API-Supported-orange.svg?style=for-the-badge&logo=web-audio" alt="Web Audio API"/>
   </a>
-  
+  <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
+    <img src="https://img.shields.io/badge/Cross--Browser-Chrome%20%7C%20Firefox%20%7C%20Edge-blueviolet.svg?style=for-the-badge" alt="Cross-Browser"/>
+  </a>
+  <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
+    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge&logo=github" alt="PRs Welcome"/>
+  </a>
+</p>
+
 <p align="center">
   <img src="https://github.com/Maximka1993271/SoundForge-Equalizer/raw/main/Screenshots/Full%20Equalizer.png" alt="SoundForge Equalizer" width="600"/>
 </p>
 
 <p align="center">
-  <b>Professional 10-Band Browser Equalizer</b><br/>
+  <b>🎛️ Professional 10-Band Browser Equalizer</b><br/>
   Professional real-time audio processing for YouTube and other supported websites.<br/>
-  <b>Free • Open Source • Privacy First • Cross-Browser</b>
+  <b>🔓 Free • Open Source • Privacy First • Cross-Browser</b>
 </p>
 
 ---
@@ -63,28 +70,28 @@
 
 ## ⭐ Project Highlights
 
-- ✅ Free & Open Source
-- ✅ Microsoft Edge, Google Chrome and Mozilla Firefox
-- ✅ 10-Band Equalizer
-- ✅ 50 Built-in Presets
-- ✅ Real-Time Audio Processing
-- ✅ Spectrum Analyzer, VU Meter & Frequency Response Graph
-- ✅ Volume Boost (0% – 800%)
-- ✅ Import / Export Presets
-- ✅ Per-Site Settings
-- ✅ Keyboard Shortcuts
-- ✅ Dark / Light / System Themes
-- ✅ Separate Window Mode
-- ✅ No Ads • No Tracking • No Telemetry
-- ✅ 100% Local Audio Processing
-- ✅ Night Mode (Auto 22:00 – 07:00)
-- ✅ Power Save Mode
-- ✅ History & Statistics
-- ✅ Clipping Detection
-- ✅ 3 Languages (English, Русский, Українська)
-- ✅ Web Audio API-based processing
-- ✅ Modular Architecture (ES Modules)
-- ✅ Memory Management & Leak Prevention
+- ✅ **Free & Open Source** — MIT License
+- ✅ **Microsoft Edge, Google Chrome and Mozilla Firefox**
+- ✅ **10-Band Equalizer** — 31Hz – 16kHz, 0.5 dB steps, ±12 dB
+- ✅ **50 Built-in Presets** — For all music genres
+- ✅ **Real-Time Audio Processing** — Web Audio API
+- ✅ **Spectrum Analyzer, VU Meter & Frequency Response Graph**
+- ✅ **Volume Boost** — 0% – 800% with hard mute at 0%
+- ✅ **Import / Export Presets** — JSON backup
+- ✅ **Per-Site Settings** — Settings saved per domain
+- ✅ **Keyboard Shortcuts** — 4 shortcuts for quick control
+- ✅ **Dark / Light / System Themes** — Auto-sync with OS
+- ✅ **Separate Window Mode** — Full equalizer in standalone window
+- ✅ **No Ads • No Tracking • No Telemetry**
+- ✅ **100% Local Audio Processing**
+- ✅ **Night Mode** — Auto 22:00 – 07:00 with 30% volume reduction
+- ✅ **Power Save Mode** — Reduces update frequency to save CPU
+- ✅ **History & Statistics** — Tracks all changes (up to 1000 entries)
+- ✅ **Clipping Detection** — Visual warning when audio clips
+- ✅ **4 Visualization Effects** — Spectrum | Waves | Fire | Neon
+- ✅ **3 Languages** — English, Русский, Українська
+- ✅ **Modular Architecture** — ES Modules
+- ✅ **Memory Management & Leak Prevention**
 
 ---
 
@@ -92,6 +99,7 @@
 
 All audio processing is performed locally using the Web Audio API.
 No advertisements, tracking, telemetry, analytics or user data collection.
+**Your privacy is 100% protected.**
 
 ---
 
@@ -116,7 +124,8 @@ No advertisements, tracking, telemetry, analytics or user data collection.
 | 💾 **Per-Site Settings** | Settings saved per domain, auto-applied |
 | ⌨️ **Keyboard Shortcuts** | 4 shortcuts for quick control |
 | 🪟 **Separate Window** | Full equalizer in standalone window |
-| 📦 **Manifest V3** | Modern Chrome Extension Architecture |
+| 🎨 **4 Effects** | Spectrum \| Waves \| Fire \| Neon |
+| 📦 **Manifest V3/V2** | Chrome MV3 + Firefox MV2 |
 | 🔓 **Open Source** | Fully open source code with MIT License |
 
 ---
@@ -183,7 +192,6 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 | `Ctrl+Shift+E` | Toggle equalizer ON/OFF |
 | `Ctrl+Shift+Y` | Next preset |
 | `Ctrl+Shift+X` | Reset all settings |
-| `Ctrl+Shift+L` | Open separate window (standalone mode) |
 | `Esc` | Close window (in standalone mode) |
 
 ---
@@ -372,7 +380,7 @@ If you're using **Firefox ESR** (Extended Support Release), signature verificati
 
 ## 📁 Structure
 SoundForge-Equalizer/
-├── 📁 Microsoft Edge/ # Edge/Chromium version
+├── 📁 Microsoft Edge/ # Edge/Chromium version (MV3)
 │ ├── background.js
 │ ├── inject.js
 │ ├── manifest.json
@@ -385,7 +393,7 @@ SoundForge-Equalizer/
 │ ├── 📁 features/
 │ ├── 📁 icons/
 │ └── 📁 modules/
-├── 📁 Firefox/ # Firefox version
+├── 📁 Firefox/ # Firefox version (MV2)
 │ ├── background.js
 │ ├── inject.js
 │ ├── manifest.json
@@ -411,7 +419,8 @@ SoundForge-Equalizer/
 
 | Technology | Description |
 |------------|-------------|
-| **Manifest V3** | Modern extension standard |
+| **Manifest V3** | Chrome extension standard |
+| **Manifest V2** | Firefox extension standard |
 | **Web Audio API** | Audio processing |
 | **Chrome Extensions API** | Browser integration |
 | **CSS3** | Dark/Light/System themes |
@@ -425,7 +434,9 @@ SoundForge-Equalizer/
 - **50** built-in presets
 - **4** visualization effects
 - **3** languages (RU, UA, EN)
-- **64** files in repository
+- **26** files in repository
+- **14** modules
+- **2** browsers supported
 
 ---
 
@@ -449,6 +460,6 @@ MIT License
 </p>
 
 <p align="center">
-  <sub>SoundForge Equalizer v3.22.8 — 2026</sub><br/>
+  <sub>SoundForge Equalizer v3.22.8 — 31 July 2026</sub><br/>
   <sub>🔓 Open Source — fully open source code</sub>
 </p>
