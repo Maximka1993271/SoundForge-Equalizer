@@ -19,7 +19,7 @@ export var state = {
   smoothSpectrum: new Float32Array(32),
   peakValue: -Infinity,
   peakHold: 0,
-  hasAudio: true,
+  hasAudio: false,
   rmsValue: 0,
   abPresetA: null,
   abPresetB: null,

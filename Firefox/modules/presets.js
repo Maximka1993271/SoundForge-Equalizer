@@ -1,7 +1,6 @@
 // ============================================
 //  PRESETS.JS - Работа с пресетами (v3.22.8)
-//  ИСПРАВЛЕНО: выбор пресетов из списка
-//  ИСПРАВЛЕНО: определение пользовательских пресетов
+//  Chrome MV3 + Firefox MV2
 // ============================================
 
 import { state, dom } from './state.js';
@@ -17,10 +16,6 @@ import {
   updateGainClass 
 } from './ui.js';
 
-// ============================================
-//  ЗАПОЛНЕНИЕ СПИСКА ПРЕСЕТОВ
-// ============================================
-
 export function populatePresetSelect() {
   const select = dom.presetSelect;
   if (!select) return;
@@ -29,26 +24,29 @@ export function populatePresetSelect() {
 
   const categories = {};
   const presetNames = Object.keys(PRESETS);
-  const userPresets = getUserPresets();
+  let userPresets = {};
+  
+  try {
+    userPresets = getUserPresets();
+  } catch (e) {
+    console.warn('⚠️ Ошибка загрузки пользовательских пресетов:', e);
+    userPresets = {};
+  }
 
-  // Группировка стандартных пресетов по категориям
   presetNames.forEach((name) => {
     const category = PRESET_CATEGORIES[name] || '🎧 Специальные';
     if (!categories[category]) categories[category] = [];
     categories[category].push(name);
   });
 
-  // Пустой пункт (настройки)
   const emptyOption = document.createElement('option');
   emptyOption.value = '';
   emptyOption.textContent = '🎛️ ' + t('custom');
   select.appendChild(emptyOption);
 
-  // Сортировка категорий
   const categoryKeys = Object.keys(categories);
   categoryKeys.sort();
 
-  // Стандартные пресеты по категориям
   categoryKeys.forEach((category) => {
     const optgroup = document.createElement('optgroup');
     const categoryLabel = t('presets.' + category) || category;
@@ -69,14 +67,14 @@ export function populatePresetSelect() {
     select.appendChild(optgroup);
   });
 
-  // Пользовательские пресеты
-  if (Object.keys(userPresets).length > 0) {
+  const userKeys = Object.keys(userPresets);
+  if (userKeys.length > 0) {
     const userOptgroup = document.createElement('optgroup');
     userOptgroup.label = '👤 ' + t('save_preset');
 
-    Object.keys(userPresets).forEach((name) => {
+    userKeys.forEach((name) => {
       const option = document.createElement('option');
-      option.value = 'user_' + name; // Префикс для пользовательских пресетов
+      option.value = 'user_' + name;
       option.textContent = '💾 ' + name;
       userOptgroup.appendChild(option);
     });
@@ -84,30 +82,28 @@ export function populatePresetSelect() {
     select.appendChild(userOptgroup);
   }
 
-  // Восстановление выбранного пресета
   if (state.currentPreset && state.currentPreset !== 'custom') {
-    // Проверяем, есть ли такой пресет в списке
     const presetExists = presetNames.includes(state.currentPreset) || 
-                        Object.keys(userPresets).includes(state.currentPreset);
+                         userKeys.includes(state.currentPreset);
     if (presetExists) {
-      // Для пользовательских пресетов добавляем префикс
-      const isUserPreset = Object.keys(userPresets).includes(state.currentPreset);
+      const isUserPreset = userKeys.includes(state.currentPreset);
       select.value = isUserPreset ? 'user_' + state.currentPreset : state.currentPreset;
     }
   }
 }
 
-// ============================================
-//  СОХРАНЕНИЕ ПОЛЬЗОВАТЕЛЬСКОГО ПРЕСЕТА
-// ============================================
-
 export function saveUserPreset() {
   const name = prompt(t('save_preset') + ':', 'My Preset');
   if (!name) return;
 
-  const presets = getUserPresets();
+  let presets;
+  try {
+    presets = getUserPresets();
+  } catch (e) {
+    console.warn('⚠️ Ошибка загрузки пользовательских пресетов:', e);
+    presets = {};
+  }
   
-  // Проверка на дубликат
   if (presets[name]) {
     if (!confirm(`Пресет "${name}" уже существует. Перезаписать?`)) {
       return;
@@ -125,17 +121,26 @@ export function saveUserPreset() {
     timestamp: Date.now()
   };
 
-  saveUserPresets(presets);
-  populatePresetSelect();
-  setStatus('ready', '✅ ' + t('save_preset') + ': ' + name);
+  try {
+    saveUserPresets(presets);
+    populatePresetSelect();
+    setStatus('ready', '✅ ' + t('save_preset') + ': ' + name);
+  } catch (e) {
+    console.error('❌ Ошибка сохранения пресета:', e);
+    setStatus('disconnected', '⚠️ Ошибка сохранения пресета');
+  }
 }
 
-// ============================================
-//  ЗАГРУЗКА ПОЛЬЗОВАТЕЛЬСКОГО ПРЕСЕТА
-// ============================================
-
 export function loadUserPreset(name) {
-  const presets = getUserPresets();
+  let presets;
+  try {
+    presets = getUserPresets();
+  } catch (e) {
+    console.warn('⚠️ Ошибка загрузки пользовательских пресетов:', e);
+    setStatus('disconnected', '⚠️ Ошибка загрузки пресета');
+    return;
+  }
+  
   const preset = presets[name];
   if (!preset) {
     console.warn(`⚠️ Пользовательский пресет "${name}" не найден`);
@@ -143,42 +148,53 @@ export function loadUserPreset(name) {
     return;
   }
 
-  // Применяем пользовательский пресет с анимацией
-  // Передаем isUserPreset = true
+  state.abPresetA = null;
+  state.abPresetB = null;
+  state.abMode = false;
+  if (dom.abCompareBtn) {
+    dom.abCompareBtn.textContent = t('compare');
+    dom.abCompareBtn.style.background = '';
+    dom.abCompareBtn.style.color = '';
+  }
+
   applyPresetWithAnimation(name, true);
 }
 
-// ============================================
-//  ОБРАБОТКА ВЫБОРА ПРЕСЕТА ИЗ СПИСКА
-// ============================================
-
 export function handlePresetSelect(value) {
   if (!value) {
-    // Пустое значение - сброс выбора
     state.currentPreset = 'custom';
     updatePresetInfo('custom');
+    state.abPresetA = null;
+    state.abPresetB = null;
+    state.abMode = false;
+    if (dom.abCompareBtn) {
+      dom.abCompareBtn.textContent = t('compare');
+      dom.abCompareBtn.style.background = '';
+      dom.abCompareBtn.style.color = '';
+    }
     return;
   }
 
-  // Проверка: пользовательский пресет или стандартный
   if (value.startsWith('user_')) {
-    // Пользовательский пресет
-    const userPresetName = value.substring(5); // Убираем префикс 'user_'
+    const userPresetName = value.substring(5);
     loadUserPreset(userPresetName);
   } else {
-    // Стандартный пресет из PRESETS
     if (PRESETS[value]) {
-      applyPresetWithAnimation(value, false); // isUserPreset = false
+      state.abPresetA = null;
+      state.abPresetB = null;
+      state.abMode = false;
+      if (dom.abCompareBtn) {
+        dom.abCompareBtn.textContent = t('compare');
+        dom.abCompareBtn.style.background = '';
+        dom.abCompareBtn.style.color = '';
+      }
+      applyPresetWithAnimation(value, false);
     } else {
       console.warn(`⚠️ Пресет "${value}" не найден в PRESETS`);
       setStatus('disconnected', '⚠️ Пресет не найден');
     }
   }
 }
-
-// ============================================
-//  A/B СРАВНЕНИЕ
-// ============================================
 
 export function toggleABCompare() {
   state.abMode = !state.abMode;
@@ -206,10 +222,6 @@ export function toggleABCompare() {
   }
 }
 
-// ============================================
-//  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СПИСКА ПРЕСЕТОВ
-// ============================================
-
 export function getPresetList() {
   const list = [];
   const presetNames = Object.keys(PRESETS);
@@ -225,24 +237,23 @@ export function getPresetList() {
     });
   });
 
-  // Добавляем пользовательские пресеты
-  const userPresets = getUserPresets();
-  Object.keys(userPresets).forEach((name) => {
-    list.push({
-      id: 'user_' + name,
-      name: name,
-      display: '💾 ' + name,
-      category: '👤 ' + t('save_preset'),
-      isUser: true
+  try {
+    const userPresets = getUserPresets();
+    Object.keys(userPresets).forEach((name) => {
+      list.push({
+        id: 'user_' + name,
+        name: name,
+        display: '💾 ' + name,
+        category: '👤 ' + t('save_preset'),
+        isUser: true
+      });
     });
-  });
+  } catch (e) {
+    console.warn('⚠️ Ошибка загрузки пользовательских пресетов:', e);
+  }
 
   return list;
 }
-
-// ============================================
-//  ЭКСПОРТ ПО УМОЛЧАНИЮ
-// ============================================
 
 export default {
   populatePresetSelect,

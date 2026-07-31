@@ -1,7 +1,7 @@
 // ============================================
 //  BROWSER-COMPAT.JS - Кроссбраузерная совместимость
 //  Версия: 2.0.0
-//  Полная поддержка Firefox 153.0esr
+//  Chrome MV3 + Firefox MV2
 // ============================================
 
 /**
@@ -30,7 +30,6 @@ class BrowserInfo {
     const ua = navigator.userAgent.toLowerCase();
     const vendor = navigator.vendor || '';
 
-    // Определение браузера
     if (ua.includes('firefox') || ua.includes('fxios')) {
       this.name = Browser.FIREFOX;
       this.version = this._extractVersion(ua, 'firefox/');
@@ -57,7 +56,6 @@ class BrowserInfo {
       this.version = '0';
     }
 
-    // Дополнительная информация
     this.isChromium = this.name === Browser.CHROME || 
                      this.name === Browser.EDGE || 
                      this.name === Browser.OPERA || 
@@ -67,8 +65,6 @@ class BrowserInfo {
     this.isSafari = this.name === Browser.SAFARI;
     this.isMobile = /mobile|android|iphone|ipad|ipod/i.test(ua);
     this.isDesktop = !this.isMobile;
-    
-    // Версия в виде числа
     this.versionNumber = parseFloat(this.version);
   }
 
@@ -85,7 +81,6 @@ class BrowserInfo {
     const parts = this.version.split('.');
     const verMajor = parseInt(parts[0]) || 0;
     const verMinor = parseInt(parts[1]) || 0;
-    
     if (verMajor > major) return true;
     if (verMajor === major && verMinor >= minor) return true;
     return false;
@@ -106,11 +101,10 @@ class BrowserInfo {
   }
 }
 
-// Создаем глобальный экземпляр
 export const browserInfo = new BrowserInfo();
 
 // ============================================
-//  УНИВЕРСАЛЬНЫЙ API (Chrome / Firefox / Edge)
+//  УНИВЕРСАЛЬНЫЙ API
 // ============================================
 
 export class UniversalAPI {
@@ -121,38 +115,27 @@ export class UniversalAPI {
       this._type = 'browser';
       this._isFirefox = true;
       this._isChrome = false;
+      this._usePromises = true;
     } else if (typeof chrome !== 'undefined' && chrome.runtime) {
       this._api = chrome;
       this._type = 'chrome';
       this._isFirefox = false;
       this._isChrome = true;
+      this._usePromises = false;
     } else {
       this._api = null;
       this._type = 'none';
       this._isFirefox = false;
       this._isChrome = false;
+      this._usePromises = false;
     }
   }
 
-  isAvailable() {
-    return !!this._api;
-  }
-
-  isFirefox() {
-    return this._isFirefox;
-  }
-
-  isChrome() {
-    return this._isChrome;
-  }
-
-  getType() {
-    return this._type;
-  }
-
-  get api() {
-    return this._api;
-  }
+  isAvailable() { return !!this._api; }
+  isFirefox() { return this._isFirefox; }
+  isChrome() { return this._isChrome; }
+  getType() { return this._type; }
+  get api() { return this._api; }
 
   // ============================================
   //  RUNTIME
@@ -165,7 +148,7 @@ export class UniversalAPI {
     }
 
     try {
-      if (this._isFirefox) {
+      if (this._isFirefox || this._usePromises) {
         const promise = this._api.runtime.sendMessage(message);
         if (callback) {
           promise.then(callback).catch(() => callback(null));
@@ -208,7 +191,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.storage.local.get(keys)
             .then(resolve)
             .catch(reject);
@@ -235,7 +218,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.storage.local.set(data)
             .then(resolve)
             .catch(reject);
@@ -262,7 +245,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.storage.local.remove(keys)
             .then(resolve)
             .catch(reject);
@@ -282,30 +265,14 @@ export class UniversalAPI {
   }
 
   storageClear() {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.storage.local.clear()
-            .then(resolve)
-            .catch(reject);
-        } else {
-          this._api.storage.local.clear(() => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
+    const keys = [
+      'eqSettings', 'volumeBoost', 'bassBoost', 'selectedPreset', 'theme', 'language',
+      'savedVolume', 'savedBass', 'userPresets', 'siteSettings', 'settingsHistory',
+      'soundforgeConnected', 'soundforgeAutoConnect', 'connectedTabs', 'autoConnectTabs',
+      'nightMode', 'powerSaveMode', 'lastSite', 'nightModeAuto', 'autoDisableOnSiteChange',
+      'presetHistory'
+    ];
+    return this.storageRemove(keys);
   }
 
   onStorageChanged(callback) {
@@ -325,7 +292,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.tabs.query(queryInfo)
             .then(resolve)
             .catch(reject);
@@ -352,7 +319,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.tabs.get(tabId)
             .then(resolve)
             .catch(reject);
@@ -371,8 +338,62 @@ export class UniversalAPI {
     });
   }
 
+  tabsUpdate(tabId, updateProperties) {
+    return new Promise((resolve, reject) => {
+      if (!this._api) {
+        reject(new Error('API not available'));
+        return;
+      }
+
+      try {
+        if (this._isFirefox || this._usePromises) {
+          this._api.tabs.update(tabId, updateProperties)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          this._api.tabs.update(tabId, updateProperties, (tab) => {
+            if (this._api.runtime.lastError) {
+              reject(this._api.runtime.lastError);
+            } else {
+              resolve(tab);
+            }
+          });
+        }
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  tabsSendMessage(tabId, message) {
+    return new Promise((resolve, reject) => {
+      if (!this._api) {
+        reject(new Error('API not available'));
+        return;
+      }
+
+      try {
+        if (this._isFirefox || this._usePromises) {
+          this._api.tabs.sendMessage(tabId, message)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          this._api.tabs.sendMessage(tabId, message, (response) => {
+            if (this._api.runtime.lastError) {
+              reject(this._api.runtime.lastError);
+            } else {
+              resolve(response);
+            }
+          });
+        }
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
   // ============================================
-  //  SCRIPTING (Firefox использует tabs.executeScript)
+  //  SCRIPTING (УНИВЕРСАЛЬНЫЙ)
   // ============================================
 
   executeScript(tabId, files) {
@@ -383,11 +404,13 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || !this._api.scripting) {
+          // Firefox: используем tabs.executeScript
           this._api.tabs.executeScript(tabId, { file: files[0] })
             .then(resolve)
             .catch(reject);
         } else {
+          // Chrome MV3: используем scripting.executeScript
           this._api.scripting.executeScript({
             target: { tabId: tabId },
             files: files
@@ -413,7 +436,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || !this._api.scripting) {
           const code = `(${func.toString()}).apply(null, ${JSON.stringify(args)})`;
           this._api.tabs.executeScript(tabId, { code: code })
             .then(resolve)
@@ -462,8 +485,13 @@ export class UniversalAPI {
         return;
       }
 
+      // Firefox не поддерживает buttons
+      if (this._isFirefox && options.buttons) {
+        delete options.buttons;
+      }
+
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.notifications.create(options)
             .then(resolve)
             .catch(reject);
@@ -513,7 +541,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.windows.create(createData)
             .then(resolve)
             .catch(reject);
@@ -540,7 +568,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.windows.update(windowId, updateInfo)
             .then(resolve)
             .catch(reject);
@@ -567,7 +595,7 @@ export class UniversalAPI {
       }
 
       try {
-        if (this._isFirefox) {
+        if (this._isFirefox || this._usePromises) {
           this._api.windows.getCurrent()
             .then(resolve)
             .catch(reject);
@@ -587,7 +615,7 @@ export class UniversalAPI {
   }
 
   // ============================================
-  //  ACTION (Browser Action)
+  //  ACTION / BROWSER ACTION (УНИВЕРСАЛЬНЫЙ)
   // ============================================
 
   setIcon(details) {
@@ -596,7 +624,7 @@ export class UniversalAPI {
     try {
       if (this._isFirefox) {
         return this._api.browserAction.setIcon(details);
-      } else {
+      } else if (this._api.action) {
         return new Promise((resolve, reject) => {
           this._api.action.setIcon(details, () => {
             if (this._api.runtime.lastError) {
@@ -606,6 +634,8 @@ export class UniversalAPI {
             }
           });
         });
+      } else {
+        return this._api.browserAction.setIcon(details);
       }
     } catch (e) {
       return Promise.reject(e);
@@ -618,8 +648,10 @@ export class UniversalAPI {
     try {
       if (this._isFirefox) {
         this._api.browserAction.setBadgeText(details);
-      } else {
+      } else if (this._api.action) {
         this._api.action.setBadgeText(details);
+      } else {
+        this._api.browserAction.setBadgeText(details);
       }
     } catch (e) {}
   }
@@ -630,8 +662,10 @@ export class UniversalAPI {
     try {
       if (this._isFirefox) {
         this._api.browserAction.setBadgeBackgroundColor(details);
-      } else {
+      } else if (this._api.action) {
         this._api.action.setBadgeBackgroundColor(details);
+      } else {
+        this._api.browserAction.setBadgeBackgroundColor(details);
       }
     } catch (e) {}
   }
@@ -642,13 +676,8 @@ export class UniversalAPI {
 
   alarmsCreate(name, alarmInfo) {
     if (!this._api) return;
-
     try {
-      if (this._isFirefox) {
-        this._api.alarms.create(name, alarmInfo);
-      } else {
-        this._api.alarms.create(name, alarmInfo);
-      }
+      this._api.alarms.create(name, alarmInfo);
     } catch (e) {}
   }
 
@@ -667,7 +696,6 @@ export class UniversalAPI {
   }
 }
 
-// Создаем глобальный экземпляр
 export const universalAPI = new UniversalAPI();
 
 // ============================================
@@ -712,6 +740,12 @@ if (typeof chrome === 'undefined' && typeof browser !== 'undefined') {
       get: (tabId, callback) => {
         browser.tabs.get(tabId).then(callback).catch(() => callback(null));
       },
+      update: (tabId, updateProperties, callback) => {
+        browser.tabs.update(tabId, updateProperties).then((tab) => callback && callback(tab)).catch(() => callback && callback(null));
+      },
+      sendMessage: (tabId, message, callback) => {
+        browser.tabs.sendMessage(tabId, message).then((response) => callback && callback(response)).catch(() => callback && callback(null));
+      },
       executeScript: (tabId, details, callback) => {
         if (details.file) {
           browser.tabs.executeScript(tabId, { file: details.file }).then(callback).catch(callback);
@@ -750,6 +784,10 @@ if (typeof chrome === 'undefined' && typeof browser !== 'undefined') {
     },
     notifications: {
       create: (options, callback) => {
+        // Firefox не поддерживает buttons
+        if (options.buttons) {
+          delete options.buttons;
+        }
         browser.notifications.create(options).then(callback).catch(callback);
       },
       onClicked: {
@@ -879,45 +917,6 @@ export function captureStreamFromElement(element) {
 
   console.error('[Compat] Не удалось получить аудио-поток из элемента');
   return null;
-}
-
-// ============================================
-//  КРОССБРАУЗЕРНАЯ ПРОВЕРКА ПОДДЕРЖКИ
-// ============================================
-
-export function checkAPISupport() {
-  const support = {
-    audioContext: !!(window.AudioContext || window.webkitAudioContext),
-    captureStream: false,
-    mozCaptureStream: false,
-    webkitCaptureStream: false,
-    chromeAPI: !!(typeof chrome !== 'undefined' && chrome.runtime),
-    browserAPI: !!(typeof browser !== 'undefined' && browser.runtime),
-    storage: !!window.localStorage,
-    webAudio: false,
-    canvas: !!window.CanvasRenderingContext2D,
-    requestAnimationFrame: !!window.requestAnimationFrame,
-    mutationObserver: !!window.MutationObserver,
-    promises: !!window.Promise,
-    fetch: !!window.fetch
-  };
-
-  try {
-    const video = document.createElement('video');
-    support.captureStream = typeof video.captureStream === 'function';
-    support.mozCaptureStream = typeof video.mozCaptureStream === 'function';
-    support.webkitCaptureStream = typeof video.webkitCaptureStream === 'function';
-  } catch (e) {}
-
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    support.webAudio = true;
-    ctx.close();
-  } catch (e) {
-    support.webAudio = false;
-  }
-
-  return support;
 }
 
 // ============================================
@@ -1081,7 +1080,6 @@ export default {
   universalAPI,
   createCrossBrowserAudioContext,
   captureStreamFromElement,
-  checkAPISupport,
   CrossBrowserStorage,
   crossBrowserStorage,
   safeRequestAnimationFrame,

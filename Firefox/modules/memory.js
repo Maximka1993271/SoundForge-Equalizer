@@ -1,12 +1,9 @@
 // ============================================
 //  MEMORY.JS - Управление памятью
-//  Версия: 1.0.0
+//  Версия: 2.0.0
+//  Chrome MV3 + Firefox MV2
 // ============================================
 
-/**
- * Менеджер памяти для SoundForge
- * Обеспечивает правильное управление ресурсами
- */
 export class MemoryManager {
   constructor() {
     this._references = new Map();
@@ -17,12 +14,16 @@ export class MemoryManager {
       lastCleanup: null,
       memoryFreed: 0
     };
+    this._monitoringInterval = null;
+    this._isDestroyed = false;
   }
 
-  /**
-   * Регистрация объекта для управления памятью
-   */
   register(id, obj, cleanupFn = null) {
+    if (this._isDestroyed) {
+      console.warn('[MemoryManager] Менеджер уничтожен, регистрация невозможна');
+      return;
+    }
+    
     if (!id) {
       console.warn('[MemoryManager] Попытка регистрации без ID');
       return;
@@ -44,9 +45,6 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Обновление времени последнего доступа
-   */
   touch(id) {
     const ref = this._references.get(id);
     if (ref) {
@@ -54,10 +52,9 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Удаление объекта из управления
-   */
   unregister(id) {
+    if (this._isDestroyed) return false;
+    
     if (this._references.has(id)) {
       const ref = this._references.get(id);
       if (ref.cleanupFn) {
@@ -73,27 +70,19 @@ export class MemoryManager {
     return false;
   }
 
-  /**
-   * Добавление функции очистки
-   */
   addCleanup(fn) {
+    if (this._isDestroyed) return;
     if (typeof fn === 'function') {
       this._cleanupFunctions.add(fn);
     }
   }
 
-  /**
-   * Удаление функции очистки
-   */
   removeCleanup(fn) {
     this._cleanupFunctions.delete(fn);
   }
 
-  /**
-   * Очистка конкретного объекта
-   */
   cleanup(id) {
-    if (this._isCleaning) return;
+    if (this._isCleaning || this._isDestroyed) return;
     this._isCleaning = true;
 
     try {
@@ -111,12 +100,11 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Проверка на утечки памяти
-   */
   _checkForLeaks() {
+    if (this._isDestroyed) return;
+    
     const now = Date.now();
-    const oldThreshold = 60000; // 1 минута
+    const oldThreshold = 60000;
     let cleaned = 0;
 
     for (const [id, ref] of this._references) {
@@ -131,17 +119,13 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Полная очистка всех ресурсов
-   */
   fullCleanup() {
-    if (this._isCleaning) return;
+    if (this._isCleaning || this._isDestroyed) return;
     this._isCleaning = true;
 
     console.log('[MemoryManager] Начало полной очистки');
 
     try {
-      // Очистка всех зарегистрированных объектов
       let cleanedCount = 0;
       for (const [id, ref] of this._references) {
         try {
@@ -157,7 +141,6 @@ export class MemoryManager {
       this._stats.totalCleanups += cleanedCount;
       this._stats.memoryFreed += cleanedCount;
 
-      // Выполнение всех дополнительных функций очистки
       for (const fn of this._cleanupFunctions) {
         try {
           fn();
@@ -167,14 +150,8 @@ export class MemoryManager {
       }
       this._cleanupFunctions.clear();
 
-      // Принудительная очистка WeakMap/WeakSet (если есть)
-      if (typeof WeakMap !== 'undefined') {
-        // WeakMap не имеет метода очистки, просто пересоздаем ссылки
-      }
-
       console.log(`[MemoryManager] Очищено ${cleanedCount} объектов`);
 
-      // Запрос сборки мусора (безопасный способ)
       this._requestGC();
 
     } catch (e) {
@@ -185,55 +162,34 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Безопасный запрос сборки мусора
-   */
   _requestGC() {
     try {
-      // Способ 1: Если доступен window.gc (с флагом --expose-gc)
       if (typeof window !== 'undefined' && window.gc && typeof window.gc === 'function') {
         try {
           window.gc();
           console.log('[MemoryManager] GC вызван через window.gc()');
           return;
-        } catch (e) {
-          // Игнорируем
-        }
+        } catch (e) {}
       }
 
-      // Способ 2: Создание большого массива и его удаление
-      // Это может помочь триггернуть GC в некоторых браузерах
       try {
         let tempArray = new Array(100000);
         tempArray.fill(0);
         tempArray = null;
-      } catch (e) {
-        // Игнорируем
-      }
-
-      // Способ 3: Использование Performance API для запроса GC
-      if (typeof performance !== 'undefined' && performance.memory) {
-        // Просто читаем статистику, не запрашиваем GC
-      }
-
-    } catch (e) {
-      // Игнорируем ошибки
-    }
+      } catch (e) {}
+    } catch (e) {}
   }
 
-  /**
-   * Получение статистики памяти
-   */
   getStats() {
     const stats = {
       ...this._stats,
       registeredObjects: this._references.size,
       cleanupFunctions: this._cleanupFunctions.size,
       isCleaning: this._isCleaning,
+      isDestroyed: this._isDestroyed,
       memoryInfo: null
     };
 
-    // Получение информации о памяти (если доступна)
     if (typeof performance !== 'undefined' && performance.memory) {
       stats.memoryInfo = {
         totalJSHeapSize: performance.memory.totalJSHeapSize,
@@ -245,9 +201,6 @@ export class MemoryManager {
     return stats;
   }
 
-  /**
-   * Получение списка зарегистрированных объектов
-   */
   getRegisteredObjects() {
     const objects = [];
     for (const [id, ref] of this._references) {
@@ -262,24 +215,30 @@ export class MemoryManager {
     return objects;
   }
 
-  /**
-   * Периодическая проверка памяти
-   */
   startMonitoring(interval = 30000) {
+    if (this._isDestroyed) {
+      console.warn('[MemoryManager] Менеджер уничтожен, мониторинг невозможен');
+      return;
+    }
+    
     if (this._monitoringInterval) {
       clearInterval(this._monitoringInterval);
+      this._monitoringInterval = null;
     }
 
     this._monitoringInterval = setInterval(() => {
-      // Проверка на утечки
+      if (this._isDestroyed) {
+        clearInterval(this._monitoringInterval);
+        this._monitoringInterval = null;
+        return;
+      }
+      
       this._checkForLeaks();
 
-      // Проверка количества объектов
       if (this._references.size > 50) {
         console.warn(`[MemoryManager] Внимание: ${this._references.size} зарегистрированных объектов`);
       }
 
-      // Логирование статистики
       const stats = this.getStats();
       if (stats.memoryInfo) {
         const used = Math.round(stats.memoryInfo.usedJSHeapSize / 1024 / 1024);
@@ -287,7 +246,6 @@ export class MemoryManager {
         console.log(`[MemoryManager] Память: ${used}MB / ${total}MB`);
       }
 
-      // Если объектов слишком много - принудительная очистка
       if (this._references.size > 150) {
         console.warn('[MemoryManager] Слишком много объектов, очистка...');
         this.fullCleanup();
@@ -298,9 +256,6 @@ export class MemoryManager {
     console.log(`[MemoryManager] Мониторинг запущен (интервал: ${interval/1000}с)`);
   }
 
-  /**
-   * Остановка мониторинга
-   */
   stopMonitoring() {
     if (this._monitoringInterval) {
       clearInterval(this._monitoringInterval);
@@ -309,15 +264,13 @@ export class MemoryManager {
     }
   }
 
-  /**
-   * Ручной вызов для освобождения памяти
-   */
   freeMemory() {
+    if (this._isDestroyed) return { cleaned: 0, remaining: 0, stats: null };
+    
     console.log('[MemoryManager] Ручной вызов освобождения памяти');
     
-    // Очистка старых объектов
     const now = Date.now();
-    const oldThreshold = 30000; // 30 секунд
+    const oldThreshold = 30000;
     let cleaned = 0;
 
     for (const [id, ref] of this._references) {
@@ -327,7 +280,6 @@ export class MemoryManager {
       }
     }
 
-    // Запрос GC
     this._requestGC();
 
     return {
@@ -337,14 +289,14 @@ export class MemoryManager {
     };
   }
 
-  /**
-   * Полная очистка и сброс
-   */
   destroy() {
+    if (this._isDestroyed) return;
+    
     this.stopMonitoring();
     this.fullCleanup();
     this._references.clear();
     this._cleanupFunctions.clear();
+    this._isDestroyed = true;
     this._stats = {
       totalCleanups: 0,
       lastCleanup: null,
@@ -354,25 +306,13 @@ export class MemoryManager {
   }
 }
 
-// ============================================
-//  СОЗДАНИЕ ГЛОБАЛЬНОГО ИНСТАНСА
-// ============================================
-
 export const memoryManager = new MemoryManager();
 
-// ============================================
-//  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================
-
-/**
- * Регистрация DOM элемента для управления памятью
- */
 export function registerDOMElement(element, id, cleanupFn = null) {
   if (!element || !id) return;
 
   const defaultCleanup = (el) => {
     try {
-      // Удаление слушателей событий
       if (el._listeners) {
         for (const [event, listener] of el._listeners) {
           el.removeEventListener(event, listener);
@@ -380,12 +320,10 @@ export function registerDOMElement(element, id, cleanupFn = null) {
         delete el._listeners;
       }
       
-      // Очистка ссылок
       if (el.parentNode) {
         try { el.parentNode.removeChild(el); } catch {}
       }
       
-      // Очистка canvas (если есть)
       if (el.tagName === 'CANVAS') {
         const ctx = el.getContext('2d');
         if (ctx) {
@@ -400,19 +338,14 @@ export function registerDOMElement(element, id, cleanupFn = null) {
   memoryManager.register(id, element, cleanupFn || defaultCleanup);
 }
 
-/**
- * Регистрация объекта для управления памятью
- */
 export function registerObject(id, obj, cleanupFn = null) {
   const defaultCleanup = (o) => {
-    // Очистка объекта
     if (o && typeof o === 'object') {
       for (const key of Object.keys(o)) {
         try {
           if (typeof o[key] === 'function') {
             o[key] = null;
           } else if (o[key] && typeof o[key] === 'object') {
-            // Рекурсивно очищаем вложенные объекты
             for (const subKey of Object.keys(o[key])) {
               o[key][subKey] = null;
             }
@@ -420,9 +353,7 @@ export function registerObject(id, obj, cleanupFn = null) {
           } else {
             o[key] = null;
           }
-        } catch (e) {
-          // Игнорируем
-        }
+        } catch (e) {}
       }
     }
   };
@@ -430,9 +361,6 @@ export function registerObject(id, obj, cleanupFn = null) {
   memoryManager.register(id, obj, cleanupFn || defaultCleanup);
 }
 
-/**
- * Регистрация таймера
- */
 export function registerTimer(id, timer, cleanupFn = null) {
   const defaultCleanup = (t) => {
     try {
@@ -453,9 +381,6 @@ export function registerTimer(id, timer, cleanupFn = null) {
   memoryManager.register(id, timer, cleanupFn || defaultCleanup);
 }
 
-/**
- * Регистрация Web Audio узла
- */
 export function registerAudioNode(id, node, context, cleanupFn = null) {
   const defaultCleanup = (n) => {
     try {
@@ -476,43 +401,26 @@ export function registerAudioNode(id, node, context, cleanupFn = null) {
   memoryManager.register(id, node, cleanupFn || defaultCleanup);
 }
 
-/**
- * Глобальная очистка
- */
 export function globalCleanup() {
   memoryManager.fullCleanup();
 }
 
-/**
- * Получение статистики памяти
- */
 export function getMemoryStats() {
   return memoryManager.getStats();
 }
 
-// ============================================
-//  АВТОМАТИЧЕСКАЯ ОЧИСТКА ПРИ ЗАКРЫТИИ
-// ============================================
-
 if (typeof window !== 'undefined') {
-  // Очистка при закрытии вкладки
   window.addEventListener('beforeunload', () => {
     console.log('[MemoryManager] Очистка перед закрытием');
     memoryManager.fullCleanup();
   });
 
-  // Очистка при потере фокуса (для мобильных устройств)
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      // Не делаем полную очистку, только проверку
       memoryManager._checkForLeaks();
     }
   });
 }
-
-// ============================================
-//  ЭКСПОРТ
-// ============================================
 
 export default {
   MemoryManager,
