@@ -1,14 +1,20 @@
 // ============================================
-//  WINDOW.JS - v3.22.8 (FIREFOX 153.0esr)
-//  Standalone Window — БЕЗ FULLSCREEN
+//  WINDOW.JS - v3.22.8 (Firefox/Chrome)
+//  Standalone Window
 //  FULL LOCALIZATION: RU, UA, EN
 //  HOTKEYS: Ctrl+Shift+E, Ctrl+Shift+Y, Ctrl+Shift+X
+//  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ: СПЕКТР | ВОЛНЫ | ОГОНЬ | НЕОН
+//  ИСПРАВЛЕНО: безопасная инициализация модулей
+//  ИСПРАВЛЕНО: обработка ошибок stats
+//  ИСПРАВЛЕНО: Firefox совместимость
+//  ИСПРАВЛЕНО: обработка statusUpdate
+//  ИСПРАВЛЕНО: подключение к аудио
 // ============================================
 
 (function() {
   'use strict';
 
-  console.log('🪟 SoundForge Window v3.22.8 (Firefox) — БЕЗ FULLSCREEN');
+  console.log('🪟 SoundForge Window v3.22.8 (Firefox/Chrome)');
 
   // ============================================
   //  ПОЛИФИЛЛЫ
@@ -56,39 +62,79 @@
   }
 
   function safeSendMessage(message, callback) {
-    try {
-      if (api && api.runtime && api.runtime.sendMessage) {
-        api.runtime.sendMessage(message, function(response) {
-          if (api.runtime && api.runtime.lastError) {
-            // Игнорируем ошибки отправки
-          }
-          if (typeof callback === 'function') {
-            try {
-              callback(response);
-            } catch (e) {}
-          }
-        });
-      } else {
-        if (typeof callback === 'function') {
-          try { callback(null); } catch (e) {}
-        }
-      }
-    } catch (e) {
+    var done = false;
+    function finish(response) {
+      if (done) return;
+      done = true;
       if (typeof callback === 'function') {
-        try { callback(null); } catch (e) {}
+        try { callback(response); } catch (e) {}
       }
     }
+
+    try {
+      // Firefox: prefer Promise-based browser API when available.
+      if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
+        browser.runtime.sendMessage(message)
+          .then(finish)
+          .catch(function() { finish(null); });
+        return;
+      }
+
+      // Chrome/Firefox compatibility callback API.
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(message, function(response) {
+          try {
+            if (chrome.runtime && chrome.runtime.lastError) {
+              finish(null);
+              return;
+            }
+          } catch (e) {}
+          finish(response);
+        });
+        return;
+      }
+    } catch (e) {
+      finish(null);
+      return;
+    }
+
+    finish(null);
   }
+
+  var CANONICAL_STORAGE_KEYS = {
+    eqSettings: 'sf_eqSettings',
+    volumeBoost: 'sf_volumeBoost',
+    bassBoost: 'sf_bassBoost',
+    selectedPreset: 'sf_selectedPreset',
+    theme: 'sf_theme',
+    language: 'sf_language',
+    savedVolume: 'sf_savedVolume',
+    savedBass: 'sf_savedBass'
+  };
+
+  var windowUserPresets = {};
 
   function safeStorageGet(keys, callback) {
     try {
       if (api && api.storage && api.storage.local) {
-        api.storage.local.get(keys, function(result) {
+        var requested = Array.isArray(keys) ? keys : [keys];
+        var storageKeys = requested.slice();
+        requested.forEach(function(key) {
+          if (CANONICAL_STORAGE_KEYS[key]) storageKeys.push(CANONICAL_STORAGE_KEYS[key]);
+        });
+        api.storage.local.get(storageKeys, function(result) {
           if (api.runtime && api.runtime.lastError) {
             if (typeof callback === 'function') callback({});
             return;
           }
-          if (typeof callback === 'function') callback(result || {});
+          var normalized = Object.assign({}, result || {});
+          requested.forEach(function(key) {
+            var canonicalKey = CANONICAL_STORAGE_KEYS[key];
+            if (canonicalKey && result && result[canonicalKey] !== undefined) {
+              normalized[key] = result[canonicalKey];
+            }
+          });
+          if (typeof callback === 'function') callback(normalized);
         });
       } else {
         if (typeof callback === 'function') callback({});
@@ -100,23 +146,52 @@
 
   function safeStorageSet(data, callback) {
     try {
-      if (api && api.storage && api.storage.local) {
-        api.storage.local.set(data, function() {
+      var payload = Object.assign({}, data || {});
+
+      if (api && api.runtime && api.runtime.sendMessage) {
+        api.runtime.sendMessage({ action: 'settingsSnapshot', settings: payload }, function(response) {
           if (api.runtime && api.runtime.lastError) {
-            // Игнорируем
+            console.warn('[SoundForge Window] Ошибка сохранения через background:', api.runtime.lastError.message);
+            if (api.storage && api.storage.local) {
+              var fallbackPayload = Object.assign({}, payload);
+              Object.keys(payload).forEach(function(key) {
+                var canonicalKey = CANONICAL_STORAGE_KEYS[key];
+                if (canonicalKey) fallbackPayload[canonicalKey] = payload[key];
+              });
+              api.storage.local.set(fallbackPayload, function() {
+                if (typeof callback === 'function') callback();
+              });
+              return;
+            }
+          }
+          if (response && response.status === 'error') {
+            console.warn('[SoundForge Window] Ошибка сохранения:', response.message);
           }
           if (typeof callback === 'function') callback();
         });
-      } else {
-        if (typeof callback === 'function') callback();
+        return;
       }
+
+      if (api && api.storage && api.storage.local) {
+        var fallbackPayload = Object.assign({}, payload);
+        Object.keys(payload).forEach(function(key) {
+          var canonicalKey = CANONICAL_STORAGE_KEYS[key];
+          if (canonicalKey) fallbackPayload[canonicalKey] = payload[key];
+        });
+        api.storage.local.set(fallbackPayload, function() {
+          if (typeof callback === 'function') callback();
+        });
+        return;
+      }
+
+      if (typeof callback === 'function') callback();
     } catch (e) {
       if (typeof callback === 'function') callback();
     }
   }
 
   // ============================================
-  //  50 PRESETS (БЕЗ ИЗМЕНЕНИЙ)
+  //  50 PRESETS
   // ============================================
 
   var PRESETS = {
@@ -247,7 +322,7 @@
   };
 
   // ============================================
-  //  TRANSLATIONS (БЕЗ ИЗМЕНЕНИЙ)
+  //  TRANSLATIONS - ПОЛНЫЕ ПЕРЕВОДЫ
   // ============================================
 
   var LANGUAGES = {
@@ -476,7 +551,7 @@
   }
 
   // ============================================
-  //  ПЕРЕВОДЫ ДЛЯ ДЕЙСТВИЙ В СТАТИСТИКЕ
+  //  ПЕРЕВОДЫ ДЛЯ ДЕЙСТВИЙ В СТАТИСТИКЕ И ИСТОРИИ
   // ============================================
 
   var ACTION_TRANSLATIONS = {
@@ -524,6 +599,371 @@
   }
 
   // ============================================
+  //  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ
+  // ============================================
+
+  var EFFECTS = {
+    SPECTRUM: 'spectrum',
+    WAVES: 'waves',
+    FIRE: 'fire',
+    NEON: 'neon'
+  };
+
+  var _currentEffect = 'spectrum';
+  var _effectSmoothData = new Float32Array(64);
+  var _particles = [];
+  var _neonGlow = 0;
+
+  function getEffectNameLocal(effectId) {
+    var names = {
+      spectrum: t('spectrum') || '📊 Спектр',
+      waves: t('waves') || '🌊 Волны',
+      fire: t('fire') || '🔥 Огонь',
+      neon: t('neon') || '💜 Неон'
+    };
+    return names[effectId] || effectId;
+  }
+
+  function initEffectParticles() {
+    _particles = [];
+    for (var i = 0; i < 80; i++) {
+      _particles.push({
+        x: Math.random(),
+        y: Math.random(),
+        size: Math.random() * 3 + 1,
+        speed: Math.random() * 0.02 + 0.005,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function renderEffectInWindow(ctx, width, height, isDark, data) {
+    var currentEffect = _currentEffect || 'spectrum';
+    
+    if (data && data.length > 0) {
+      for (var i = 0; i < Math.min(data.length, 64); i++) {
+        var target = data[i] || 0;
+        _effectSmoothData[i] = _effectSmoothData[i] * 0.7 + target * 0.3;
+      }
+    }
+    
+    ctx.clearRect(0, 0, width, height);
+    
+    switch (currentEffect) {
+      case 'waves':
+        renderWavesEffect(ctx, width, height, isDark);
+        break;
+      case 'fire':
+        renderFireEffect(ctx, width, height, isDark);
+        break;
+      case 'neon':
+        renderNeonEffect(ctx, width, height, isDark);
+        break;
+      default:
+        renderSpectrumEffect(ctx, width, height, isDark);
+        break;
+    }
+  }
+
+  function renderSpectrumEffect(ctx, width, height, isDark) {
+    var data = _effectSmoothData;
+    var barCount = 32;
+    var barWidth = width / barCount;
+    var maxHeight = height - 4;
+    
+    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)';
+    ctx.fillRect(0, 0, width, height);
+    
+    for (var j = 0; j < barCount; j++) {
+      var value = data[j] || 0;
+      var barHeight = Math.max(2, value * maxHeight);
+      var x = j * barWidth;
+      var y = height - barHeight - 2;
+      
+      var color;
+      if (value > 0.85) color = 'rgba(255, 50, 50, 0.95)';
+      else if (value > 0.70) color = 'rgba(255, 150, 50, 0.90)';
+      else if (value > 0.50) color = 'rgba(255, 220, 50, 0.85)';
+      else if (value > 0.30) color = 'rgba(100, 220, 100, 0.85)';
+      else color = 'rgba(50, 200, 50, 0.80)';
+      
+      var gradient = ctx.createLinearGradient(0, y, 0, height);
+      gradient.addColorStop(0, color);
+      gradient.addColorStop(0.5, color.replace('0.95', '0.5').replace('0.90', '0.4').replace('0.85', '0.35').replace('0.80', '0.3'));
+      gradient.addColorStop(1, isDark ? 'rgba(76, 175, 80, 0.05)' : 'rgba(76, 175, 80, 0.05)');
+      ctx.fillStyle = gradient;
+      
+      var radius = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 1 + radius, y);
+      ctx.lineTo(x + barWidth - 2 - radius, y);
+      ctx.quadraticCurveTo(x + barWidth - 2, y, x + barWidth - 2, y + radius);
+      ctx.lineTo(x + barWidth - 2, height - 2);
+      ctx.lineTo(x + 1, height - 2);
+      ctx.lineTo(x + 1, y + radius);
+      ctx.quadraticCurveTo(x + 1, y, x + 1 + radius, y);
+      ctx.fill();
+    }
+    
+    var freqLabels = ['31Hz', '62Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz'];
+    var labelStep = barCount / freqLabels.length;
+    ctx.fillStyle = isDark ? 'rgba(200,255,200,0.5)' : 'rgba(50,150,50,0.5)';
+    ctx.font = '8px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    for (var f = 0; f < freqLabels.length; f++) {
+      var labelX = (f * labelStep + labelStep / 2) * barWidth;
+      ctx.fillText(freqLabels[f], labelX, height - 1);
+    }
+  }
+
+  function renderWavesEffect(ctx, width, height, isDark) {
+    var data = _effectSmoothData;
+    var centerY = height / 2;
+    var time = Date.now() / 1000;
+    
+    var gradient = ctx.createRadialGradient(width/2, centerY, 0, width/2, centerY, width/2);
+    if (isDark) {
+      gradient.addColorStop(0, 'rgba(10, 30, 20, 0.9)');
+      gradient.addColorStop(1, 'rgba(0, 10, 5, 0.95)');
+    } else {
+      gradient.addColorStop(0, 'rgba(230, 250, 240, 0.9)');
+      gradient.addColorStop(1, 'rgba(200, 230, 220, 0.95)');
+    }
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    var numWaves = 5;
+    for (var w = 0; w < numWaves; w++) {
+      var waveIndex = w / numWaves;
+      var amplitude = 5 + (data[Math.floor(waveIndex * 32)] || 0) * 25;
+      var frequency = 0.02 + waveIndex * 0.015;
+      var phase = time * (0.5 + waveIndex * 0.3);
+      var alpha = 0.3 + (1 - waveIndex / numWaves) * 0.5;
+      var widthFactor = 1 + (data[Math.floor(waveIndex * 16)] || 0) * 2;
+      
+      var color;
+      if (w === 0) color = 'rgba(76, 175, 80, ' + alpha + ')';
+      else if (w === 1) color = 'rgba(100, 200, 100, ' + (alpha * 0.9) + ')';
+      else if (w === 2) color = 'rgba(50, 150, 80, ' + (alpha * 0.8) + ')';
+      else if (w === 3) color = 'rgba(30, 200, 150, ' + (alpha * 0.7) + ')';
+      else color = 'rgba(150, 255, 200, ' + (alpha * 0.5) + ')';
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5 + (1 - waveIndex / numWaves) * 1.5;
+      ctx.shadowColor = isDark ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.1)';
+      ctx.shadowBlur = 10;
+      
+      ctx.beginPath();
+      for (var x = 0; x <= width; x += 1) {
+        var progress = x / width;
+        var yOffset = Math.sin(progress * Math.PI * 2 * frequency * widthFactor + phase) * amplitude;
+        var yPos = centerY + yOffset + (w - numWaves/2) * 8;
+        if (x === 0) ctx.moveTo(x, yPos);
+        else ctx.lineTo(x, yPos);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function renderFireEffect(ctx, width, height, isDark) {
+    var data = _effectSmoothData;
+    var time = Date.now() / 1000;
+    
+    var intensity = (data[0] || 0) * 0.5 + (data[1] || 0) * 0.3 + (data[2] || 0) * 0.2;
+    var flicker = Math.sin(time * 3) * 0.05 + Math.sin(time * 7.5) * 0.03 + 0.08;
+    var fireIntensity = Math.max(0.1, intensity + flicker);
+    
+    var bgGradient = ctx.createRadialGradient(width/2, height, 0, width/2, height, height);
+    if (isDark) {
+      bgGradient.addColorStop(0, 'rgba(10, 5, 5, 0.95)');
+      bgGradient.addColorStop(0.5, 'rgba(20, 8, 5, 0.9)');
+      bgGradient.addColorStop(1, 'rgba(5, 2, 2, 0.95)');
+    } else {
+      bgGradient.addColorStop(0, 'rgba(250, 240, 235, 0.9)');
+      bgGradient.addColorStop(0.5, 'rgba(240, 225, 220, 0.85)');
+      bgGradient.addColorStop(1, 'rgba(230, 215, 210, 0.9)');
+    }
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    var numFlames = 12 + Math.floor(fireIntensity * 20);
+    var flameHeight = 20 + fireIntensity * 40;
+    
+    for (var f = 0; f < numFlames; f++) {
+      var xPos = (f / numFlames) * width + Math.sin(time * 2 + f * 0.7) * 8;
+      var heightVar = flameHeight * (0.6 + Math.sin(time * 1.5 + f * 1.1) * 0.4);
+      var widthVar = 6 + fireIntensity * 12 + Math.sin(time * 3 + f * 0.9) * 3;
+      var alpha = 0.2 + (1 - f / numFlames) * 0.6;
+      var offset = Math.sin(time * 2.5 + f * 0.5) * 4;
+      
+      var flameGrad = ctx.createRadialGradient(
+        xPos + offset, height - heightVar * 0.3, 0,
+        xPos + offset, height - heightVar * 0.3, widthVar * 1.5
+      );
+      
+      var flameAlpha = Math.min(1, alpha * fireIntensity * 1.5);
+      
+      if (f % 3 === 0) {
+        flameGrad.addColorStop(0, 'rgba(255, 200, 50, ' + (flameAlpha * 0.9) + ')');
+        flameGrad.addColorStop(0.3, 'rgba(255, 150, 30, ' + (flameAlpha * 0.7) + ')');
+        flameGrad.addColorStop(0.6, 'rgba(255, 80, 20, ' + (flameAlpha * 0.5) + ')');
+        flameGrad.addColorStop(1, 'rgba(150, 30, 10, ' + (flameAlpha * 0.2) + ')');
+      } else if (f % 3 === 1) {
+        flameGrad.addColorStop(0, 'rgba(255, 220, 100, ' + (flameAlpha * 0.8) + ')');
+        flameGrad.addColorStop(0.3, 'rgba(255, 180, 60, ' + (flameAlpha * 0.6) + ')');
+        flameGrad.addColorStop(0.6, 'rgba(255, 100, 30, ' + (flameAlpha * 0.4) + ')');
+        flameGrad.addColorStop(1, 'rgba(180, 50, 20, ' + (flameAlpha * 0.15) + ')');
+      } else {
+        flameGrad.addColorStop(0, 'rgba(255, 180, 80, ' + (flameAlpha * 0.7) + ')');
+        flameGrad.addColorStop(0.3, 'rgba(255, 130, 50, ' + (flameAlpha * 0.5) + ')');
+        flameGrad.addColorStop(0.6, 'rgba(200, 60, 30, ' + (flameAlpha * 0.35) + ')');
+        flameGrad.addColorStop(1, 'rgba(100, 20, 10, ' + (flameAlpha * 0.1) + ')');
+      }
+      
+      ctx.fillStyle = flameGrad;
+      ctx.beginPath();
+      var bottomY = height - 2;
+      var topY = bottomY - heightVar;
+      
+      ctx.moveTo(xPos + offset - widthVar/2, bottomY);
+      ctx.quadraticCurveTo(
+        xPos + offset - widthVar/2 - Math.sin(time * 4 + f) * 3,
+        bottomY - heightVar * 0.4,
+        xPos + offset - Math.sin(time * 2 + f * 0.7) * 5,
+        topY + Math.sin(time * 5 + f * 0.3) * 2
+      );
+      ctx.quadraticCurveTo(
+        xPos + offset + widthVar/2 + Math.sin(time * 4 + f + 1) * 3,
+        bottomY - heightVar * 0.4,
+        xPos + offset + widthVar/2,
+        bottomY
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  function renderNeonEffect(ctx, width, height, isDark) {
+    var data = _effectSmoothData;
+    var time = Date.now() / 1000;
+    _neonGlow = 0.5 + Math.sin(time * 0.5) * 0.3;
+    
+    var bgGradient = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width/2);
+    if (isDark) {
+      bgGradient.addColorStop(0, 'rgba(20, 10, 30, 0.95)');
+      bgGradient.addColorStop(0.5, 'rgba(10, 5, 20, 0.9)');
+      bgGradient.addColorStop(1, 'rgba(5, 2, 10, 0.95)');
+    } else {
+      bgGradient.addColorStop(0, 'rgba(240, 235, 250, 0.9)');
+      bgGradient.addColorStop(0.5, 'rgba(230, 220, 245, 0.85)');
+      bgGradient.addColorStop(1, 'rgba(220, 210, 240, 0.9)');
+    }
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    var barCount = 32;
+    var barWidth = width / barCount;
+    var maxHeight = height - 4;
+    
+    for (var j = 0; j < barCount; j++) {
+      var value = data[j] || 0;
+      var barHeight = Math.max(2, value * maxHeight);
+      var x = j * barWidth;
+      var y = height - barHeight - 2;
+      
+      var glowSize = 6 + value * 15;
+      var glowGrad = ctx.createRadialGradient(
+        x + barWidth/2, y + barHeight/2, 0,
+        x + barWidth/2, y + barHeight/2, glowSize
+      );
+      
+      var hue = 220 + value * 60 + Math.sin(time * 0.3 + j * 0.05) * 10;
+      var neonAlpha = 0.1 + value * 0.4;
+      glowGrad.addColorStop(0, 'hsla(' + hue + ', 100%, 70%, ' + neonAlpha + ')');
+      glowGrad.addColorStop(0.5, 'hsla(' + (hue + 20) + ', 100%, 60%, ' + (neonAlpha * 0.4) + ')');
+      glowGrad.addColorStop(1, 'hsla(' + (hue + 40) + ', 100%, 50%, 0)');
+      
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(x - glowSize/2, y - glowSize/2, barWidth + glowSize, barHeight + glowSize);
+    }
+    
+    for (var j2 = 0; j2 < barCount; j2++) {
+      var value2 = data[j2] || 0;
+      var barHeight2 = Math.max(2, value2 * maxHeight);
+      var x2 = j2 * barWidth;
+      var y2 = height - barHeight2 - 2;
+      
+      var hue2 = 220 + value2 * 60 + Math.sin(time * 0.3 + j2 * 0.05) * 10;
+      
+      var gradient = ctx.createLinearGradient(0, y2, 0, height);
+      gradient.addColorStop(0, 'hsla(' + hue2 + ', 100%, 80%, ' + (0.6 + value2 * 0.4) + ')');
+      gradient.addColorStop(0.3, 'hsla(' + (hue2 + 10) + ', 100%, 70%, ' + (0.4 + value2 * 0.3) + ')');
+      gradient.addColorStop(0.7, 'hsla(' + (hue2 + 20) + ', 100%, 60%, ' + (0.2 + value2 * 0.2) + ')');
+      gradient.addColorStop(1, 'hsla(' + (hue2 + 30) + ', 100%, 50%, ' + (0.05 + value2 * 0.1) + ')');
+      ctx.fillStyle = gradient;
+      
+      var radius = 2;
+      ctx.beginPath();
+      ctx.moveTo(x2 + 1 + radius, y2);
+      ctx.lineTo(x2 + barWidth - 2 - radius, y2);
+      ctx.quadraticCurveTo(x2 + barWidth - 2, y2, x2 + barWidth - 2, y2 + radius);
+      ctx.lineTo(x2 + barWidth - 2, height - 2);
+      ctx.lineTo(x2 + 1, height - 2);
+      ctx.lineTo(x2 + 1, y2 + radius);
+      ctx.quadraticCurveTo(x2 + 1, y2, x2 + 1 + radius, y2);
+      ctx.fill();
+      
+      ctx.shadowColor = 'hsla(' + hue2 + ', 100%, 70%, ' + (0.2 + value2 * 0.5) + ')';
+      ctx.shadowBlur = 4 + value2 * 8;
+      ctx.strokeStyle = 'hsla(' + hue2 + ', 100%, 80%, ' + (0.1 + value2 * 0.3) + ')';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x2 + 1, y2, barWidth - 2, barHeight2);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function cycleEffectInWindow() {
+    var effects = ['spectrum', 'waves', 'fire', 'neon'];
+    var currentIndex = effects.indexOf(_currentEffect);
+    var nextIndex = (currentIndex + 1) % effects.length;
+    var nextEffect = effects[nextIndex];
+    
+    _currentEffect = nextEffect;
+    
+    try {
+      localStorage.setItem('soundforge_window_effect', nextEffect);
+    } catch (e) {}
+    
+    updateEffectButtonLabelInWindow();
+    
+    safeSendMessage({
+      action: 'effectChanged',
+      effect: nextEffect
+    });
+    
+    var name = getEffectNameLocal(nextEffect);
+    setStatus('ready', '🎨 ' + name);
+    console.log('🎨 Эффект изменен в окне: ' + name);
+  }
+
+  function updateEffectButtonLabelInWindow() {
+    var btn = document.getElementById('effectBtn');
+    if (!btn) return;
+    var name = getEffectNameLocal(_currentEffect);
+    btn.textContent = '🎨 ' + name;
+  }
+
+  function loadWindowEffect() {
+    try {
+      var saved = localStorage.getItem('soundforge_window_effect');
+      if (saved && ['spectrum', 'waves', 'fire', 'neon'].indexOf(saved) !== -1) {
+        _currentEffect = saved;
+      }
+    } catch (e) {}
+  }
+
+  // ============================================
   //  STATE
   // ============================================
 
@@ -538,8 +978,20 @@
     isConnecting: false,
     isClipping: false,
     clipCount: 0,
-    lastClipTime: 0
+    lastClipTime: 0,
+    userPresets: {},
+    hasAudio: false,
+    rmsValue: 0,
+    peakValue: 0,
+    animationFrameId: null,
+    abPresetA: null,
+    abPresetB: null,
+    abMode: false,
+    abActive: 'A',
+    targetTabId: null,
+    connectPollTimer: null
   };
+  var _lastWindowSettingsSnapshot = null;
 
   var dom = {};
 
@@ -600,7 +1052,7 @@
   }
 
   // ============================================
-  //  UI FUNCTIONS (БЕЗ FULLSCREEN)
+  //  UI FUNCTIONS
   // ============================================
 
   function setStatus(status, text) {
@@ -710,7 +1162,7 @@
           
           for (var i = 0; i < allTabs.length; i++) {
             var tab = allTabs[i];
-            if (tab.audible === true && tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('about:')) {
+            if (tab.audible === true && tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('about:') && !tab.url.startsWith('moz-extension://')) {
               try {
                 var url = new URL(tab.url);
                 var hostname = url.hostname.replace('www.', '');
@@ -722,7 +1174,7 @@
           
           for (var j = 0; j < allTabs.length; j++) {
             var tab2 = allTabs[j];
-            if (tab2.active && tab2.url && !tab2.url.startsWith('chrome-extension://') && !tab2.url.startsWith('chrome://') && !tab2.url.startsWith('about:')) {
+            if (tab2.active && tab2.url && !tab2.url.startsWith('chrome-extension://') && !tab2.url.startsWith('chrome://') && !tab2.url.startsWith('about:') && !tab2.url.startsWith('moz-extension://')) {
               try {
                 var url2 = new URL(tab2.url);
                 var hostname2 = url2.hostname.replace('www.', '');
@@ -734,7 +1186,7 @@
           
           for (var k = 0; k < allTabs.length; k++) {
             var tab3 = allTabs[k];
-            if (tab3.url && !tab3.url.startsWith('chrome-extension://') && !tab3.url.startsWith('chrome://') && !tab3.url.startsWith('about:')) {
+            if (tab3.url && !tab3.url.startsWith('chrome-extension://') && !tab3.url.startsWith('chrome://') && !tab3.url.startsWith('about:') && !tab3.url.startsWith('moz-extension://')) {
               try {
                 var url3 = new URL(tab3.url);
                 var hostname3 = url3.hostname.replace('www.', '');
@@ -755,7 +1207,7 @@
   }
 
   // ============================================
-  //  VISUALIZATION (БЕЗ FULLSCREEN)
+  //  VISUALIZATION
   // ============================================
 
   var _vuSmooth = 0.15;
@@ -799,6 +1251,8 @@
     
     var width = canvas.width;
     var height = canvas.height;
+    var isDark = windowState.currentTheme === 'dark' || 
+                 (windowState.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     
     var hasData = false;
     var isDummy = false;
@@ -820,75 +1274,20 @@
     if (hasData && !isDummy) {
       processedData = windowState.spectrumData;
     } else {
-      var time = Date.now() / 1000;
-      var dummy = new Float32Array(64);
-      for (var di = 0; di < 64; di++) {
-        dummy[di] = (Math.sin(time * 1.5 + di * 0.2) * 0.2 + 0.2) * 0.5;
-      }
-      processedData = dummy;
+      processedData = new Float32Array(64);
+      windowState.hasAudio = false;
+      windowState.rmsValue = 0;
+      windowState.peakValue = 0;
+      windowState.isClipping = false;
     }
     
-    renderSpectrum(ctx, width, height, processedData);
+    renderEffectInWindow(ctx, width, height, isDark, processedData);
     
     var maxVal = 0;
     for (var m = 0; m < Math.min(processedData.length, 32); m++) {
       if (processedData[m] > maxVal) maxVal = processedData[m];
     }
     updateVUMeterWindow(maxVal);
-  }
-
-  function renderSpectrum(ctx, width, height, data) {
-    ctx.clearRect(0, 0, width, height);
-    var isDark = windowState.currentTheme === 'dark' || 
-                 (windowState.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    
-    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)';
-    ctx.fillRect(0, 0, width, height);
-    
-    var barCount = 32;
-    var barWidth = width / barCount;
-    var maxHeight = height - 4;
-    
-    for (var j = 0; j < barCount; j++) {
-      var value = data[j] || 0;
-      var barHeight = Math.max(2, value * maxHeight);
-      var x = j * barWidth;
-      var y = height - barHeight - 2;
-      
-      var color;
-      if (value > 0.85) color = 'rgba(255, 50, 50, 0.95)';
-      else if (value > 0.70) color = 'rgba(255, 150, 50, 0.90)';
-      else if (value > 0.50) color = 'rgba(255, 220, 50, 0.85)';
-      else if (value > 0.30) color = 'rgba(100, 220, 100, 0.85)';
-      else color = 'rgba(50, 200, 50, 0.80)';
-      
-      var gradient = ctx.createLinearGradient(0, y, 0, height);
-      gradient.addColorStop(0, color);
-      gradient.addColorStop(0.5, color.replace('0.95', '0.5').replace('0.90', '0.4').replace('0.85', '0.35').replace('0.80', '0.3'));
-      gradient.addColorStop(1, isDark ? 'rgba(76, 175, 80, 0.05)' : 'rgba(76, 175, 80, 0.05)');
-      ctx.fillStyle = gradient;
-      
-      var radius = 2;
-      ctx.beginPath();
-      ctx.moveTo(x + 1 + radius, y);
-      ctx.lineTo(x + barWidth - 2 - radius, y);
-      ctx.quadraticCurveTo(x + barWidth - 2, y, x + barWidth - 2, y + radius);
-      ctx.lineTo(x + barWidth - 2, height - 2);
-      ctx.lineTo(x + 1, height - 2);
-      ctx.lineTo(x + 1, y + radius);
-      ctx.quadraticCurveTo(x + 1, y, x + 1 + radius, y);
-      ctx.fill();
-    }
-    
-    var freqLabels = ['31Hz', '62Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz'];
-    var labelStep = barCount / freqLabels.length;
-    ctx.fillStyle = isDark ? 'rgba(200,255,200,0.5)' : 'rgba(50,150,50,0.5)';
-    ctx.font = '8px Segoe UI, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    for (var f = 0; f < freqLabels.length; f++) {
-      var labelX = (f * labelStep + labelStep / 2) * barWidth;
-      ctx.fillText(freqLabels[f], labelX, height - 1);
-    }
   }
 
   function updateVUMeterWindow(value) {
@@ -1123,8 +1522,10 @@
   }
 
   // ============================================
-  //  AUDIO FUNCTIONS (БЕЗ ИЗМЕНЕНИЙ)
+  //  AUDIO FUNCTIONS
   // ============================================
+
+  var PRESET_ORDER = ["flat", "natural", "universal", "balanced", "club", "dance", "edm", "synthwave", "deephouse", "festival", "rock", "metal", "hardrock", "grunge", "vocal", "podcast", "speech", "rap", "acoustic", "piano", "orchestra", "classical", "jazz", "headphones", "car", "night", "bassboost", "pop", "kpop", "world", "ambient", "wave", "phonk", "hiphop", "soul", "blues", "reggae", "chill", "lofi", "sunset", "logitech", "maxboost", "gaming", "movie", "fps", "hifi", "studio", "premium", "master", "clarity"];
 
   function getSliderGains() {
     var gains = {};
@@ -1137,12 +1538,10 @@
     return gains;
   }
 
-  function applyPreset(name) {
-    var preset = PRESETS[name];
-    if (!preset) return;
-    
-    console.log('🎵 Applying preset in window: ' + name);
-    
+  function syncPresetUIInWindow(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
+    if (!preset) return false;
+
     windowState.currentPreset = name;
     updatePresetInfo(name);
     if (dom.presetSelect) dom.presetSelect.value = name;
@@ -1153,7 +1552,7 @@
     sliders.forEach(function(slider) {
       var freq = slider.dataset.freq;
       if (gains[freq] !== undefined) {
-        var value = gains[freq];
+        var value = Number(gains[freq]) || 0;
         slider.value = value;
         var valueSpan = slider.parentElement.querySelector('.gain-value');
         if (valueSpan) {
@@ -1163,49 +1562,132 @@
       }
     });
 
+    var vol = preset.volume !== undefined ? Number(preset.volume) : 100;
+    vol = Math.min(800, Math.max(0, vol));
     if (dom.volumeSlider && dom.volumeDisplay) {
-      var vol = preset.volume || 100;
-      dom.volumeSlider.value = Math.min(800, Math.max(0, vol));
-      dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol)) + '%';
+      dom.volumeSlider.value = vol;
+      dom.volumeDisplay.textContent = vol + '%';
       updateVolumeStatus(vol);
     }
 
+    var bass = preset.bass !== undefined ? Number(preset.bass) : 0;
+    bass = Math.max(-12, Math.min(12, bass));
     if (dom.bassSlider && dom.bassDisplay) {
-      var bass = preset.bass || 0;
-      dom.bassSlider.value = Math.max(-12, Math.min(12, bass));
+      dom.bassSlider.value = bass;
       dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
     }
 
-    var gainsData = getSliderGains();
-    
-    safeSendMessage({ 
-      action: 'updateEQ', 
-      gains: gainsData, 
-      instant: true,
-      source: 'window'
-    });
-    safeSendMessage({ 
-      action: 'setVolume', 
-      value: (preset.volume || 100) / 100, 
-      instant: true 
-    });
-    safeSendMessage({ 
-      action: 'setBass', 
-      value: preset.bass || 0, 
-      instant: true 
-    });
-    
-    saveAllSettings();
     updateEQGraphWindow();
+    return true;
+  }
+
+  function applyPreset(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
+    if (!preset) return;
+
+    console.log('🎵 Applying preset atomically in window: ' + name);
+
+    resetABCompareStateWindow();
+    syncPresetUIInWindow(name, preset);
+
+    if (api) {
+      safeSendMessage({
+        action: 'applyPreset',
+        targetTabId: windowState.targetTabId,
+        preset: name,
+        presetData: {
+          gains: getSliderGains(),
+          volume: parseFloat(dom.volumeSlider ? dom.volumeSlider.value : 100),
+          bass: parseFloat(dom.bassSlider ? dom.bassSlider.value : 0)
+        },
+        source: 'window'
+      });
+    }
+
+    saveAllSettings();
     setStatus('ready', t('preset_applied') + getPresetDesc(name));
+  }
+
+  function syncPresetUIOnlyWindow(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
+    if (preset) syncPresetUIInWindow(name, preset);
+  }
+
+  function resetABCompareStateWindow() {
+    windowState.abPresetA = null;
+    windowState.abPresetB = null;
+    windowState.abMode = false;
+    windowState.abActive = 'A';
+    updateABCompareButtonWindow();
+  }
+
+  function getCurrentPresetSnapshotWindow() {
+    return {
+      gains: getSliderGains(),
+      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100,
+      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
+    };
+  }
+
+  function applyABSnapshotWindow(snapshot, label) {
+    if (!snapshot) return;
+    syncPresetUIInWindow('custom', snapshot);
+
+    safeSendMessage({
+      action: 'applyPreset',
+      targetTabId: windowState.targetTabId,
+      preset: 'custom',
+      presetData: {
+        gains: getSliderGains(),
+        volume: parseFloat(dom.volumeSlider ? dom.volumeSlider.value : snapshot.volume),
+        bass: parseFloat(dom.bassSlider ? dom.bassSlider.value : snapshot.bass)
+      },
+      source: 'window_ab'
+    });
+
+    windowState.currentPreset = 'custom';
+    saveAllSettings();
+    setStatus('ready', label || ('A/B ' + windowState.abActive));
+  }
+
+  function updateABCompareButtonWindow() {
+    if (!dom.abCompareBtn) return;
+    dom.abCompareBtn.textContent = windowState.abMode ? ('A/B: ' + windowState.abActive) : t('compare');
+  }
+
+  function toggleABCompareWindow() {
+    var current = getCurrentPresetSnapshotWindow();
+
+    if (!windowState.abMode) {
+      windowState.abPresetA = JSON.parse(JSON.stringify(current));
+      windowState.abPresetB = null;
+      windowState.abMode = true;
+      windowState.abActive = 'A';
+      updateABCompareButtonWindow();
+      setStatus('ready', 'A сохранён');
+      return;
+    }
+
+    if (windowState.abActive === 'A') {
+      windowState.abPresetB = JSON.parse(JSON.stringify(current));
+      windowState.abActive = 'B';
+      applyABSnapshotWindow(windowState.abPresetB, 'B');
+      updateABCompareButtonWindow();
+      return;
+    }
+
+    if (windowState.abPresetA) {
+      windowState.abActive = 'A';
+      applyABSnapshotWindow(windowState.abPresetA, 'A');
+      updateABCompareButtonWindow();
+    }
   }
 
   function saveAllSettings() {
     var gains = getSliderGains();
     var volume = dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100;
     var bass = dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0;
-    
-    safeStorageSet({
+    var settings = {
       eqSettings: gains,
       volumeBoost: volume / 100,
       bassBoost: bass,
@@ -1214,7 +1696,16 @@
       language: currentLang,
       savedVolume: volume,
       savedBass: bass
+    };
+    var previous = _lastWindowSettingsSnapshot || {};
+    var patch = {};
+    Object.keys(settings).forEach(function(key) {
+      if (JSON.stringify(previous[key]) !== JSON.stringify(settings[key])) {
+        patch[key] = settings[key];
+      }
     });
+    _lastWindowSettingsSnapshot = JSON.parse(JSON.stringify(settings));
+    if (Object.keys(patch).length > 0) safeStorageSet(patch);
   }
 
   function handleReset() {
@@ -1247,23 +1738,7 @@
     updatePresetInfo('flat');
     if (dom.presetSelect) dom.presetSelect.value = 'flat';
     
-    var gainsData = getSliderGains();
-    safeSendMessage({ 
-      action: 'updateEQ', 
-      gains: gainsData, 
-      instant: true,
-      source: 'window_reset'
-    });
-    safeSendMessage({ 
-      action: 'setVolume', 
-      value: 1.0, 
-      instant: true 
-    });
-    safeSendMessage({ 
-      action: 'setBass', 
-      value: 0, 
-      instant: true 
-    });
+    resetABCompareStateWindow();
     
     saveAllSettings();
     updateEQGraphWindow();
@@ -1275,7 +1750,7 @@
   }
 
   function nextPreset() {
-    var allPresets = Object.keys(PRESETS);
+    var allPresets = PRESET_ORDER.slice();
     var currentPreset = windowState.currentPreset || 'flat';
     var currentIndex = allPresets.indexOf(currentPreset);
     if (currentIndex === -1) currentIndex = 0;
@@ -1288,8 +1763,15 @@
   }
 
   // ============================================
-  //  CONNECT/DISCONNECT (БЕЗ ИЗМЕНЕНИЙ)
+  //  CONNECT/DISCONNECT - ИСПРАВЛЕНО
   // ============================================
+
+  function stopConnectPolling() {
+    if (windowState.connectPollTimer) {
+      try { clearInterval(windowState.connectPollTimer); } catch (e) {}
+      windowState.connectPollTimer = null;
+    }
+  }
 
   function handleConnectDisconnect() {
     if (windowState.isLoading || windowState.isConnecting) return;
@@ -1299,51 +1781,120 @@
     }
 
     if (windowState.currentStatus === 'connected' || windowState.isConnected) {
+      stopConnectPolling();
       showLoading(true);
       setStatus('disconnected', t('status_disconnected'));
       windowState.isConnecting = true;
-      safeSendMessage({ action: 'disconnect' }, function() {
+
+      safeSendMessage({
+        action: 'disconnect',
+        targetTabId: windowState.targetTabId
+      }, function(response) {
+        stopConnectPolling();
         showLoading(false);
         windowState.isConnecting = false;
         windowState.isConnected = false;
         windowState.currentStatus = 'disconnected';
+
+        if (response && response.tabId != null) {
+          windowState.targetTabId = response.tabId;
+        }
+
         setStatus('disconnected', t('status_disconnected'));
+        safeStorageSet({ soundforgeConnected: false });
+        console.log('🔴 Окно отключено');
       });
-    } else {
-      showLoading(true);
-      setStatus('connecting', t('status_connecting'));
-      windowState.isConnecting = true;
-      windowState.currentStatus = 'connecting';
-      safeSendMessage({ action: 'connect' }, function() {
-        showLoading(false);
-        setTimeout(function() {
-          safeSendMessage({ action: 'getStatus' }, function(resp) {
-            windowState.isConnecting = false;
-            if (resp && resp.status === 'connected') {
-              windowState.isConnected = true;
-              windowState.currentStatus = 'connected';
-              setStatus('connected', t('status_connected'));
-              applySavedSettings(false);
-            } else {
-              setTimeout(function() {
-                safeSendMessage({ action: 'getStatus' }, function(resp2) {
-                  if (resp2 && resp2.status === 'connected') {
-                    windowState.isConnected = true;
-                    windowState.currentStatus = 'connected';
-                    setStatus('connected', t('status_connected'));
-                    applySavedSettings(false);
-                  } else {
-                    windowState.isConnected = false;
-                    windowState.currentStatus = 'disconnected';
-                    setStatus('disconnected', t('status_disconnected'));
-                  }
-                });
-              }, 1000);
-            }
-          });
-        }, 1500);
-      });
+      return;
     }
+
+    stopConnectPolling();
+    showLoading(true);
+    setStatus('connecting', t('status_connecting'));
+    windowState.isConnecting = true;
+    windowState.currentStatus = 'connecting';
+
+    safeSendMessage({
+      action: 'connect',
+      targetTabId: windowState.targetTabId
+    }, function(response) {
+      if (response && response.tabId != null) {
+        windowState.targetTabId = response.tabId;
+      }
+
+      if (response && response.status === 'connected') {
+        stopConnectPolling();
+        showLoading(false);
+        windowState.isConnecting = false;
+        windowState.isConnected = true;
+        windowState.currentStatus = 'connected';
+        setStatus('connected', t('status_connected'));
+        applySavedSettings(false);
+        safeStorageSet({ soundforgeConnected: true });
+        console.log('✅ Окно подключено: background подтвердил уже активное соединение');
+        return;
+      }
+
+      if (response && ['no_tab', 'system_page', 'extension_page', 'error'].indexOf(response.status) !== -1) {
+        stopConnectPolling();
+        showLoading(false);
+        windowState.isConnecting = false;
+        windowState.isConnected = false;
+        windowState.currentStatus = 'disconnected';
+        setStatus('disconnected', t('connection_error'));
+        return;
+      }
+
+      console.log('⏳ Окно: connect отправлен, ждём подтверждение реального подключения');
+
+      var attempts = 0;
+      var maxAttempts = 20;
+      windowState.connectPollTimer = setInterval(function() {
+        if (!windowState.isConnecting) {
+          stopConnectPolling();
+          return;
+        }
+
+        attempts++;
+        safeSendMessage({
+          action: 'getStatus',
+          targetTabId: windowState.targetTabId
+        }, function(resp) {
+          if (resp && resp.tabId != null && windowState.targetTabId == null) {
+            windowState.targetTabId = resp.tabId;
+          }
+
+          if (resp && resp.status === 'connected') {
+            stopConnectPolling();
+            windowState.isConnecting = false;
+            windowState.isConnected = true;
+            windowState.currentStatus = 'connected';
+            showLoading(false);
+            setStatus('connected', t('status_connected'));
+            applySavedSettings(false);
+            safeStorageSet({ soundforgeConnected: true });
+            console.log('✅ Окно подключено (poll getStatus)');
+            return;
+          }
+
+          // A transient disconnected response is expected while inject.js is
+          // loading or creating the AudioContext. Do not fail the handshake here.
+          if (resp && resp.status === 'disconnected' && windowState.isConnecting) {
+            setStatus('connecting', t('status_connecting'));
+            return;
+          }
+
+          if (attempts >= maxAttempts) {
+            stopConnectPolling();
+            windowState.isConnecting = false;
+            windowState.isConnected = false;
+            windowState.currentStatus = 'disconnected';
+            showLoading(false);
+            setStatus('disconnected', t('connection_error'));
+            console.log('❌ Окно: подтверждение подключения не получено за 10 секунд');
+          }
+        });
+      }, 500);
+    });
   }
 
   function applySavedSettings(applyPresetToo) {
@@ -1416,13 +1967,23 @@
         windowState.currentPreset = result.selectedPreset;
         applyPreset(result.selectedPreset);
       }
-      
+
+      _lastWindowSettingsSnapshot = JSON.parse(JSON.stringify({
+        eqSettings: result.eqSettings || getSliderGains(),
+        volumeBoost: result.volumeBoost,
+        bassBoost: result.bassBoost,
+        selectedPreset: result.selectedPreset || (windowState.currentPreset === 'custom' ? null : windowState.currentPreset),
+        theme: result.theme || windowState.currentTheme,
+        language: result.language || currentLang,
+        savedVolume: result.savedVolume,
+        savedBass: result.savedBass
+      }));
       updateSiteInfo();
     });
   }
 
   // ============================================
-  //  THEMES (БЕЗ ИЗМЕНЕНИЙ)
+  //  THEMES
   // ============================================
 
   function initThemeSelector() {
@@ -1476,7 +2037,7 @@
   }
 
   // ============================================
-  //  LANGUAGE (БЕЗ ИЗМЕНЕНИЙ)
+  //  LANGUAGE
   // ============================================
 
   function initLanguage() {
@@ -1498,7 +2059,7 @@
     currentLang = newLang;
     safeStorageSet({ language: newLang });
     updateLanguage();
-    populatePresetSelect();
+    loadUserPresets().then(function() { populatePresetSelect(); });
     if (dom.loadingText) dom.loadingText.textContent = t('loading');
   }
 
@@ -1544,6 +2105,8 @@
     if (dom.volumeLabel) dom.volumeLabel.textContent = t('volume');
     if (dom.bassLabel) dom.bassLabel.textContent = t('bass');
     if (dom.visStatus) dom.visStatus.textContent = t('visualization');
+    
+    updateEffectButtonLabelInWindow();
     
     var nightBtn = dom.nightModeBtn;
     if (nightBtn) {
@@ -1596,8 +2159,25 @@
   }
 
   // ============================================
-  //  PRESETS (БЕЗ ИЗМЕНЕНИЙ)
+  //  PRESETS
   // ============================================
+
+  function loadUserPresets() {
+    return new Promise(function(resolve) {
+      try {
+        if (api && api.runtime && api.runtime.sendMessage) {
+          safeSendMessage({ action: 'getUserPresets' }, function(response) {
+            if (response && response.status === 'ok' && response.presets) {
+              windowState.userPresets = response.presets;
+            }
+            resolve(windowState.userPresets);
+          });
+        } else {
+          resolve(windowState.userPresets);
+        }
+      } catch (e) { resolve(windowState.userPresets); }
+    });
+  }
 
   function populatePresetSelect() {
     var select = dom.presetSelect;
@@ -1605,7 +2185,7 @@
     select.innerHTML = '';
 
     var categories = {};
-    var presetNames = Object.keys(PRESETS);
+    var presetNames = PRESET_ORDER.slice();
 
     presetNames.forEach(function(name) {
       var category = PRESET_CATEGORIES[name] || '🎧 Special';
@@ -1637,8 +2217,7 @@
     });
 
     try {
-      var saved = localStorage.getItem('soundforge_user_presets');
-      var userPresets = saved ? JSON.parse(saved) : {};
+      var userPresets = windowState.userPresets || {};
       var userKeys = Object.keys(userPresets);
       if (userKeys.length > 0) {
         var userOptgroup = document.createElement('optgroup');
@@ -1659,50 +2238,121 @@
   }
 
   // ============================================
-  //  MESSAGE HANDLER (БЕЗ ИЗМЕНЕНИЙ)
+  //  MESSAGE HANDLER - ИСПРАВЛЕНО
   // ============================================
 
   function setupMessageListener() {
     if (!api) return;
     try {
       api.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+        // Игнорируем свои же сообщения
         if (sender && sender.url && sender.url.includes('window.html')) {
           sendResponse({ status: 'ignored' });
           return true;
         }
         
+        if (request.action === 'userPresetsUpdated' && request.presets) {
+          windowState.userPresets = request.presets;
+          populatePresetSelect();
+          sendResponse({ status: 'ok' });
+          return true;
+        }
+
         if (request.action === 'spectrumData' && request.spectrum) {
           var data = request.spectrum;
           var len = Math.min(data.length, windowState.spectrumData.length);
           for (var i = 0; i < len; i++) {
             windowState.spectrumData[i] = data[i] || 0;
           }
+          windowState.hasAudio = request.hasAudio === true;
+          windowState.rmsValue = Math.max(0, Math.min(1, Number(request.rms) || 0));
+          windowState.peakValue = Math.max(0, Math.min(1, Number(request.peak) || 0));
+          windowState.isClipping = request.clipping === true;
           updateSpectrumWindow();
           sendResponse({ status: 'ok' });
           return true;
         }
         
+        // ============================================
+        //  СТАТУС - ИСПРАВЛЕНО
+        // ============================================
         if (request.action === 'statusUpdate') {
-          if (request.status === 'connected') {
-            windowState.isConnected = true;
-            windowState.currentStatus = 'connected';
-            setStatus('connected', t('status_connected'));
-            applySavedSettings(false);
-          } else if (request.status === 'disconnected') {
-            windowState.isConnected = false;
-            windowState.currentStatus = 'disconnected';
-            setStatus('disconnected', t('status_disconnected'));
+          console.log('📨 Окно получило statusUpdate:', request.status, 'tabId:', request.tabId);
+
+          if (windowState.targetTabId == null && request.tabId != null) {
+            windowState.targetTabId = request.tabId;
           }
+
+          var isForUs = windowState.targetTabId == null
+            ? (request.tabId == null || request.tabId === undefined)
+            : (request.tabId != null && Number(request.tabId) === Number(windowState.targetTabId));
+
+          if (isForUs) {
+            if (request.status === 'connected') {
+              var wasAlreadyConnected = windowState.isConnected && windowState.currentStatus === 'connected';
+              stopConnectPolling();
+              windowState.isConnected = true;
+              windowState.currentStatus = 'connected';
+              windowState.isConnecting = false;
+              showLoading(false);
+              setStatus('connected', t('status_connected'));
+              if (!wasAlreadyConnected) {
+                applySavedSettings(false);
+              }
+              safeStorageSet({ soundforgeConnected: true });
+              console.log('✅ Окно подключено (через statusUpdate)');
+            } else if (request.status === 'disconnected') {
+              // During an active handshake, inject.js can legitimately report
+              // a transient disconnected state before SF_CONNECT completes.
+              // Do not cancel the handshake or turn off the loading indicator.
+              if (windowState.isConnecting && windowState.currentStatus === 'connecting') {
+                setStatus('connecting', t('status_connecting'));
+                console.log('⏳ Игнорируем промежуточный disconnected во время handshake');
+                sendResponse({ status: 'ignored_transient_disconnected' });
+                return true;
+              }
+
+              stopConnectPolling();
+              windowState.isConnected = false;
+              windowState.currentStatus = 'disconnected';
+              windowState.isConnecting = false;
+              showLoading(false);
+              setStatus('disconnected', t('status_disconnected'));
+              safeStorageSet({ soundforgeConnected: false });
+              console.log('🔴 Окно отключено (через statusUpdate)');
+            } else if (request.status === 'connecting') {
+              windowState.currentStatus = 'connecting';
+              windowState.isConnecting = true;
+              showLoading(true);
+              setStatus('connecting', t('status_connecting'));
+            } else if (request.status === 'error') {
+              stopConnectPolling();
+              windowState.isConnected = false;
+              windowState.currentStatus = 'disconnected';
+              windowState.isConnecting = false;
+              showLoading(false);
+              setStatus('disconnected', t('connection_error'));
+              console.warn('❌ Окно получило ошибку подключения');
+            } else if (request.status === 'ready') {
+              console.log('✅ Окно: ready');
+            }
+          } else {
+            console.log('⏳ Окно: игнорируем statusUpdate для другой вкладки:', request.tabId);
+          }
+
           sendResponse({ status: 'ok' });
           return true;
         }
-        
-        if (request.action === 'presetChanged' && request.preset) {
-          console.log('🔄 Preset changed via hotkey: ' + request.preset);
-          if (PRESETS[request.preset]) {
-            applyPreset(request.preset);
-            setStatus('ready', t('preset_applied') + getPresetDesc(request.preset));
+
+        if (request.action === 'presetChanged'  && request.preset) {
+          console.log('🔄 Preset synchronized in Window: ' + request.preset);
+          if (windowState.targetTabId != null && request.tabId != null &&
+              Number(request.tabId) !== Number(windowState.targetTabId)) {
+            sendResponse({ status: 'ignored' });
+            return true;
           }
+          if (request.tabId != null) windowState.targetTabId = request.tabId;
+          syncPresetUIOnlyWindow(request.preset, request.presetData || null);
           sendResponse({ status: 'ok' });
           return true;
         }
@@ -1713,8 +2363,19 @@
           sendResponse({ status: 'ok' });
           return true;
         }
+
+        if (request.action === 'effectChanged' && request.effect) {
+          _currentEffect = request.effect;
+          try { localStorage.setItem('soundforge_window_effect', request.effect); } catch (e) {}
+          updateEffectButtonLabelInWindow();
+          renderEffectInWindow();
+          sendResponse({ status: 'ok' });
+          return true;
+        }
         
-        return false;
+        // Ответ по умолчанию
+        sendResponse({ status: 'ok' });
+        return true;
       });
     } catch(e) {
       console.warn('⚠️ Ошибка настройки слушателя:', e);
@@ -1722,7 +2383,7 @@
   }
 
   // ============================================
-  //  HOTKEYS (БЕЗ FULLSCREEN)
+  //  HOTKEYS
   // ============================================
 
   function setupWindowHotkeys() {
@@ -1752,7 +2413,7 @@
   }
 
   // ============================================
-  //  NEW FEATURE BUTTONS (БЕЗ ИЗМЕНЕНИЙ)
+  //  NEW FEATURE BUTTONS
   // ============================================
 
   function setupNewFeatureButtons() {
@@ -1872,13 +2533,14 @@
         if (!name) return;
 
         try {
-          var presets = JSON.parse(localStorage.getItem('soundforge_user_presets') || '{}');
+          var presets = Object.assign({}, windowState.userPresets || {});
           var gains = getSliderGains();
           var volume = dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100;
           var bass = dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0;
           
           presets[name] = { gains: gains, volume: volume, bass: bass, timestamp: Date.now() };
-          localStorage.setItem('soundforge_user_presets', JSON.stringify(presets));
+          windowState.userPresets = presets;
+          safeSendMessage({ action: 'saveUserPreset', name: name, preset: presets[name] });
           
           setStatus('ready', t('preset_saved') + name);
           populatePresetSelect();
@@ -1891,9 +2553,7 @@
 
     var abBtn = dom.abCompareBtn;
     if (abBtn) {
-      abBtn.addEventListener('click', function() {
-        setStatus('ready', t('ab_saved'));
-      });
+      abBtn.addEventListener('click', toggleABCompareWindow);
     }
 
     var openWindowBtn = dom.openWindowBtn;
@@ -1902,10 +2562,17 @@
         safeSendMessage({ action: 'open_window' });
       });
     }
+
+    if (dom.effectBtn) {
+      dom.effectBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        cycleEffectInWindow();
+      });
+    }
   }
 
   // ============================================
-  //  EXPORT / IMPORT (БЕЗ ИЗМЕНЕНИЙ)
+  //  EXPORT / IMPORT
   // ============================================
 
   function handleExport() {
@@ -1966,14 +2633,135 @@
   }
 
   // ============================================
+  //  ИНИЦИАЛИЗАЦИЯ ВСЕХ МОДУЛЕЙ (БЕЗОПАСНАЯ)
+  // ============================================
+
+  function initModules() {
+    // History
+    try {
+      import('./features/history.js').then(function(module) {
+        if (module && module.initHistoryTracking) {
+          try {
+            module.initHistoryTracking();
+            console.log('✅ History инициализирован');
+          } catch (e) {
+            console.warn('⚠️ Ошибка инициализации history:', e);
+          }
+        }
+      }).catch(function(e) {
+        console.warn('⚠️ Ошибка загрузки history:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка инициализации history:', e);
+    }
+    
+    // Hotkeys
+    try {
+      import('./features/hotkeys.js').then(function(module) {
+        if (module && module.initHotkeys) {
+          try {
+            module.initHotkeys();
+            console.log('✅ Hotkeys инициализирован');
+          } catch (e) {
+            console.warn('⚠️ Ошибка инициализации hotkeys:', e);
+          }
+        }
+      }).catch(function(e) {
+        console.warn('⚠️ Ошибка загрузки hotkeys:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка инициализации hotkeys:', e);
+    }
+    
+    // Site Settings
+    try {
+      import('./features/site-settings.js').then(function(module) {
+        if (module && module.initAutoDisable) {
+          try {
+            module.initAutoDisable();
+            console.log('✅ Site Settings инициализирован');
+          } catch (e) {
+            console.warn('⚠️ Ошибка инициализации site-settings:', e);
+          }
+        }
+      }).catch(function(e) {
+        console.warn('⚠️ Ошибка загрузки site-settings:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка инициализации site-settings:', e);
+    }
+    
+    // Stats - БЕЗОПАСНАЯ ИНИЦИАЛИЗАЦИЯ
+    try {
+      import('./features/stats.js').then(function(module) {
+        if (module && module.initStats) {
+          try {
+            module.initStats();
+            console.log('✅ Stats инициализирован');
+          } catch (e) {
+            console.warn('⚠️ Ошибка инициализации stats:', e);
+          }
+        }
+      }).catch(function(e) {
+        console.warn('⚠️ Ошибка загрузки stats:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка инициализации stats:', e);
+    }
+    
+    // Notifications
+    try {
+      import('./features/notifications.js').then(function(module) {
+        if (module && module.checkForUpdates) {
+          try {
+            setTimeout(module.checkForUpdates, 5000);
+            console.log('✅ Notifications инициализирован');
+          } catch (e) {
+            console.warn('⚠️ Ошибка инициализации notifications:', e);
+          }
+        }
+      }).catch(function(e) {
+        console.warn('⚠️ Ошибка загрузки notifications:', e);
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка инициализации notifications:', e);
+    }
+  }
+
+  // ============================================
   //  INIT
   // ============================================
 
   function init() {
     console.log('📄 DOM loaded');
     initDom();
+    
+    windowState.isConnected = false;
+    windowState.currentStatus = 'disconnected';
+    setStatus('disconnected', t('status_disconnected'));
+
+    // Получаем именно активную вкладку браузера (а не окно расширения).
+    safeSendMessage({ action: 'getStatus' }, function(response) {
+      if (response && response.tabId != null && windowState.targetTabId == null) {
+        windowState.targetTabId = response.tabId;
+        console.log('🎯 Window targetTabId:', response.tabId);
+      }
+      if (response && response.status === 'connected') {
+        windowState.isConnected = true;
+        windowState.currentStatus = 'connected';
+        stopConnectPolling();
+        showLoading(false);
+        setStatus('connected', t('status_connected'));
+      }
+    });
+    console.log('🔴 Окно: начальный статус ОТКЛЮЧЕН');
+    
+    loadWindowEffect();
+    updateEffectButtonLabelInWindow();
+    initEffectParticles();
+    
     applySavedSettings(true);
-    populatePresetSelect();
+    loadUserPresets().then(function() { populatePresetSelect(); });
     
     if (dom.connectBtn) dom.connectBtn.addEventListener('click', handleConnectDisconnect);
     if (dom.resetBtn) dom.resetBtn.addEventListener('click', handleReset);
@@ -1990,8 +2778,7 @@
         if (value.startsWith('user_')) {
           var userPresetName = value.substring(5);
           try {
-            var saved = localStorage.getItem('soundforge_user_presets');
-            var userPresets = saved ? JSON.parse(saved) : {};
+            var userPresets = windowState.userPresets || {};
             if (userPresets[userPresetName]) {
               var preset = userPresets[userPresetName];
               var tempPreset = {
@@ -2027,6 +2814,7 @@
                 dom.bassDisplay.textContent = bass2.toFixed(1) + ' dB';
               }
               var gainsData2 = getSliderGains();
+              safeSendMessage({ action: 'applyPreset', preset: userPresetName, presetData: tempPreset, source: 'window-user' });
               safeSendMessage({ action: 'updateEQ', gains: gainsData2, instant: true });
               safeSendMessage({ action: 'setVolume', value: (tempPreset.volume || 100) / 100, instant: true });
               safeSendMessage({ action: 'setBass', value: tempPreset.bass || 0, instant: true });
@@ -2100,23 +2888,26 @@
     setupMessageListener();
     setupNewFeatureButtons();
     
+    // ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ (БЕЗОПАСНАЯ)
+    initModules();
+    
     visualizationLoopWindow();
     setupWindowHotkeys();
     
-    setInterval(function() {
+    setTimeout(function() {
       safeSendMessage({ action: 'getSpectrum' });
-    }, 50);
+    }, 250);
     setInterval(updateSiteInfo, 3000);
     
-    console.log('✅ SoundForge Window ready (Firefox) — БЕЗ FULLSCREEN');
+    console.log('✅ SoundForge Window ready (Firefox/Chrome)');
     console.log('📊 Loaded ' + Object.keys(PRESETS).length + ' presets');
+    console.log('🎨 Effects: Spectrum | Waves | Fire | Neon');
     console.log('⌨️ Hotkeys in window:');
     console.log('   Ctrl+Shift+E - Toggle ON/OFF');
     console.log('   Ctrl+Shift+Y - Next preset');
     console.log('   Ctrl+Shift+X - Reset all settings');
     console.log('   Escape - Close window');
     console.log('📜 History and Stats buttons support 3 languages (RU, UA, EN)');
-    console.log('🪟 FULLSCREEN КНОПКА УДАЛЕНА ПОЛНОСТЬЮ');
   }
 
   if (document.readyState === 'loading') {

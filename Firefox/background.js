@@ -1,715 +1,13 @@
 // ============================================
-//  BACKGROUND.JS - v3.22.8 (FIREFOX 153.0esr)
-//  ПОЛНЫЙ КОД БЕЗ importScripts()
+//  BACKGROUND.JS - v3.22.8 (FIREFOX)
+//  ПОЛНОСТЬЮ ИДЕНТИЧЕН CHROME ВЕРСИИ
+//  АДАПТИРОВАН ДЛЯ FIREFOX 153.0esr
+//  ИСПРАВЛЕНО: отправка статуса в окно
+//  ИСПРАВЛЕНО: обработка statusUpdate
+//  ГОРЯЧИЕ КЛАВИШИ: Ctrl+Shift+U, Ctrl+Shift+E, Ctrl+Shift+Y, Ctrl+Shift+X
 // ============================================
 
-// ============================================
-//  BROWSER-COMPAT (ВСТРОЕННЫЙ КОД)
-// ============================================
-
-const Browser = {
-  UNKNOWN: 'unknown',
-  EDGE: 'edge',
-  CHROME: 'chrome',
-  FIREFOX: 'firefox',
-  OPERA: 'opera',
-  SAFARI: 'safari',
-  BRAVE: 'brave',
-  VIVALDI: 'vivaldi'
-};
-
-class BrowserInfo {
-  constructor() {
-    this._detect();
-  }
-
-  _detect() {
-    const ua = navigator.userAgent.toLowerCase();
-    const vendor = navigator.vendor || '';
-
-    if (ua.includes('firefox') || ua.includes('fxios')) {
-      this.name = Browser.FIREFOX;
-      this.version = this._extractVersion(ua, 'firefox/');
-    } else if (ua.includes('edg/')) {
-      this.name = Browser.EDGE;
-      this.version = this._extractVersion(ua, 'edg/');
-    } else if (ua.includes('opr/') || ua.includes('opera')) {
-      this.name = Browser.OPERA;
-      this.version = this._extractVersion(ua, 'opr/');
-    } else if (ua.includes('brave')) {
-      this.name = Browser.BRAVE;
-      this.version = this._extractVersion(ua, 'chrome/');
-    } else if (ua.includes('vivaldi')) {
-      this.name = Browser.VIVALDI;
-      this.version = this._extractVersion(ua, 'vivaldi/');
-    } else if (ua.includes('safari') && !ua.includes('chrome')) {
-      this.name = Browser.SAFARI;
-      this.version = this._extractVersion(ua, 'version/');
-    } else if (ua.includes('chrome') || vendor.includes('Google')) {
-      this.name = Browser.CHROME;
-      this.version = this._extractVersion(ua, 'chrome/');
-    } else {
-      this.name = Browser.UNKNOWN;
-      this.version = '0';
-    }
-
-    this.isChromium = this.name === Browser.CHROME || 
-                     this.name === Browser.EDGE || 
-                     this.name === Browser.OPERA || 
-                     this.name === Browser.BRAVE || 
-                     this.name === Browser.VIVALDI;
-    this.isFirefox = this.name === Browser.FIREFOX;
-    this.isSafari = this.name === Browser.SAFARI;
-    this.isMobile = /mobile|android|iphone|ipad|ipod/i.test(ua);
-    this.isDesktop = !this.isMobile;
-    this.versionNumber = parseFloat(this.version);
-  }
-
-  _extractVersion(ua, marker) {
-    const index = ua.indexOf(marker);
-    if (index === -1) return '0';
-    const start = index + marker.length;
-    const end = ua.indexOf('.', start);
-    if (end === -1) return ua.substring(start);
-    return ua.substring(start, end);
-  }
-
-  isMinVersion(major, minor = 0) {
-    const parts = this.version.split('.');
-    const verMajor = parseInt(parts[0]) || 0;
-    const verMinor = parseInt(parts[1]) || 0;
-    if (verMajor > major) return true;
-    if (verMajor === major && verMinor >= minor) return true;
-    return false;
-  }
-
-  getInfo() {
-    return {
-      name: this.name,
-      version: this.version,
-      versionNumber: this.versionNumber,
-      isChromium: this.isChromium,
-      isFirefox: this.isFirefox,
-      isSafari: this.isSafari,
-      isMobile: this.isMobile,
-      isDesktop: this.isDesktop,
-      userAgent: navigator.userAgent
-    };
-  }
-}
-
-const browserInfo = new BrowserInfo();
-
-// ============================================
-//  УНИВЕРСАЛЬНЫЙ API
-// ============================================
-
-class UniversalAPI {
-  constructor() {
-    if (typeof browser !== 'undefined' && browser.runtime) {
-      this._api = browser;
-      this._type = 'browser';
-      this._isFirefox = true;
-      this._isChrome = false;
-    } else if (typeof chrome !== 'undefined' && chrome.runtime) {
-      this._api = chrome;
-      this._type = 'chrome';
-      this._isFirefox = false;
-      this._isChrome = true;
-    } else {
-      this._api = null;
-      this._type = 'none';
-      this._isFirefox = false;
-      this._isChrome = false;
-    }
-  }
-
-  isAvailable() { return !!this._api; }
-  isFirefox() { return this._isFirefox; }
-  isChrome() { return this._isChrome; }
-  getType() { return this._type; }
-  get api() { return this._api; }
-
-  sendMessage(message, callback = null) {
-    if (!this._api) {
-      if (callback) callback(null);
-      return Promise.reject(new Error('API not available'));
-    }
-
-    try {
-      if (this._isFirefox) {
-        const promise = this._api.runtime.sendMessage(message);
-        if (callback) {
-          promise.then(callback).catch(() => callback(null));
-        }
-        return promise;
-      } else {
-        return new Promise((resolve, reject) => {
-          this._api.runtime.sendMessage(message, (response) => {
-            if (this._api.runtime.lastError) {
-              const err = this._api.runtime.lastError;
-              if (callback) callback(null);
-              reject(err);
-            } else {
-              if (callback) callback(response);
-              resolve(response);
-            }
-          });
-        });
-      }
-    } catch (e) {
-      if (callback) callback(null);
-      return Promise.reject(e);
-    }
-  }
-
-  onMessage(callback) {
-    if (!this._api) return;
-    this._api.runtime.onMessage.addListener(callback);
-  }
-
-  storageGet(keys = null) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.storage.local.get(keys).then(resolve).catch(reject);
-        } else {
-          this._api.storage.local.get(keys, (result) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(result);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  storageSet(data) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.storage.local.set(data).then(resolve).catch(reject);
-        } else {
-          this._api.storage.local.set(data, () => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  storageRemove(keys) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.storage.local.remove(keys).then(resolve).catch(reject);
-        } else {
-          this._api.storage.local.remove(keys, () => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  storageClear() {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.storage.local.clear().then(resolve).catch(reject);
-        } else {
-          this._api.storage.local.clear(() => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  onStorageChanged(callback) {
-    if (!this._api) return;
-    this._api.storage.onChanged.addListener(callback);
-  }
-
-  tabsQuery(queryInfo) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.tabs.query(queryInfo).then(resolve).catch(reject);
-        } else {
-          this._api.tabs.query(queryInfo, (tabs) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(tabs);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  tabsGet(tabId) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.tabs.get(tabId).then(resolve).catch(reject);
-        } else {
-          this._api.tabs.get(tabId, (tab) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(tab);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  executeScript(tabId, files) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.tabs.executeScript(tabId, { file: files[0] })
-            .then(resolve)
-            .catch(reject);
-        } else {
-          this._api.scripting.executeScript({
-            target: { tabId: tabId },
-            files: files
-          }, (results) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(results);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  executeScriptFunction(tabId, func, args = []) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          const code = `(${func.toString()}).apply(null, ${JSON.stringify(args)})`;
-          this._api.tabs.executeScript(tabId, { code: code })
-            .then(resolve)
-            .catch(reject);
-        } else {
-          this._api.scripting.executeScript({
-            target: { tabId: tabId },
-            func: func,
-            args: args
-          }, (results) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(results);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  onWebNavigationCompleted(callback) {
-    if (!this._api) return;
-    this._api.webNavigation.onCompleted.addListener(callback);
-  }
-
-  onWebNavigationHistoryStateUpdated(callback) {
-    if (!this._api) return;
-    this._api.webNavigation.onHistoryStateUpdated.addListener(callback);
-  }
-
-  notificationsCreate(options) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.notifications.create(options).then(resolve).catch(reject);
-        } else {
-          this._api.notifications.create(options, (notificationId) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(notificationId);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  onNotificationClicked(callback) {
-    if (!this._api) return;
-    this._api.notifications.onClicked.addListener(callback);
-  }
-
-  onNotificationButtonClicked(callback) {
-    if (!this._api) return;
-    this._api.notifications.onButtonClicked.addListener(callback);
-  }
-
-  onCommand(callback) {
-    if (!this._api) return;
-    this._api.commands.onCommand.addListener(callback);
-  }
-
-  windowsCreate(createData) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.windows.create(createData).then(resolve).catch(reject);
-        } else {
-          this._api.windows.create(createData, (window) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(window);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  windowsUpdate(windowId, updateInfo) {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.windows.update(windowId, updateInfo).then(resolve).catch(reject);
-        } else {
-          this._api.windows.update(windowId, updateInfo, (window) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(window);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  windowsGetCurrent() {
-    return new Promise((resolve, reject) => {
-      if (!this._api) {
-        reject(new Error('API not available'));
-        return;
-      }
-
-      try {
-        if (this._isFirefox) {
-          this._api.windows.getCurrent().then(resolve).catch(reject);
-        } else {
-          this._api.windows.getCurrent((window) => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve(window);
-            }
-          });
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  setIcon(details) {
-    if (!this._api) return Promise.reject(new Error('API not available'));
-
-    try {
-      if (this._isFirefox) {
-        return this._api.browserAction.setIcon(details);
-      } else {
-        return new Promise((resolve, reject) => {
-          this._api.action.setIcon(details, () => {
-            if (this._api.runtime.lastError) {
-              reject(this._api.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        });
-      }
-    } catch (e) {
-      return Promise.reject(e);
-    }
-  }
-
-  setBadgeText(details) {
-    if (!this._api) return;
-
-    try {
-      if (this._isFirefox) {
-        this._api.browserAction.setBadgeText(details);
-      } else {
-        this._api.action.setBadgeText(details);
-      }
-    } catch (e) {}
-  }
-
-  setBadgeBackgroundColor(details) {
-    if (!this._api) return;
-
-    try {
-      if (this._isFirefox) {
-        this._api.browserAction.setBadgeBackgroundColor(details);
-      } else {
-        this._api.action.setBadgeBackgroundColor(details);
-      }
-    } catch (e) {}
-  }
-
-  alarmsCreate(name, alarmInfo) {
-    if (!this._api) return;
-    try {
-      this._api.alarms.create(name, alarmInfo);
-    } catch (e) {}
-  }
-
-  onAlarm(callback) {
-    if (!this._api) return;
-    this._api.alarms.onAlarm.addListener(callback);
-  }
-
-  getURL(path) {
-    if (!this._api) return path;
-    return this._api.runtime.getURL(path);
-  }
-}
-
-const api = new UniversalAPI();
-
-console.log('🎛️ SoundForge Background v3.22.8 (Firefox) запущен');
-
-// ============================================
-//  ПОЛИФИЛЛЫ ДЛЯ FIREFOX
-// ============================================
-
-if (typeof chrome === 'undefined' && typeof browser !== 'undefined') {
-  window.chrome = {
-    runtime: {
-      sendMessage: (message, callback) => {
-        browser.runtime.sendMessage(message).then(callback).catch(() => callback(null));
-      },
-      onMessage: {
-        addListener: (callback) => browser.runtime.onMessage.addListener(callback)
-      },
-      lastError: null,
-      getURL: (path) => browser.runtime.getURL(path)
-    },
-    storage: {
-      local: {
-        get: (keys, callback) => {
-          browser.storage.local.get(keys).then(result => callback(result)).catch(() => callback({}));
-        },
-        set: (data, callback) => {
-          browser.storage.local.set(data).then(callback).catch(callback);
-        },
-        remove: (keys, callback) => {
-          browser.storage.local.remove(keys).then(callback).catch(callback);
-        },
-        clear: (callback) => {
-          browser.storage.local.clear().then(callback).catch(callback);
-        }
-      },
-      onChanged: {
-        addListener: (callback) => browser.storage.onChanged.addListener(callback)
-      }
-    },
-    tabs: {
-      query: (queryInfo, callback) => {
-        browser.tabs.query(queryInfo).then(callback).catch(() => callback([]));
-      },
-      get: (tabId, callback) => {
-        browser.tabs.get(tabId).then(callback).catch(() => callback(null));
-      },
-      executeScript: (tabId, details, callback) => {
-        if (details.file) {
-          browser.tabs.executeScript(tabId, { file: details.file }).then(callback).catch(callback);
-        } else if (details.code) {
-          browser.tabs.executeScript(tabId, { code: details.code }).then(callback).catch(callback);
-        }
-      },
-      onActivated: {
-        addListener: (callback) => browser.tabs.onActivated.addListener(callback)
-      },
-      onUpdated: {
-        addListener: (callback) => browser.tabs.onUpdated.addListener(callback)
-      },
-      onRemoved: {
-        addListener: (callback) => browser.tabs.onRemoved.addListener(callback)
-      }
-    },
-    scripting: {
-      executeScript: (details, callback) => {
-        const tabId = details.target.tabId;
-        if (details.files && details.files.length > 0) {
-          browser.tabs.executeScript(tabId, { file: details.files[0] }).then(callback).catch(callback);
-        } else if (details.func) {
-          const code = `(${details.func.toString()}).apply(null, ${JSON.stringify(details.args || [])})`;
-          browser.tabs.executeScript(tabId, { code: code }).then(callback).catch(callback);
-        }
-      }
-    },
-    webNavigation: {
-      onCompleted: {
-        addListener: (callback) => browser.webNavigation.onCompleted.addListener(callback)
-      },
-      onHistoryStateUpdated: {
-        addListener: (callback) => browser.webNavigation.onHistoryStateUpdated.addListener(callback)
-      }
-    },
-    notifications: {
-      create: (options, callback) => {
-        browser.notifications.create(options).then(callback).catch(callback);
-      },
-      onClicked: {
-        addListener: (callback) => browser.notifications.onClicked.addListener(callback)
-      },
-      onButtonClicked: {
-        addListener: (callback) => browser.notifications.onButtonClicked.addListener(callback)
-      }
-    },
-    commands: {
-      onCommand: {
-        addListener: (callback) => browser.commands.onCommand.addListener(callback)
-      }
-    },
-    windows: {
-      create: (createData, callback) => {
-        browser.windows.create(createData).then(callback).catch(callback);
-      },
-      update: (windowId, updateInfo, callback) => {
-        browser.windows.update(windowId, updateInfo).then(callback).catch(callback);
-      },
-      getCurrent: (callback) => {
-        browser.windows.getCurrent().then(callback).catch(callback);
-      },
-      onCreated: {
-        addListener: (callback) => browser.windows.onCreated.addListener(callback)
-      },
-      onRemoved: {
-        addListener: (callback) => browser.windows.onRemoved.addListener(callback)
-      }
-    },
-    action: {
-      setIcon: (details, callback) => {
-        browser.browserAction.setIcon(details).then(callback).catch(callback);
-      },
-      setBadgeText: (details) => {
-        browser.browserAction.setBadgeText(details);
-      },
-      setBadgeBackgroundColor: (details) => {
-        browser.browserAction.setBadgeBackgroundColor(details);
-      }
-    },
-    alarms: {
-      create: (name, alarmInfo) => {
-        browser.alarms.create(name, alarmInfo);
-      },
-      onAlarm: {
-        addListener: (callback) => browser.alarms.onAlarm.addListener(callback)
-      }
-    }
-  };
-}
+console.log('🎛️ SoundForge Background v3.22.8 запущен (Firefox)');
 
 // ============================================
 //  СОСТОЯНИЕ
@@ -731,6 +29,7 @@ const state = {
   _debugMode: false,
   _exportData: null,
   _pendingMessages: {},
+  _connectWatchTimers: {},
   _activeTabInterval: null,
   _spectrumInterval: null,
   _reconnectTimer: null,
@@ -747,92 +46,598 @@ const state = {
   _history: [],
   _iconSet: false,
   _windowId: null,
-  _currentPreset: 'flat'
+  _currentPreset: 'flat',
+  _tabSessions: {},
+  _documentTokens: {},
+  _lastSiteByTab: {},
+  _storageWriteQueues: {},
+  _tabMuteStates: {}
 };
 
+function getTabSession(tabId) {
+  if (!tabId) return null;
+  if (!state._tabSessions[tabId]) {
+    state._tabSessions[tabId] = {
+      connected: false,
+      connecting: false,
+      injected: false,
+      documentToken: 0,
+      lastUrl: null,
+      lastStatus: 'unknown',
+      lastSeen: Date.now(),
+      shouldReconnect: false
+    };
+  }
+  return state._tabSessions[tabId];
+}
+
+
+function setTabVolumeMute(tabId, muted) {
+  if (!tabId) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+          resolve(false);
+          return;
+        }
+
+        if (muted) {
+          if (!Object.prototype.hasOwnProperty.call(state._tabMuteStates, String(tabId))) {
+            state._tabMuteStates[String(tabId)] = {
+              muted: !!tab.mutedInfo?.muted,
+              reason: tab.mutedInfo?.extensionId || null
+            };
+          }
+        }
+
+        const key = String(tabId);
+        const previous = state._tabMuteStates[key];
+        const targetMuted = muted ? true : (previous ? !!previous.muted : false);
+
+        chrome.tabs.update(tabId, { muted: targetMuted }, () => {
+          if (chrome.runtime.lastError) {
+            resolve(false);
+            return;
+          }
+
+          if (!muted) {
+            delete state._tabMuteStates[key];
+          }
+
+          resolve(true);
+        });
+      });
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+function invalidateTabRuntime(tabId, reason = 'navigation') {
+  const session = getTabSession(tabId);
+  if (!session) return;
+  session.connected = false;
+  session.injected = false;
+  session.lastStatus = reason;
+  session.lastSeen = Date.now();
+  session.documentToken += 1;
+  state._documentTokens[tabId] = session.documentToken;
+  delete state._injectedTabs[tabId];
+  delete state._failedTabs[tabId];
+  delete state._failureTimestamps[tabId];
+}
+
+function markTabInjected(tabId, url = null) {
+  const session = getTabSession(tabId);
+  if (!session) return;
+  session.injected = true;
+  session.lastUrl = url || session.lastUrl;
+  session.lastSeen = Date.now();
+  state._injectedTabs[tabId] = { token: session.documentToken, url: session.lastUrl };
+}
+
+function enqueueStorageMutation(storageKey, mutate) {
+  const previous = state._storageWriteQueues[storageKey] || Promise.resolve();
+  const next = previous.then(() => new Promise((resolve, reject) => {
+    chrome.storage.local.get([storageKey], (result) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      let nextValue;
+      try {
+        nextValue = mutate(result[storageKey]);
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      chrome.storage.local.set({ [storageKey]: nextValue }, () => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(nextValue);
+      });
+    });
+  }));
+  state._storageWriteQueues[storageKey] = next.catch((error) => {
+    console.warn(`[Storage] Mutation failed for ${storageKey}:`, error);
+  });
+  return next;
+}
+
+function enqueueStoragePatch(queueKey, patch) {
+  const previous = state._storageWriteQueues[queueKey] || Promise.resolve();
+  const next = previous.then(() => new Promise((resolve, reject) => {
+    const keys = Object.keys(patch);
+    chrome.storage.local.get(keys, (result) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      const merged = { ...result, ...patch };
+      chrome.storage.local.set(merged, () => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(merged);
+      });
+    });
+  }));
+  state._storageWriteQueues[queueKey] = next.catch((error) => {
+    console.warn(`[Storage] Patch failed for ${queueKey}:`, error);
+  });
+  return next;
+}
+
+function enqueueUserPresetsMutation(mutate) {
+  const queueKey = 'globalUserPresets';
+  const previous = state._storageWriteQueues[queueKey] || Promise.resolve();
+  const next = previous.then(() => new Promise((resolve, reject) => {
+    chrome.storage.local.get(['userPresets', 'sf_userPresets'], (result) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      const existing = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
+        ? result.sf_userPresets
+        : ((result.userPresets && typeof result.userPresets === 'object') ? result.userPresets : {});
+      let nextPresets;
+      try {
+        nextPresets = mutate({ ...existing });
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      chrome.storage.local.set({
+        userPresets: nextPresets,
+        sf_userPresets: nextPresets
+      }, () => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(nextPresets);
+      });
+    });
+  }));
+  state._storageWriteQueues[queueKey] = next.catch((error) => {
+    console.warn('[Storage] User preset mutation failed:', error);
+  });
+  return next;
+}
+
 // ============================================
-//  ВСЕ ПРЕСЕТЫ
+//  САЙТОВЫЕ НАСТРОЙКИ / ДОМЕН
+// ============================================
+
+function getSiteDomain(url) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) return null;
+    return parsed.hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function getSiteKey(url) {
+  const domain = getSiteDomain(url);
+  if (!domain) return null;
+  return `site_${domain.replace(/[^a-zA-Z0-9]/g, '_')}`;
+}
+
+function sanitizeSiteSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return {};
+  const result = {};
+
+  const gains = sanitizeGains(settings.gains);
+  if (gains) result.gains = gains;
+
+  if (settings.volume !== undefined) result.volume = clampFiniteNumber(settings.volume, 0, 8, 1);
+  if (settings.bass !== undefined) result.bass = clampFiniteNumber(settings.bass, -12, 12, 0);
+  if (settings.isEnabled !== undefined) result.isEnabled = !!settings.isEnabled;
+  if (settings.autoConnect !== undefined) result.autoConnect = !!settings.autoConnect;
+  if (settings.debugMode !== undefined) result.debugMode = !!settings.debugMode;
+  if (settings.nightMode !== undefined) result.nightMode = !!settings.nightMode;
+  if (settings.powerSaveMode !== undefined) result.powerSaveMode = !!settings.powerSaveMode;
+
+  return result;
+}
+
+function saveSiteSettings(url, settings) {
+  const domain = getSiteDomain(url);
+  const key = getSiteKey(url);
+  if (!domain || !key) return Promise.resolve(false);
+
+  const safeSettings = sanitizeSiteSettings(settings);
+  return enqueueStorageMutation('siteSettings', (current) => {
+    const data = (current && typeof current === 'object' && !Array.isArray(current)) ? { ...current } : {};
+    data[key] = {
+      settings: safeSettings,
+      updated: Date.now(),
+      url: String(url).slice(0, 2000),
+      domain
+    };
+
+    const keys = Object.keys(data);
+    if (keys.length > 50) {
+      keys
+        .sort((a, b) => Number(data[a]?.updated || 0) - Number(data[b]?.updated || 0))
+        .slice(0, keys.length - 50)
+        .forEach((oldKey) => delete data[oldKey]);
+    }
+    return data;
+  }).then(() => {
+    console.log(`💾 Настройки сохранены для сайта: ${domain}`);
+    return true;
+  }).catch((error) => {
+    console.warn(`⚠️ Ошибка сохранения настроек сайта ${domain}:`, error);
+    return false;
+  });
+}
+
+function loadSiteSettings(url) {
+  const key = getSiteKey(url);
+  if (!key) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['siteSettings'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения siteSettings:', chrome.runtime.lastError);
+        resolve(null);
+        return;
+      }
+      const data = result.siteSettings;
+      const siteData = data && typeof data === 'object' ? data[key] : null;
+      resolve(siteData && siteData.settings && typeof siteData.settings === 'object'
+        ? sanitizeSiteSettings(siteData.settings)
+        : null);
+    });
+  });
+}
+
+function loadInjectSettings(url) {
+  return Promise.all([
+    loadSiteSettings(url),
+    new Promise((resolve) => {
+      chrome.storage.local.get([
+        'sf_eqSettings', 'eqSettings',
+        'sf_volumeBoost', 'volumeBoost',
+        'sf_bassBoost', 'bassBoost',
+        'sf_userPresets', 'userPresets',
+        'sf_nightMode', 'nightMode',
+        'sf_powerSaveMode', 'powerSaveMode',
+        'sf_debugMode', 'debugMode',
+        'soundforgeAutoConnect'
+      ], (result) => {
+        if (chrome.runtime.lastError) {
+          resolve({});
+          return;
+        }
+        resolve({
+          gains: result.sf_eqSettings ?? result.eqSettings,
+          volume: result.sf_volumeBoost ?? result.volumeBoost,
+          bass: result.sf_bassBoost ?? result.bassBoost,
+          userPresets: result.sf_userPresets ?? result.userPresets,
+          nightMode: result.sf_nightMode ?? result.nightMode,
+          powerSaveMode: result.sf_powerSaveMode ?? result.powerSaveMode,
+          debugMode: result.sf_debugMode ?? result.debugMode,
+          autoConnect: result.soundforgeAutoConnect
+        });
+      });
+    })
+  ]).then(([siteSettings, globalSettings]) => ({
+    settings: { ...globalSettings, ...(siteSettings || {}) },
+    hasSiteSettings: !!siteSettings
+  }));
+}
+
+function normalizePresetPayload(presetId, source = 'background') {
+  const preset = presetId && PRESETS[presetId] ? PRESETS[presetId] : null;
+  if (!preset) return null;
+  return {
+    preset: presetId,
+    presetData: { ...preset, gains: { ...(preset.gains || {}) } },
+    source
+  };
+}
+
+const IMPORTABLE_KEYS = new Set([
+  'theme', 'eqSettings', 'selectedPreset', 'volumeBoost', 'bassBoost',
+  'language', 'savedVolume', 'savedBass', 'userPresets', 'nightMode',
+  'powerSaveMode', 'debugMode', 'soundforgeConnected', 'soundforgeAutoConnect',
+  'autoDisableOnSiteChange', 'sf_eqSettings', 'sf_selectedPreset',
+  'sf_volumeBoost', 'sf_bassBoost', 'sf_userPresets', 'sf_savedVolume',
+  'sf_savedBass', 'sf_nightMode', 'sf_powerSaveMode', 'sf_debugMode',
+  'sf_isConnected'
+]);
+
+const EQ_FREQUENCIES = new Set(['31', '62', '125', '250', '500', '1000', '2000', '4000', '8000', '16000']);
+
+function clampFiniteNumber(value, min, max, fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(min, Math.min(max, num));
+}
+
+function sanitizeGains(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const gains = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!EQ_FREQUENCIES.has(String(key))) continue;
+    gains[key] = clampFiniteNumber(raw, -24, 24, 0);
+  }
+  return gains;
+}
+
+function sanitizeUserPresets(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  for (const [name, rawPreset] of Object.entries(value).slice(0, 200)) {
+    if (!name || name.length > 100 || !rawPreset || typeof rawPreset !== 'object') continue;
+    const gains = sanitizeGains(rawPreset.gains) || {};
+    result[name] = {
+      gains,
+      volume: clampFiniteNumber(rawPreset.volume, 0, 800, 100),
+      bass: clampFiniteNumber(rawPreset.bass, -12, 12, 0),
+      timestamp: Number.isFinite(Number(rawPreset.timestamp)) ? Number(rawPreset.timestamp) : Date.now()
+    };
+  }
+  return result;
+}
+
+function sanitizeImportedSettings(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Неверный формат настроек');
+  }
+
+  const settings = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!IMPORTABLE_KEYS.has(key)) continue;
+    switch (key) {
+      case 'eqSettings':
+      case 'sf_eqSettings': {
+        const gains = sanitizeGains(value);
+        if (gains) settings[key] = gains;
+        break;
+      }
+      case 'volumeBoost':
+      case 'sf_volumeBoost':
+        settings[key] = clampFiniteNumber(value, 0, 8, 1);
+        break;
+      case 'bassBoost':
+      case 'sf_bassBoost':
+        settings[key] = clampFiniteNumber(value, -12, 12, 0);
+        break;
+      case 'savedVolume':
+      case 'sf_savedVolume':
+        settings[key] = clampFiniteNumber(value, 0, 800, 100);
+        break;
+      case 'savedBass':
+      case 'sf_savedBass':
+        settings[key] = clampFiniteNumber(value, -12, 12, 0);
+        break;
+      case 'selectedPreset':
+      case 'sf_selectedPreset':
+        if (typeof value === 'string' && value.length <= 100) settings[key] = value;
+        break;
+      case 'theme':
+        if (['system', 'light', 'dark'].includes(value)) settings[key] = value;
+        break;
+      case 'language':
+        if (['ru', 'uk', 'en'].includes(value)) settings[key] = value;
+        break;
+      case 'userPresets':
+      case 'sf_userPresets':
+        settings[key] = sanitizeUserPresets(value);
+        break;
+      case 'nightMode':
+      case 'powerSaveMode':
+      case 'debugMode':
+      case 'soundforgeConnected':
+      case 'soundforgeAutoConnect':
+      case 'autoDisableOnSiteChange':
+      case 'sf_nightMode':
+      case 'sf_powerSaveMode':
+      case 'sf_debugMode':
+      case 'sf_isConnected':
+        if (typeof value === 'boolean') settings[key] = value;
+        break;
+      default:
+        break;
+    }
+  }
+  return settings;
+}
+
+// ============================================
+//  ВСЕ ПРЕСЕТЫ В ПОРЯДКЕ ДЛЯ ГОРЯЧИХ КЛАВИШ
 // ============================================
 
 const ALL_PRESETS_ORDER = [
-  'flat', 'natural', 'universal', 'balanced',
-  'club', 'dance', 'edm', 'synthwave', 'deephouse',
-  'rock', 'metal', 'hardrock', 'grunge',
-  'vocal', 'podcast', 'speech', 'rap',
-  'acoustic', 'piano', 'orchestra', 'classical',
-  'headphones', 'car', 'night', 'bassboost',
-  'jazz', 'hiphop', 'soul', 'blues', 'reggae',
-  'sunset', 'chill', 'lofi', 'pop', 'kpop',
-  'world', 'ambient', 'festival', 'clarity',
-  'wave', 'phonk', 'logitech', 'maxboost',
-  'gaming', 'movie', 'fps',
-  'hifi', 'studio', 'premium', 'master'
+  'flat', 'natural', 'universal', 'balanced', 'club',
+  'dance', 'edm', 'synthwave', 'deephouse', 'festival',
+  'rock', 'metal', 'hardrock', 'grunge', 'vocal',
+  'podcast', 'speech', 'rap', 'acoustic', 'piano',
+  'orchestra', 'classical', 'jazz', 'headphones', 'car',
+  'night', 'bassboost', 'pop', 'kpop', 'world',
+  'ambient', 'wave', 'phonk', 'hiphop', 'soul',
+  'blues', 'reggae', 'chill', 'lofi', 'sunset',
+  'logitech', 'maxboost', 'gaming', 'movie', 'fps',
+  'hifi', 'studio', 'premium', 'master', 'clarity'
 ];
 
 // ============================================
 //  ЗАГРУЗКА СОХРАНЕННОГО СОСТОЯНИЯ
 // ============================================
 
-function loadSavedState() {
-  api.storageGet(['soundforgeConnected', 'soundforgeAutoConnect', 'nightMode', 'powerSaveMode', 'lastSite', 'settingsHistory', 'selectedPreset'])
-    .then((result) => {
-      if (result.soundforgeConnected === true) {
-        state.isConnected = true;
-        state._autoConnectEnabled = true;
-        console.log('✅ Восстановлено состояние: ПОДКЛЮЧЕН');
-      } else if (result.soundforgeConnected === false) {
-        state.isConnected = false;
-        state._autoConnectEnabled = false;
-        console.log('✅ Восстановлено состояние: ОТКЛЮЧЕН');
-      }
-      
-      if (result.soundforgeAutoConnect === false) {
-        state._autoConnectEnabled = false;
-      }
-      
-      if (result.nightMode === true) {
-        state._nightMode = true;
-        state._nightModeStartTime = Date.now();
-        console.log('🌙 Восстановлен ночной режим');
-      }
-      
-      if (result.powerSaveMode === true) {
-        state._powerSaveMode = true;
-        console.log('⚡ Восстановлен режим энергосбережения');
-      }
-      
-      if (result.lastSite) {
-        state._lastSite = result.lastSite;
-      }
-      
-      if (result.settingsHistory) {
-        state._history = result.settingsHistory;
-      }
-      
-      if (result.selectedPreset) {
-        state._currentPreset = result.selectedPreset;
-      }
-      
+function restorePersistedConnection(storedUrl, storedSite) {
+  chrome.tabs.query({}, (tabs) => {
+    if (chrome.runtime.lastError || !Array.isArray(tabs)) return;
+
+    const candidates = tabs.filter((tab) => (
+      tab?.id && tab.url && !isSystemUrl(tab.url) && canInjectScript(tab.url)
+    ));
+
+    const exactMatch = storedUrl
+      ? candidates.find((tab) => tab.url === storedUrl)
+      : null;
+    const siteMatch = storedSite
+      ? candidates.find((tab) => getSiteDomain(tab.url) === storedSite)
+      : null;
+    const activeMatch = candidates.find((tab) => tab.active);
+    const target = exactMatch || siteMatch || (!storedUrl && !storedSite ? activeMatch : null);
+
+    if (!target?.id) return;
+
+    const session = getTabSession(target.id);
+    session.shouldReconnect = true;
+    session.lastUrl = target.url;
+    state.currentTabId = target.id;
+    state._lastSiteByTab[target.id] = getSiteDomain(target.url) || null;
+
+    state.isConnected = false;
+    state.active = false;
+
+    setTimeout(() => {
+      injectScriptDirectly(target.id);
       setTimeout(() => {
-        updateIcon(state.isConnected);
-      }, 500);
-    })
-    .catch(() => {});
+        const currentSession = getTabSession(target.id);
+        if (currentSession?.shouldReconnect) {
+          sendMessageToInject(target.id, 'SF_CONNECT');
+        }
+      }, 1000);
+    }, 300);
+  });
+}
+
+function loadSavedState() {
+  chrome.storage.local.get([
+    'soundforgeConnected',
+    'soundforgeAutoConnect',
+    'soundforgeConnectedUrl',
+    'soundforgeConnectedSite',
+    'nightMode',
+    'powerSaveMode',
+    'lastSite',
+    'settingsHistory',
+    'selectedPreset',
+    'sf_isConnected',
+    'sf_selectedPreset',
+    'sf_nightMode',
+    'sf_powerSaveMode',
+    'sf_connectedUrl',
+    'sf_connectedSite'
+  ], (result) => {
+    if (chrome.runtime.lastError) {
+      console.warn('⚠️ Ошибка загрузки состояния:', chrome.runtime.lastError);
+      return;
+    }
+
+    const connectedState = result.soundforgeConnected ?? result.sf_isConnected;
+    const selectedPreset = result.sf_selectedPreset ?? result.selectedPreset;
+    const nightMode = result.sf_nightMode ?? result.nightMode;
+    const powerSaveMode = result.sf_powerSaveMode ?? result.powerSaveMode;
+    const connectedUrl = result.sf_connectedUrl ?? result.soundforgeConnectedUrl ?? null;
+    const connectedSite = result.sf_connectedSite ?? result.soundforgeConnectedSite ?? null;
+
+    state.isConnected = false;
+    state.active = false;
+
+    if (connectedState === true) {
+      state._autoConnectEnabled = true;
+      console.log('✅ Восстановлено намерение подключения; проверяем реальный runtime');
+      restorePersistedConnection(connectedUrl, connectedSite);
+    } else if (connectedState === false) {
+      state._autoConnectEnabled = false;
+      console.log('✅ Восстановлено состояние: ОТКЛЮЧЕН');
+    }
+
+    if (result.soundforgeAutoConnect === false) {
+      state._autoConnectEnabled = false;
+    }
+
+    if (nightMode === true) {
+      state._nightMode = true;
+      state._nightModeStartTime = Date.now();
+      console.log('🌙 Восстановлен ночной режим');
+    }
+
+    if (powerSaveMode === true) {
+      state._powerSaveMode = true;
+      console.log('⚡ Восстановлен режим энергосбережения');
+    }
+
+    if (result.lastSite) {
+      state._lastSite = result.lastSite;
+    }
+
+    if (result.settingsHistory) {
+      state._history = result.settingsHistory;
+    }
+
+    if (selectedPreset) {
+      state._currentPreset = selectedPreset;
+    }
+
+    setTimeout(() => {
+      updateIcon(false);
+    }, 500);
+  });
 }
 
 function saveConnectedState(connected) {
-  api.storageSet({ 
+  const session = state.currentTabId ? getTabSession(state.currentTabId) : null;
+  const connectedUrl = connected ? (session?.lastUrl || state._lastUrl || null) : null;
+  const connectedSite = connected ? (getSiteDomain(connectedUrl || '') || state._lastSite || null) : null;
+
+  const payload = {
     soundforgeConnected: connected,
-    soundforgeAutoConnect: state._autoConnectEnabled
-  }).catch(() => {});
+    soundforgeAutoConnect: state._autoConnectEnabled,
+    sf_isConnected: connected,
+    soundforgeConnectedUrl: connectedUrl,
+    sf_connectedUrl: connectedUrl,
+    soundforgeConnectedSite: connectedSite,
+    sf_connectedSite: connectedSite
+  };
+
+  enqueueStoragePatch('connectionState', payload)
+    .then(() => console.log(`💾 Состояние сохранено: ${connected ? 'ПОДКЛЮЧЕН' : 'ОТКЛЮЧЕН'}`))
+    .catch((error) => console.warn('⚠️ Ошибка сохранения состояния:', error));
 }
 
 loadSavedState();
 
 function safeSendMessage(message) {
   try {
-    api.sendMessage(message).catch(() => {});
-  } catch {}
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage(message, function(response) {
+        // Игнорируем ошибки
+        if (chrome.runtime && chrome.runtime.lastError) {
+          // Просто логируем в отладку
+        }
+      });
+    } else if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
+      browser.runtime.sendMessage(message).catch(function() {});
+    }
+  } catch (e) {
+    // Игнорируем
+  }
 }
 
 // ============================================
@@ -841,26 +646,30 @@ function safeSendMessage(message) {
 
 function updateIcon(isActive) {
   try {
-    const iconPath = isActive ? 'icons/SoundForge.png' : 'icons/SoundForge.png';
+    const iconPath = isActive 
+      ? 'icons/SoundForge.png' 
+      : 'icons/SoundForge-off.png';
     
     setTimeout(() => {
       try {
-        api.setIcon({
+        chrome.browserAction.setIcon({
           path: {
             16: iconPath,
             48: iconPath,
             128: iconPath
           }
-        }).catch(() => {});
+        }, () => {
+          if (chrome.runtime.lastError) {}
+        });
       } catch (e) {}
     }, 100);
     
     if (isActive) {
-      api.setBadgeText({ text: '🔊' });
-      api.setBadgeBackgroundColor({ color: '#4CAF50' });
+      chrome.browserAction.setBadgeText({ text: '🔊' });
+      chrome.browserAction.setBadgeBackgroundColor({ color: '#4CAF50' });
     } else {
-      api.setBadgeText({ text: '⛔' });
-      api.setBadgeBackgroundColor({ color: '#888888' });
+      chrome.browserAction.setBadgeText({ text: '⛔' });
+      chrome.browserAction.setBadgeBackgroundColor({ color: '#888888' });
     }
   } catch (e) {}
 }
@@ -877,7 +686,8 @@ function isSystemUrl(url) {
          lowerUrl.startsWith('about:') ||
          lowerUrl.startsWith('devtools://') ||
          lowerUrl === 'about:blank' ||
-         lowerUrl === 'about:empty';
+         lowerUrl === 'about:empty' ||
+         lowerUrl.startsWith('moz-extension://');
 }
 
 function canInjectScript(url) {
@@ -887,11 +697,12 @@ function canInjectScript(url) {
   if (lowerUrl.startsWith('chrome://') || 
       lowerUrl.startsWith('edge://') || 
       lowerUrl.startsWith('about:') ||
-      lowerUrl.startsWith('devtools://')) {
+      lowerUrl.startsWith('devtools://') ||
+      lowerUrl.startsWith('moz-extension://')) {
     return false;
   }
   
-  if (lowerUrl.startsWith('chrome-extension://') || lowerUrl.startsWith('moz-extension://')) {
+  if (lowerUrl.startsWith('chrome-extension://')) {
     return false;
   }
   
@@ -905,11 +716,8 @@ function canSendMessage(url) {
   if (lowerUrl.startsWith('chrome://') || 
       lowerUrl.startsWith('edge://') || 
       lowerUrl.startsWith('about:') ||
-      lowerUrl.startsWith('devtools://')) {
-    return false;
-  }
-  
-  if (lowerUrl.startsWith('moz-extension://')) {
+      lowerUrl.startsWith('devtools://') ||
+      lowerUrl.startsWith('moz-extension://')) {
     return false;
   }
   
@@ -921,26 +729,48 @@ function canSendMessage(url) {
 // ============================================
 
 function findActiveTabWithAudio(callback) {
-  api.tabsQuery({ active: true, currentWindow: true })
-    .then((tabs) => {
-      if (!tabs || tabs.length === 0) {
-        api.tabsQuery({}).then((allTabs) => {
-          findBestTab(allTabs, callback);
-        }).catch(() => callback(null));
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      callback(null);
+      return;
+    }
+
+    const activeTab = tabs?.[0];
+    const activeSession = activeTab?.id ? getTabSession(activeTab.id) : null;
+
+    if (activeTab?.id && activeTab.url && canInjectScript(activeTab.url) && activeSession?.connected) {
+      callback(activeTab);
+      return;
+    }
+
+    chrome.tabs.query({}, (allTabs) => {
+      if (chrome.runtime.lastError || !Array.isArray(allTabs)) {
+        callback(activeTab?.url && canInjectScript(activeTab.url) ? activeTab : null);
         return;
       }
-      
-      const tab = tabs[0];
-      if (tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('moz-extension://')) {
-        callback(tab);
+
+      const currentConnected = state.currentTabId
+        ? allTabs.find((tab) => tab.id === state.currentTabId && canInjectScript(tab.url) && getTabSession(tab.id)?.connected)
+        : null;
+      if (currentConnected) {
+        callback(currentConnected);
         return;
       }
-      
-      api.tabsQuery({}).then((allTabs) => {
-        findBestTab(allTabs, callback);
-      }).catch(() => callback(null));
-    })
-    .catch(() => callback(null));
+
+      const connectedTab = allTabs.find((tab) => tab.id && canInjectScript(tab.url) && getTabSession(tab.id)?.connected);
+      if (connectedTab) {
+        callback(connectedTab);
+        return;
+      }
+
+      if (activeTab?.url && canInjectScript(activeTab.url)) {
+        callback(activeTab);
+        return;
+      }
+
+      findBestTab(allTabs, callback);
+    });
+  });
 }
 
 function findBestTab(tabs, callback) {
@@ -977,38 +807,44 @@ function findBestTab(tabs, callback) {
 function isInjectLoaded(tabId) {
   return new Promise((resolve) => {
     if (!tabId) { resolve(false); return; }
-    if (state._injectedTabs[tabId]) { resolve(true); return; }
-    
-    api.executeScriptFunction(tabId, () => {
-      if (window.SoundForgeInject) return true;
-      if (window._soundforge_loaded) return true;
-      return false;
-    })
-    .then((results) => {
-      const loaded = results && results[0] && results[0].result === true;
-      if (loaded) {
-        state._injectedTabs[tabId] = true;
-        delete state._failedTabs[tabId];
-        delete state._failureTimestamps[tabId];
+    chrome.tabs.executeScript(tabId, {
+      code: '!!(window.SoundForgeInject && window._soundforge_loaded)'
+    }, (results) => {
+      if (chrome.runtime.lastError) {
+        const session = getTabSession(tabId);
+        if (session) session.injected = false;
+        delete state._injectedTabs[tabId];
+        resolve(false);
+        return;
+      }
+      const loaded = results?.[0] === true;
+      if (loaded) markTabInjected(tabId);
+      else {
+        const session = getTabSession(tabId);
+        if (session) session.injected = false;
+        delete state._injectedTabs[tabId];
       }
       resolve(loaded);
-    })
-    .catch(() => resolve(false));
+    });
   });
 }
 
 function injectScriptDirectly(tabId, retryCount = 0) {
-  if (!tabId) return;
+  if (!tabId) { if (typeof onResponse === 'function') onResponse(null, new Error('no_tab')); return; }
   
-  api.tabsGet(tabId)
-    .then((tab) => {
-      if (!tab || !tab.url || !canInjectScript(tab.url)) {
-        console.log(`⛔ Пропускаем внедрение: ${tab?.url || 'unknown'}`);
-        return;
-      }
-      doInjectScriptDirectly(tabId, retryCount);
-    })
-    .catch(() => {});
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) {
+      console.warn(`⚠️ Ошибка получения таба ${tabId}:`, chrome.runtime.lastError);
+      return;
+    }
+    
+    if (!tab || !tab.url || !canInjectScript(tab.url)) {
+      console.log(`⛔ Пропускаем внедрение: ${tab?.url || 'unknown'}`);
+      return;
+    }
+    
+    doInjectScriptDirectly(tabId, retryCount);
+  });
 }
 
 function doInjectScriptDirectly(tabId, retryCount = 0) {
@@ -1027,11 +863,6 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 2000;
 
-  if (state._injectedTabs[tabId]) {
-    console.log('✅ inject.js уже загружен (кеш)');
-    return;
-  }
-
   if (state._injectAttempts[key]) {
     const elapsed = Date.now() - state._injectAttempts[key].startTime;
     if (elapsed < 3000) {
@@ -1046,9 +877,14 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
   if (retryCount >= MAX_RETRIES) {
     console.error(`❌ Превышен лимит попыток внедрения (${MAX_RETRIES}) для таба ${tabId}`);
     delete state._injectAttempts[key];
+    const session = getTabSession(tabId);
+    if (session?.connecting) {
+      console.warn(`⏳ Пропускаем преждевременный inject error для handshake tab ${tabId}`);
+      return;
+    }
     state._failedTabs[tabId] = true;
     state._failureTimestamps[tabId] = Date.now();
-    safeSendMessage({ action: 'statusUpdate', status: 'error' });
+    safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
     return;
   }
 
@@ -1067,74 +903,11 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
       return;
     }
 
-    api.executeScript(tabId, ['inject.js'])
-      .then(() => {
-        console.log(`📝 inject.js внедрен, ждем инициализацию...`);
-        
-        let checkCount = 0;
-        const maxChecks = 10;
-        const checkDelay = 300;
-
-        function checkInjection() {
-          checkCount++;
-          
-          api.executeScriptFunction(tabId, () => {
-            return !!(window.SoundForgeInject || window._soundforge_loaded);
-          })
-          .then((results) => {
-            const isReady = results && results[0] && results[0].result === true;
-            
-            if (isReady) {
-              console.log(`✅ SoundForgeInject готов (проверка ${checkCount})`);
-              state._injectedTabs[tabId] = true;
-              state._connectionAttempts = 0;
-              delete state._injectAttempts[key];
-              delete state._failedTabs[tabId];
-              delete state._failureTimestamps[tabId];
-              
-              if (state._autoConnectEnabled && state.isConnected) {
-                setTimeout(() => {
-                  sendMessageToInject(tabId, 'SF_CONNECT');
-                }, 500);
-              }
-              
-              safeSendMessage({
-                action: 'statusUpdate',
-                status: state.isConnected ? 'connected' : 'disconnected'
-              });
-              
-              updateIcon(state.isConnected);
-              
-            } else if (checkCount < maxChecks) {
-              console.log(`⏳ Ожидаем инициализацию (проверка ${checkCount}/${maxChecks})...`);
-              setTimeout(checkInjection, checkDelay);
-            } else {
-              console.warn(`⚠️ Не удалось дождаться инициализации после ${maxChecks} проверок`);
-              delete state._injectAttempts[key];
-              state._failedTabs[tabId] = true;
-              state._failureTimestamps[tabId] = Date.now();
-              safeSendMessage({ action: 'statusUpdate', status: 'error' });
-              setTimeout(() => {
-                doInjectScriptDirectly(tabId, retryCount + 1);
-              }, RETRY_DELAY);
-            }
-          })
-          .catch((err) => {
-            console.warn(`⚠️ Ошибка проверки инъекции: ${err.message}`);
-            delete state._injectAttempts[key];
-            state._failedTabs[tabId] = true;
-            state._failureTimestamps[tabId] = Date.now();
-            safeSendMessage({ action: 'statusUpdate', status: 'error' });
-            setTimeout(() => {
-              doInjectScriptDirectly(tabId, retryCount + 1);
-            }, RETRY_DELAY);
-          });
-        }
-
-        setTimeout(checkInjection, 500);
-      })
-      .catch((err) => {
-        console.warn(`⚠️ Ошибка внедрения: ${err.message}`);
+    chrome.tabs.executeScript(tabId, {
+      file: 'inject.js'
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn(`⚠️ Ошибка внедрения: ${chrome.runtime.lastError.message}`);
         delete state._injectAttempts[key];
         state._failedTabs[tabId] = true;
         state._failureTimestamps[tabId] = Date.now();
@@ -1142,7 +915,78 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
         setTimeout(() => {
           doInjectScriptDirectly(tabId, retryCount + 1);
         }, RETRY_DELAY);
-      });
+        return;
+      }
+      
+      console.log(`📝 inject.js внедрен, ждем инициализацию...`);
+      
+      let checkCount = 0;
+      const maxChecks = 10;
+      const checkDelay = 300;
+
+      function checkInjection() {
+        checkCount++;
+        
+        chrome.tabs.executeScript(tabId, {
+          code: '!!(window.SoundForgeInject || window._soundforge_loaded)'
+        }, (results) => {
+          if (chrome.runtime.lastError) {
+            console.warn(`⚠️ Ошибка проверки инъекции: ${chrome.runtime.lastError.message}`);
+            delete state._injectAttempts[key];
+            state._failedTabs[tabId] = true;
+            state._failureTimestamps[tabId] = Date.now();
+            safeSendMessage({ action: 'statusUpdate', status: 'error' });
+            setTimeout(() => {
+              doInjectScriptDirectly(tabId, retryCount + 1);
+            }, RETRY_DELAY);
+            return;
+          }
+          
+          const isReady = results && results[0] === true;
+          
+          if (isReady) {
+            console.log(`✅ SoundForgeInject готов (проверка ${checkCount})`);
+            markTabInjected(tabId);
+            state._connectionAttempts = 0;
+            delete state._injectAttempts[key];
+            delete state._failedTabs[tabId];
+            delete state._failureTimestamps[tabId];
+            
+            const session = getTabSession(tabId);
+            if (session?.shouldReconnect) {
+              setTimeout(() => {
+                if (getTabSession(tabId)?.shouldReconnect) {
+                  sendMessageToInject(tabId, 'SF_CONNECT');
+                }
+              }, 500);
+            }
+
+            if (tabId === state.currentTabId) {
+              safeSendMessage({
+                action: 'statusUpdate',
+                status: session?.connected ? 'connected' : 'disconnected'
+              });
+              updateIcon(!!session?.connected);
+            }
+            
+          } else if (checkCount < maxChecks) {
+            console.log(`⏳ Ожидаем инициализацию (проверка ${checkCount}/${maxChecks})...`);
+            setTimeout(checkInjection, checkDelay);
+          } else {
+            console.warn(`⚠️ Не удалось дождаться инициализации после ${maxChecks} проверок`);
+            delete state._injectAttempts[key];
+            state._failedTabs[tabId] = true;
+            state._failureTimestamps[tabId] = Date.now();
+            safeSendMessage({ action: 'statusUpdate', status: 'error' });
+            setTimeout(() => {
+              doInjectScriptDirectly(tabId, retryCount + 1);
+            }, RETRY_DELAY);
+          }
+        });
+      }
+
+      setTimeout(checkInjection, 500);
+    });
   });
 }
 
@@ -1150,62 +994,60 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
 //  ОТПРАВКА СООБЩЕНИЙ В INJECT
 // ============================================
 
-function sendMessageToInject(tabId, type, data) {
+function sendMessageToInject(tabId, type, data, onResponse) {
   if (!tabId) return;
   
   if (state._failedTabs[tabId]) {
     console.log(`⏳ Таб ${tabId} в состоянии ошибки, пропускаем отправку ${type}`);
+    if (typeof onResponse === 'function') onResponse(null, new Error('failed_tab'));
     return;
   }
   
-  api.tabsGet(tabId)
-    .then((tab) => {
-      if (!tab || !tab.url) {
-        console.log(`⛔ Нет URL для таба ${tabId}`);
-        return;
-      }
-      
-      if (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://')) {
-        console.log(`⏳ Страница расширения, пропускаем отправку ${type}`);
-        return;
-      }
-      
-      if (!canSendMessage(tab.url)) {
-        console.log(`⛔ Пропускаем отправку ${type} на: ${tab.url}`);
-        return;
-      }
-      
-      doSendMessageToInject(tabId, type, data);
-    })
-    .catch(() => {});
-}
-
-function doSendMessageToInject(tabId, type, data) {
-  isInjectLoaded(tabId).then((loaded) => {
-    if (!loaded) {
-      console.log(`⏳ inject.js не загружен, внедряем для отправки ${type}`);
-      api.tabsGet(tabId).then((tab) => {
-        if (tab && tab.url && canInjectScript(tab.url)) {
-          injectScriptDirectly(tabId);
-          setTimeout(() => {
-            sendMessageToInject(tabId, type, data);
-          }, 2000);
-        }
-      }).catch(() => {});
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) {
+      console.warn(`⚠️ Ошибка получения таба ${tabId}:`, chrome.runtime.lastError);
       return;
     }
     
-    api.executeScriptFunction(tabId, (msgType, msgData) => {
-      if (window.SoundForgeInject) {
-        window.SoundForgeInject.handleMessage(msgType, msgData);
-        return true;
+    if (!tab || !tab.url) {
+      console.log(`⛔ Нет URL для таба ${tabId}`);
+      return;
+    }
+    
+    if (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://')) {
+      console.log(`⏳ Страница расширения, пропускаем отправку ${type}`);
+      return;
+    }
+    
+    if (!canSendMessage(tab.url)) {
+      console.log(`⛔ Пропускаем отправку ${type} на: ${tab.url}`);
+      return;
+    }
+    
+    doSendMessageToInject(tabId, type, data, onResponse);
+  });
+}
+
+function doSendMessageToInject(tabId, type, data, onResponse) {
+  isInjectLoaded(tabId).then((loaded) => {
+    if (!loaded) {
+      console.log(`⏳ inject.js не загружен, внедряем для отправки ${type}`);
+      injectScriptDirectly(tabId);
+      setTimeout(() => sendMessageToInject(tabId, type, data, onResponse), 700);
+      return;
+    }
+
+    chrome.tabs.sendMessage(tabId, { type, data: data || {} }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn(`⚠️ Ошибка отправки сообщения ${type}:`, chrome.runtime.lastError.message);
+        const session = getTabSession(tabId);
+        if (session) session.injected = false;
+        delete state._injectedTabs[tabId];
+        if (typeof onResponse === 'function') onResponse(null, chrome.runtime.lastError);
+        return;
       }
-      if (!window._soundforge_pending) window._soundforge_pending = [];
-      window._soundforge_pending.push({ type: msgType, data: msgData });
-      return false;
-    }, [type, data || {}])
-    .catch((err) => {
-      console.warn(`⚠️ Ошибка отправки сообщения ${type}:`, err);
+      if (response?.ok === false) console.warn(`⚠️ Inject отклонил ${type}:`, response.error);
+      if (typeof onResponse === 'function') onResponse(response || null, null);
     });
   });
 }
@@ -1215,88 +1057,13 @@ function doSendMessageToInject(tabId, type, data) {
 // ============================================
 
 function getSpectrumFromInject(tabId) {
-  if (!tabId) return;
-  
-  if (state._failedTabs[tabId]) {
-    const time = Date.now() / 1000;
-    const dummySpectrum = new Array(64).fill(0);
-    for (let i = 0; i < 32; i++) {
-      dummySpectrum[i] = (Math.sin(time * 2 + i * 0.4) * 0.3 + 0.5) * 0.3;
+  if (!tabId || state._failedTabs[tabId]) return;
+  chrome.tabs.sendMessage(tabId, { type: 'SF_GET_SPECTRUM', data: {} }, () => {
+    if (chrome.runtime.lastError) {
+      const session = getTabSession(tabId);
+      if (session) session.injected = false;
+      delete state._injectedTabs[tabId];
     }
-    safeSendMessage({
-      action: 'spectrumData',
-      spectrum: dummySpectrum,
-      hasAudio: true,
-      isDummy: true
-    });
-    return;
-  }
-  
-  if (!state._injectedTabs[tabId]) {
-    const time = Date.now() / 1000;
-    const dummySpectrum = new Array(64).fill(0);
-    for (let i = 0; i < 32; i++) {
-      dummySpectrum[i] = (Math.sin(time * 2 + i * 0.4) * 0.3 + 0.5) * 0.3;
-    }
-    safeSendMessage({
-      action: 'spectrumData',
-      spectrum: dummySpectrum,
-      hasAudio: true,
-      isDummy: true
-    });
-    return;
-  }
-  
-  api.executeScriptFunction(tabId, () => {
-    if (window.SoundForgeInject) {
-      const s = window.SoundForgeInject.getState();
-      if (s && s.isActive && s.analyser) {
-        const dataArray = new Float32Array(s.analyser.frequencyBinCount);
-        s.analyser.getFloatFrequencyData(dataArray);
-        const normalized = new Float32Array(64);
-        const len = Math.min(dataArray.length, 64);
-        for (let i = 0; i < len; i++) {
-          const val = (dataArray[i] + 100) / 100;
-          normalized[i] = Math.max(0, Math.min(1, val));
-        }
-        return Array.from(normalized);
-      }
-    }
-    return null;
-  })
-  .then((results) => {
-    if (results && results[0] && results[0].result) {
-      safeSendMessage({
-        action: 'spectrumData',
-        spectrum: results[0].result,
-        hasAudio: true
-      });
-    } else {
-      const time = Date.now() / 1000;
-      const dummySpectrum = new Array(64).fill(0);
-      for (let i = 0; i < 32; i++) {
-        dummySpectrum[i] = (Math.sin(time * 2 + i * 0.4) * 0.3 + 0.5) * 0.3;
-      }
-      safeSendMessage({
-        action: 'spectrumData',
-        spectrum: dummySpectrum,
-        hasAudio: true,
-        isDummy: true
-      });
-    }
-  })
-  .catch(() => {
-    const time = Date.now() / 1000;
-    const dummySpectrum = new Array(64).fill(0);
-    for (let i = 0; i < 32; i++) {
-      dummySpectrum[i] = (Math.sin(time * 2 + i * 0.4) * 0.3 + 0.5) * 0.3;
-    }
-    safeSendMessage({
-      action: 'spectrumData',
-      spectrum: dummySpectrum,
-      hasAudio: true,
-      isDummy: true
-    });
   });
 }
 
@@ -1306,7 +1073,7 @@ function getSpectrumFromInject(tabId) {
 
 function notifyWindows(message) {
   try {
-    api.sendMessage(message).catch(() => {});
+    chrome.runtime.sendMessage(message);
   } catch (e) {}
 }
 
@@ -1318,30 +1085,36 @@ function nextPreset() {
   const currentPreset = state._currentPreset || 'flat';
   let currentIndex = ALL_PRESETS_ORDER.indexOf(currentPreset);
   if (currentIndex === -1) currentIndex = 0;
+
   const nextIndex = (currentIndex + 1) % ALL_PRESETS_ORDER.length;
   const nextPresetName = ALL_PRESETS_ORDER[nextIndex];
-  
+
   console.log(`🔄 Следующий пресет: ${currentPreset} → ${nextPresetName}`);
-  
+
   state._currentPreset = nextPresetName;
-  api.storageSet({ selectedPreset: nextPresetName }).catch(() => {});
-  
+  chrome.storage.local.set({ selectedPreset: nextPresetName });
+
   findActiveTabWithAudio((tab) => {
-    if (tab) {
-      sendMessageToInject(tab.id, 'SF_APPLY_PRESET', { preset: nextPresetName, source: 'hotkey' });
-    }
+    if (!tab) return;
+
+    const payload = normalizePresetPayload(nextPresetName, 'hotkey');
+    if (!payload) return;
+
+    sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
+
+    notifyWindows({
+      action: 'presetChanged',
+      preset: nextPresetName,
+      presetData: payload.presetData || null,
+      source: 'hotkey',
+      tabId: tab.id,
+      uiOnly: true
+    });
   });
-  
-  notifyWindows({ 
-    action: 'presetChanged', 
-    preset: nextPresetName,
-    source: 'hotkey'
-  });
-  
+
   addHistoryEntry('preset_applied', { preset: nextPresetName }, { source: 'hotkey' });
-  
   showNotification('🎵 SoundForge', `Пресет: ${nextPresetName}`, 'info');
-  
+
   return nextPresetName;
 }
 
@@ -1350,119 +1123,51 @@ function nextPreset() {
 // ============================================
 
 function checkRealConnectionStatus(tabId) {
-  if (!tabId) return;
-  
-  if (state._failedTabs[tabId]) {
-    console.log(`⏳ Таб ${tabId} в состоянии ошибки, пропускаем проверку`);
-    return;
-  }
-  
-  api.executeScriptFunction(tabId, () => {
-    if (window.SoundForgeInject) {
-      const s = window.SoundForgeInject.getState();
-      return s && s.isActive;
-    }
-    return false;
-  })
-  .then((results) => {
-    if (results && results[0] && results[0].result === true) {
-      console.log('✅ Реальное состояние: ПОДКЛЮЧЕН');
-      state.isConnected = true;
-      state.currentTabId = tabId;
-      state.active = true;
-      state._injectedTabs[tabId] = true;
-      delete state._failedTabs[tabId];
-      delete state._failureTimestamps[tabId];
-      saveConnectedState(true);
-      updateIcon(true);
-      safeSendMessage({
-        action: 'statusUpdate',
-        status: 'connected'
-      });
-    } else {
-      if (state._autoConnectEnabled && state.isConnected) {
-        console.log('🔄 Пробуем подключиться к вкладке:', tabId);
+  if (!tabId || state._failedTabs[tabId]) return;
+
+  const session = getTabSession(tabId);
+  chrome.tabs.sendMessage(tabId, { type: 'SF_PING', data: {} }, (response) => {
+    if (chrome.runtime.lastError) {
+      session.injected = false;
+      session.connected = false;
+      delete state._injectedTabs[tabId];
+      if (session.shouldReconnect) {
         setTimeout(() => {
           injectScriptDirectly(tabId);
-          setTimeout(() => {
-            sendMessageToInject(tabId, 'SF_CONNECT');
-          }, 1000);
+          setTimeout(() => sendMessageToInject(tabId, 'SF_CONNECT'), 1000);
         }, 500);
       }
+      return;
     }
-  })
-  .catch(() => {
-    if (state._autoConnectEnabled && state.isConnected) {
-      console.log('🔄 Пробуем подключиться (ошибка):', tabId);
-      setTimeout(() => {
-        injectScriptDirectly(tabId);
-        setTimeout(() => {
-          sendMessageToInject(tabId, 'SF_CONNECT');
-        }, 1000);
-      }, 500);
+
+    session.injected = !!response?.ready;
+    session.connected = !!response?.active;
+    session.lastSeen = Date.now();
+    session.lastStatus = session.connected ? 'connected' : 'disconnected';
+    if (session.injected) markTabInjected(tabId);
+
+    if (tabId === state.currentTabId) {
+      state.isConnected = session.connected;
+      state.active = session.connected;
+      if (session.connected) {
+        saveConnectedState(true);
+        updateIcon(true);
+      } else if (!session.shouldReconnect) {
+        saveConnectedState(false);
+        updateIcon(false);
+      }
     }
   });
 }
 
-// ============================================
-//  ПОЛУЧЕНИЕ ДОМЕНА САЙТА
-// ============================================
-
-function getSiteDomain(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.replace('www.', '');
-  } catch {
-    return null;
-  }
-}
-
-function saveSiteSettings(url, settings) {
-  const domain = getSiteDomain(url);
-  if (!domain) return;
-  
-  const key = 'site_' + domain.replace(/[^a-zA-Z0-9]/g, '_');
-  
-  api.storageGet(['siteSettings'])
-    .then((result) => {
-      const data = result.siteSettings || {};
-      data[key] = {
-        settings: settings,
-        updated: Date.now(),
-        url: url,
-        domain: domain
-      };
-      api.storageSet({ siteSettings: data }).catch(() => {});
-    })
-    .catch(() => {});
-}
-
-function loadSiteSettings(url) {
-  const domain = getSiteDomain(url);
-  if (!domain) return Promise.resolve(null);
-  
-  const key = 'site_' + domain.replace(/[^a-zA-Z0-9]/g, '_');
-  
-  return api.storageGet(['siteSettings'])
-    .then((result) => {
-      const data = result.siteSettings || {};
-      const siteData = data[key];
-      if (siteData) {
-        console.log(`📥 Загружены настройки для сайта: ${domain}`);
-        return siteData.settings;
-      }
-      return null;
-    })
-    .catch(() => null);
-}
-
-// ============================================
-//  СОБЫТИЯ БРАУЗЕРА
-// ============================================
-
-api.onWebNavigationCompleted((details) => {
+chrome.webNavigation.onCompleted.addListener((details) => {
   if (details.frameId === 0 && details.url) {
     console.log('🌐 Сайт загружен:', details.url);
+    const session = getTabSession(details.tabId);
+    const shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
+    invalidateTabRuntime(details.tabId, 'navigation');
+    session.shouldReconnect = shouldReconnect;
+    session.lastUrl = details.url;
     state._lastUrl = details.url;
     
     if (isSystemUrl(details.url)) {
@@ -1470,60 +1175,61 @@ api.onWebNavigationCompleted((details) => {
     }
     
     const currentSite = getSiteDomain(details.url);
-    if (currentSite && state._lastSite && state._lastSite !== currentSite) {
-      console.log(`🔄 Смена сайта: ${state._lastSite} → ${currentSite}`);
-      
-      loadSiteSettings(details.url).then((settings) => {
-        if (settings) {
-          console.log(`📥 Применяем настройки для ${currentSite}`);
-          api.sendMessage({
-            action: 'applySiteSettings',
-            settings: settings
-          }).catch(() => {});
-        }
-      });
-      
-      api.storageGet(['autoDisableOnSiteChange'])
-        .then((result) => {
-          const autoDisable = result.autoDisableOnSiteChange !== false;
-          if (autoDisable && state.isConnected) {
-            console.log(`🔇 Автовыключение: смена сайта ${state._lastSite} → ${currentSite}`);
-            state.isConnected = false;
-            state._autoConnectEnabled = false;
-            saveConnectedState(false);
-            updateIcon(false);
-            safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
-            
-            try {
-              api.notificationsCreate({
-                type: 'basic',
-                iconUrl: 'icons/SoundForge.png',
-                title: '🔇 SoundForge',
-                message: 'Эквалайзер выключен при смене сайта',
-                priority: 1
-              }).catch(() => {});
-            } catch (e) {}
-          }
-        })
-        .catch(() => {});
-    }
-    
+    const previousSite = state._lastSiteByTab[details.tabId] || null;
+    const siteChanged = !!(currentSite && previousSite && previousSite !== currentSite);
+
+    state._lastSiteByTab[details.tabId] = currentSite;
     state._lastSite = currentSite;
-    api.storageSet({ lastSite: currentSite }).catch(() => {});
+    chrome.storage.local.set({ lastSite: currentSite }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка сохранения lastSite:', chrome.runtime.lastError);
+      }
+    });
     
     if (state._failedTabs[details.tabId]) {
       delete state._failedTabs[details.tabId];
       delete state._failureTimestamps[details.tabId];
     }
-    
-    if (state.isConnected && state._autoConnectEnabled) {
-      setTimeout(() => {
-        injectScriptDirectly(details.tabId);
-        setTimeout(() => {
-          sendMessageToInject(details.tabId, 'SF_CONNECT');
-        }, 1000);
-      }, 1000);
-    }
+
+    loadSiteSettings(details.url).then((settings) => {
+      if (settings) {
+        if (settings.gains) sendMessageToInject(details.tabId, 'SF_UPDATE_EQ', { gains: settings.gains, instant: true });
+        if (settings.volume !== undefined) sendMessageToInject(details.tabId, 'SF_SET_VOLUME', { value: settings.volume });
+        if (settings.bass !== undefined) sendMessageToInject(details.tabId, 'SF_SET_BASS', { value: settings.bass });
+        if (settings.preset) {
+          const payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
+          if (payload) sendMessageToInject(details.tabId, 'SF_APPLY_PRESET', payload);
+        }
+      }
+
+      chrome.storage.local.get(['autoDisableOnSiteChange'], (result) => {
+        const autoDisable = chrome.runtime.lastError ? true : result.autoDisableOnSiteChange !== false;
+        const tabSession = getTabSession(details.tabId);
+        if (siteChanged && autoDisable && shouldReconnect) {
+          tabSession.shouldReconnect = false;
+          tabSession.connected = false;
+          sendMessageToInject(details.tabId, 'SF_DISCONNECT');
+          if (state.currentTabId === details.tabId) {
+            state.isConnected = false;
+            state._autoConnectEnabled = false;
+            saveConnectedState(false);
+            updateIcon(false);
+            safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
+          }
+          return;
+        }
+
+        if (shouldReconnect && (!siteChanged || !autoDisable)) {
+          tabSession.shouldReconnect = true;
+          setTimeout(() => {
+            injectScriptDirectly(details.tabId);
+            setTimeout(() => {
+              sendMessageToInject(details.tabId, 'SF_CONNECT');
+            }, 1000);
+          }, 1000);
+        }
+      });
+    });
     
     setTimeout(() => {
       checkRealConnectionStatus(details.tabId);
@@ -1531,9 +1237,13 @@ api.onWebNavigationCompleted((details) => {
   }
 });
 
-api.onWebNavigationHistoryStateUpdated((details) => {
+chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
   if (details.frameId === 0 && details.url) {
     console.log('🔄 SPA навигация:', details.url);
+    const session = getTabSession(details.tabId);
+    const shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
+    invalidateTabRuntime(details.tabId, 'history_navigation');
+    session.shouldReconnect = shouldReconnect;
     state._lastUrl = details.url;
     
     if (isSystemUrl(details.url)) return;
@@ -1543,7 +1253,7 @@ api.onWebNavigationHistoryStateUpdated((details) => {
       delete state._failureTimestamps[details.tabId];
     }
     
-    if (state.isConnected && state._autoConnectEnabled) {
+    if (shouldReconnect) {
       setTimeout(() => {
         injectScriptDirectly(details.tabId);
         setTimeout(() => {
@@ -1554,85 +1264,85 @@ api.onWebNavigationHistoryStateUpdated((details) => {
   }
 });
 
-// ============================================
-//  СОБЫТИЯ ВКЛАДОК
-// ============================================
-
-api.tabsQuery({ active: true, currentWindow: true })
-  .then(() => {
-    api._api.tabs.onActivated.addListener((activeInfo) => {
-      api.tabsGet(activeInfo.tabId)
-        .then((tab) => {
-          if (tab && tab.url) {
-            console.log('🌐 Вкладка активирована:', tab.url);
-            state._lastUrl = tab.url;
-            
-            if (isSystemUrl(tab.url)) return;
-            
-            if (state.isConnected && state._autoConnectEnabled) {
-              setTimeout(() => {
-                injectScriptDirectly(tab.id);
-                setTimeout(() => {
-                  sendMessageToInject(tab.id, 'SF_CONNECT');
-                }, 1000);
-              }, 500);
-            }
-            
-            setTimeout(() => {
-              checkRealConnectionStatus(tab.id);
-            }, 1000);
-          }
-        })
-        .catch(() => {});
-    });
-
-    api._api.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      if (changeInfo.url) {
-        console.log('🔄 URL изменен:', changeInfo.url);
-        state._lastUrl = changeInfo.url;
-        
-        if (isSystemUrl(changeInfo.url)) return;
-        
-        if (state._failedTabs[tabId]) {
-          delete state._failedTabs[tabId];
-          delete state._failureTimestamps[tabId];
-        }
-        
-        if (state.isConnected && state._autoConnectEnabled) {
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  chrome.tabs.get(activeInfo.tabId, (tab) => {
+    if (chrome.runtime.lastError) return;
+    if (tab && tab.url) {
+      console.log('🌐 Вкладка активирована:', tab.url);
+      state.currentTabId = tab.id;
+      const session = getTabSession(tab.id);
+      state.isConnected = !!session.connected;
+      state._lastUrl = tab.url;
+      
+      if (isSystemUrl(tab.url)) return;
+      
+      if (session.shouldReconnect) {
+        setTimeout(() => {
+          injectScriptDirectly(tab.id);
           setTimeout(() => {
-            injectScriptDirectly(tabId);
-            setTimeout(() => {
-              sendMessageToInject(tabId, 'SF_CONNECT');
-            }, 1000);
+            sendMessageToInject(tab.id, 'SF_CONNECT');
           }, 1000);
-        }
+        }, 500);
       }
-    });
+      
+      setTimeout(() => {
+        checkRealConnectionStatus(tab.id);
+      }, 1000);
+    }
+  });
+});
 
-    api._api.tabs.onRemoved.addListener((tabId) => {
-      if (tabId === state.currentTabId) {
-        console.log('🔴 Вкладка закрыта');
-        state.currentTabId = null;
-        delete state._injectedTabs[tabId];
-        delete state._failedTabs[tabId];
-        delete state._failureTimestamps[tabId];
-      }
-    });
-  })
-  .catch(() => {});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading') invalidateTabRuntime(tabId, 'tab_loading');
+  if (changeInfo.url) {
+    console.log('🔄 URL изменен:', changeInfo.url);
+    state._lastUrl = changeInfo.url;
+    
+    if (isSystemUrl(changeInfo.url)) return;
+    
+    if (state._failedTabs[tabId]) {
+      delete state._failedTabs[tabId];
+      delete state._failureTimestamps[tabId];
+    }
+    
+    const session = getTabSession(tabId);
+    if (session.shouldReconnect) {
+      setTimeout(() => {
+        injectScriptDirectly(tabId);
+        setTimeout(() => {
+          sendMessageToInject(tabId, 'SF_CONNECT');
+        }, 1000);
+      }, 1000);
+    }
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  delete state._tabSessions[tabId];
+  delete state._documentTokens[tabId];
+  delete state._lastSiteByTab[tabId];
+  delete state._tabMuteStates[String(tabId)];
+  if (tabId === state.currentTabId) {
+    console.log('🔴 Вкладка закрыта');
+    state.currentTabId = null;
+    delete state._injectedTabs[tabId];
+    delete state._failedTabs[tabId];
+    delete state._failureTimestamps[tabId];
+  }
+});
 
 // ============================================
-//  СОБЫТИЯ ОКОН
+//  СОХРАНЕНИЕ ID ОКНА
 // ============================================
 
-api._api.windows.onCreated.addListener((window) => {
+chrome.windows.onCreated.addListener((window) => {
   if (window.type === 'popup' && window.url && window.url.includes('window.html')) {
     state._windowId = window.id;
     console.log('🪟 Окно открыто, ID:', window.id);
   }
 });
 
-api._api.windows.onRemoved.addListener((windowId) => {
+chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === state._windowId) {
     state._windowId = null;
     console.log('🪟 Окно закрыто');
@@ -1640,10 +1350,10 @@ api._api.windows.onRemoved.addListener((windowId) => {
 });
 
 // ============================================
-//  ГОРЯЧИЕ КЛАВИШИ
+//  ГОРЯЧИЕ КЛАВИШИ (4 команды)
 // ============================================
 
-api.onCommand((command) => {
+chrome.commands.onCommand.addListener((command) => {
   console.log(`⌨️ Горячая клавиша: ${command}`);
   
   switch (command) {
@@ -1669,48 +1379,92 @@ function toggleEqualizer() {
     }
     const tabId = tab.id;
     
-    if (state.isConnected) {
-      state.isConnected = false;
-      state._autoConnectEnabled = false;
-      saveConnectedState(false);
-      updateIcon(false);
+    const session = getTabSession(tabId);
+    if (session.connected) {
+      session.connected = false;
+      session.shouldReconnect = false;
+      if (state.currentTabId === tabId) {
+        state.isConnected = false;
+        state._autoConnectEnabled = false;
+        saveConnectedState(false);
+        updateIcon(false);
+      }
       sendMessageToInject(tabId, 'SF_DISCONNECT');
       safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
       notifyWindows({ action: 'statusUpdate', status: 'disconnected' });
       showNotification('🔊 SoundForge', 'Эквалайзер выключен', 'info');
     } else {
-      state.isConnected = true;
+      session.connected = false;
+      session.connecting = true;
+      session.shouldReconnect = true;
+      state.isConnected = false;
       state._autoConnectEnabled = true;
       state.currentTabId = tabId;
-      state.active = true;
+      state.active = false;
+      state._isConnecting = true;
       saveConnectedState(true);
-      updateIcon(true);
+      updateIcon(false);
       injectScriptDirectly(tabId);
       setTimeout(() => {
         sendMessageToInject(tabId, 'SF_CONNECT');
       }, 1000);
-      safeSendMessage({ action: 'statusUpdate', status: 'connected' });
-      notifyWindows({ action: 'statusUpdate', status: 'connected' });
-      showNotification('🔊 SoundForge', 'Эквалайзер включен', 'success');
+      safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
+      notifyWindows({ action: 'statusUpdate', status: 'disconnected' });
+      showNotification('🔊 SoundForge', 'Подключение эквалайзера...', 'info');
     }
   });
 }
 
 function resetAllSettings() {
-  api.sendMessage({ action: 'reset', fullReset: true }).catch(() => {});
-  api.storageClear()
+  chrome.runtime.sendMessage({ action: 'reset', fullReset: true });
+
+  const currentSession = state.currentTabId ? getTabSession(state.currentTabId) : null;
+  const wasConnected = !!currentSession?.connected;
+
+  const resetData = {
+    eqSettings: {
+      31: 0, 62: 0, 125: 0, 250: 0, 500: 0,
+      1000: 0, 2000: 0, 4000: 0, 8000: 0, 16000: 0
+    },
+    sf_eqSettings: {
+      31: 0, 62: 0, 125: 0, 250: 0, 500: 0,
+      1000: 0, 2000: 0, 4000: 0, 8000: 0, 16000: 0
+    },
+    volumeBoost: 1,
+    sf_volumeBoost: 1,
+    savedVolume: 100,
+    sf_savedVolume: 100,
+    bassBoost: 0,
+    sf_bassBoost: 0,
+    savedBass: 0,
+    sf_savedBass: 0,
+    selectedPreset: 'flat',
+    sf_selectedPreset: 'flat',
+    nightMode: false,
+    sf_nightMode: false,
+    powerSaveMode: false,
+    sf_powerSaveMode: false,
+    soundforgeConnected: wasConnected,
+    sf_isConnected: wasConnected,
+    soundforgeAutoConnect: wasConnected
+  };
+
+  enqueueStoragePatch('appSettingsReset', resetData)
     .then(() => {
-      state.isConnected = false;
-      state._autoConnectEnabled = false;
+      state.isConnected = wasConnected;
+      state._autoConnectEnabled = wasConnected;
       state._nightMode = false;
       state._powerSaveMode = false;
       state._currentPreset = 'flat';
-      saveConnectedState(false);
-      updateIcon(false);
+      if (!wasConnected) state.active = false;
+      saveConnectedState(wasConnected);
+      updateIcon(wasConnected);
       notifyWindows({ action: 'settingsReset' });
-      showNotification('🔄 SoundForge', 'Все настройки сброшены', 'warning');
+      showNotification('🔄 SoundForge', 'Настройки сброшены без удаления пользовательских данных', 'warning');
     })
-    .catch(() => {});
+    .catch((error) => {
+      console.warn('⚠️ Ошибка сброса настроек:', error);
+    });
 }
 
 // ============================================
@@ -1721,39 +1475,42 @@ function addHistoryEntry(action, data, metadata = {}) {
   const entry = {
     id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: Date.now(),
-    action: action,
-    data: data,
-    metadata: metadata,
+    action,
+    data,
+    metadata,
     url: metadata.url || '',
     site: metadata.site || state._lastSite || ''
   };
-  
-  api.storageGet(['settingsHistory'])
-    .then((result) => {
-      let history = result.settingsHistory || [];
-      history.push(entry);
-      if (history.length > 1000) {
-        history = history.slice(-1000);
-      }
-      state._history = history;
-      api.storageSet({ settingsHistory: history }).catch(() => {});
-    })
-    .catch(() => {});
+  return enqueueStorageMutation('settingsHistory', (existing) => {
+    const history = Array.isArray(existing) ? existing.slice() : [];
+    history.push(entry);
+    return history.slice(-1000);
+  }).then((history) => {
+    state._history = history;
+    return history;
+  });
 }
 
 function getHistory() {
-  return api.storageGet(['settingsHistory'])
-    .then((result) => result.settingsHistory || [])
-    .catch(() => []);
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['settingsHistory'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения settingsHistory:', chrome.runtime.lastError);
+        resolve([]);
+        return;
+      }
+      resolve(result.settingsHistory || []);
+    });
+  });
 }
 
 function clearHistory() {
-  api.storageSet({ settingsHistory: [] })
+  enqueueStoragePatch('settingsHistory', { settingsHistory: [] })
     .then(() => {
       state._history = [];
       console.log('🗑️ История очищена');
     })
-    .catch(() => {});
+    .catch((error) => console.warn('⚠️ Ошибка очистки истории:', error));
 }
 
 // ============================================
@@ -1762,7 +1519,7 @@ function clearHistory() {
 
 function toggleNightMode() {
   state._nightMode = !state._nightMode;
-  api.storageSet({ nightMode: state._nightMode }).catch(() => {});
+  enqueueStoragePatch('globalModes', { nightMode: state._nightMode, sf_nightMode: state._nightMode }).catch((error) => console.warn('⚠️ Ошибка сохранения nightMode:', error));
   
   if (state._nightMode) {
     state._nightModeStartTime = Date.now();
@@ -1795,7 +1552,7 @@ function getNightMode() {
 
 function togglePowerSave() {
   state._powerSaveMode = !state._powerSaveMode;
-  api.storageSet({ powerSaveMode: state._powerSaveMode }).catch(() => {});
+  enqueueStoragePatch('globalModes', { powerSaveMode: state._powerSaveMode, sf_powerSaveMode: state._powerSaveMode }).catch((error) => console.warn('⚠️ Ошибка сохранения powerSaveMode:', error));
   
   if (state._powerSaveMode) {
     console.log('⚡ Режим энергосбережения включен');
@@ -1807,7 +1564,7 @@ function togglePowerSave() {
   
   findActiveTabWithAudio((tab) => {
     if (tab) {
-      const interval = state._powerSaveMode ? 5000 : 50;
+      const interval = state._powerSaveMode ? 5000 : 80;
       sendMessageToInject(tab.id, 'SF_SET_POWER_SAVE', { 
         enabled: state._powerSaveMode,
         interval: interval 
@@ -1830,13 +1587,23 @@ function getPowerSave() {
 
 function showNotification(title, message, type = 'info') {
   try {
-    api.notificationsCreate({
+    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') !== -1;
+    const options = {
       type: 'basic',
       iconUrl: 'icons/SoundForge.png',
       title: title,
       message: message,
       priority: 1
-    }).catch(() => {});
+    };
+    
+    // Firefox не поддерживает buttons
+    if (!isFirefox) {
+      options.buttons = [{ title: 'OK' }];
+    }
+    
+    chrome.notifications.create(options, (notificationId) => {
+      if (chrome.runtime.lastError) {}
+    });
   } catch (e) {
     console.log(`📢 ${title}: ${message}`);
   }
@@ -1852,21 +1619,24 @@ function checkNightModeAuto() {
   const isNight = hours >= 22 || hours < 7;
   
   try {
-    api.storageGet(['nightModeAuto'])
-      .then((result) => {
-        const autoMode = result.nightModeAuto !== false;
-        
-        if (autoMode) {
-          if (isNight && !state._nightMode) {
-            console.log('🌙 Автоматическое включение ночного режима');
-            toggleNightMode();
-          } else if (!isNight && state._nightMode) {
-            console.log('☀️ Автоматическое выключение ночного режима');
-            toggleNightMode();
-          }
+    chrome.storage.local.get(['nightModeAuto'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения nightModeAuto:', chrome.runtime.lastError);
+        return;
+      }
+      
+      const autoMode = result.nightModeAuto !== false;
+      
+      if (autoMode) {
+        if (isNight && !state._nightMode) {
+          console.log('🌙 Автоматическое включение ночного режима');
+          toggleNightMode();
+        } else if (!isNight && state._nightMode) {
+          console.log('☀️ Автоматическое выключение ночного режима');
+          toggleNightMode();
         }
-      })
-      .catch(() => {});
+      }
+    });
   } catch (e) {
     console.warn('⚠️ Ошибка в checkNightModeAuto:', e);
   }
@@ -1876,48 +1646,53 @@ function checkNightModeAuto() {
 //  ОБРАБОТЧИК СООБЩЕНИЙ
 // ============================================
 
-api.onMessage((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Получено сообщение:', request.action);
 
+  // ============================================
+  //  FULLSCREEN: RESIZE WINDOW (Firefox)
+  // ============================================
   if (request.action === 'resize_window') {
     console.log('🪟 Resizing window:', request.width, 'x', request.height);
-    api.windowsGetCurrent()
-      .then((win) => {
-        return api.windowsUpdate(win.id, {
-          width: request.width,
-          height: request.height,
-          left: request.left || 0,
-          top: request.top || 0
-        });
-      })
-      .then(() => {
-        sendResponse({ status: 'ok' });
-      })
-      .catch((err) => {
-        sendResponse({ status: 'error', message: err.message });
+    chrome.windows.getCurrent({}, (win) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+        return;
+      }
+      chrome.windows.update(win.id, {
+        width: request.width,
+        height: request.height,
+        left: request.left || 0,
+        top: request.top || 0
+      }, () => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ status: 'ok' });
+        }
       });
+    });
     return true;
   }
   
   if (request.action === 'open_window') {
     console.log('🪟 Открываем окно эквалайзера');
-    api.windowsCreate({
-      url: api.getURL('window.html'),
+    chrome.windows.create({
+      url: chrome.runtime.getURL('window.html'),
       type: 'popup',
       width: 500,
       height: 750,
       top: 100,
       left: 100
-    })
-    .then((window) => {
-      console.log('🪟 Окно эквалайзера открыто');
-      state._windowId = window.id;
-      sendResponse({ status: 'ok' });
-    })
-    .catch((err) => {
-      console.warn('⚠️ Ошибка открытия окна:', err);
-      sendResponse({ status: 'error', message: err.message });
+    }, (window) => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Ошибка открытия окна:', chrome.runtime.lastError);
+      } else {
+        console.log('🪟 Окно эквалайзера открыто');
+        state._windowId = window.id;
+      }
     });
+    sendResponse({ status: 'ok' });
     return true;
   }
   
@@ -1972,32 +1747,151 @@ api.onMessage((request, sender, sendResponse) => {
     return true;
   }
   
+  // ============================================
+  //  СТАТУС - ИСПРАВЛЕНО
+  // ============================================
   if (request.action === 'statusUpdate') {
-    console.log('🔄 Статус обновлен:', request.status);
+    console.log('🔄 Статус обновлен:', request.status, 'от вкладки:', sender?.tab?.id);
+    const senderTabId = sender?.tab?.id || null;
+    const session = senderTabId ? getTabSession(senderTabId) : null;
+    const isCurrentTab = !!senderTabId && senderTabId === state.currentTabId;
+    const isActiveSender = sender?.tab?.active === true;
+
+    if (request.status === 'connecting') {
+      if (session) {
+        session.connecting = true;
+        session.lastStatus = 'connecting';
+        session.lastSeen = Date.now();
+      }
+      if (isCurrentTab || isActiveSender || state.currentTabId === null) {
+        state.isConnected = false;
+        state.active = false;
+        state._isConnecting = true;
+        updateIcon(false);
+      }
+      
+      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
+      safeSendMessage({
+        action: 'statusUpdate',
+        status: 'connecting',
+        tabId: senderTabId
+      });
+      
+      sendResponse({ status: 'received' });
+      return true;
+    }
+
     if (request.status === 'connected') {
-      state.isConnected = true;
-      state._autoConnectEnabled = true;
-      state._isConnecting = false;
-      state._connectionAttempts = 0;
-      if (sender && sender.tab) {
-        state.currentTabId = sender.tab.id;
+      if (session) {
+        session.connected = true;
+        session.connecting = false;
+        session.shouldReconnect = true;
+        session.lastStatus = 'connected';
+        session.lastSeen = Date.now();
+        session.lastUrl = sender.tab.url || session.lastUrl;
+        markTabInjected(senderTabId, sender.tab.url);
+        delete state._failedTabs[senderTabId];
+        delete state._failureTimestamps[senderTabId];
+      }
+
+      if (isCurrentTab || isActiveSender || state.currentTabId === null) {
+        state.currentTabId = senderTabId;
+        state.isConnected = true;
         state.active = true;
-        state._injectedTabs[sender.tab.id] = true;
-        delete state._failedTabs[sender.tab.id];
-        delete state._failureTimestamps[sender.tab.id];
+        state._autoConnectEnabled = true;
+        state._isConnecting = false;
+        state._connectionAttempts = 0;
+        saveConnectedState(true);
+        updateIcon(true);
+        addHistoryEntry('eq_enabled', {}, { source: 'manual' });
       }
-      saveConnectedState(true);
-      updateIcon(true);
+      
+      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
+      const statusToSend = (isCurrentTab || isActiveSender || state.currentTabId === null) ? 'connected' : 'disconnected';
+      safeSendMessage({
+        action: 'statusUpdate',
+        status: statusToSend,
+        tabId: senderTabId
+      });
+      
+      // ✅ ДОПОЛНИТЕЛЬНО: глобальный статус
+      if (isCurrentTab || isActiveSender || state.currentTabId === null) {
+        safeSendMessage({
+          action: 'statusUpdate',
+          status: 'connected'
+        });
+      }
+      
     } else if (request.status === 'disconnected') {
-      state.isConnected = false;
-      state._isConnecting = false;
-      saveConnectedState(false);
-      updateIcon(false);
-    } else if (request.status === 'error') {
-      if (sender && sender.tab) {
-        state._failedTabs[sender.tab.id] = true;
-        state._failureTimestamps[sender.tab.id] = Date.now();
+      // Firefox/YouTube can emit a transient disconnected status from inject.js
+      // while SF_CONNECT is still being processed. Do not cancel the handshake.
+      if (session?.connecting) {
+        session.lastSeen = Date.now();
+        session.lastStatus = 'connecting';
+        if (isCurrentTab || isActiveSender || state.currentTabId === null) {
+          state._isConnecting = true;
+          state.isConnected = false;
+          state.active = false;
+          updateIcon(false);
+        }
+        safeSendMessage({
+          action: 'statusUpdate',
+          status: 'connecting',
+          tabId: senderTabId
+        });
+        sendResponse({ status: 'received_transient_disconnected' });
+        return true;
       }
+
+      if (session) {
+        session.connected = false;
+        session.connecting = false;
+        session.lastStatus = 'disconnected';
+        session.lastSeen = Date.now();
+      }
+      if (isCurrentTab || isActiveSender) {
+        state.isConnected = false;
+        state._isConnecting = false;
+        state.active = false;
+        saveConnectedState(false);
+        updateIcon(false);
+      }
+      
+      safeSendMessage({
+        action: 'statusUpdate',
+        status: 'disconnected',
+        tabId: senderTabId
+      });
+      
+      if (isCurrentTab || isActiveSender) {
+        safeSendMessage({
+          action: 'statusUpdate',
+          status: 'disconnected'
+        });
+      }
+      
+    } else if (request.status === 'error') {
+      if (session) {
+        session.connected = false;
+        session.connecting = false;
+        session.lastStatus = 'error';
+        session.lastSeen = Date.now();
+        state._failedTabs[senderTabId] = true;
+        state._failureTimestamps[senderTabId] = Date.now();
+      }
+      if (isCurrentTab || isActiveSender) {
+        state.isConnected = false;
+        state._isConnecting = false;
+        state.active = false;
+        updateIcon(false);
+      }
+      
+      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
+      safeSendMessage({
+        action: 'statusUpdate',
+        status: 'disconnected',
+        tabId: senderTabId
+      });
     }
     sendResponse({ status: 'received' });
     return true;
@@ -2007,16 +1901,14 @@ api.onMessage((request, sender, sendResponse) => {
     if (state.currentTabId && state.isConnected && !state._failedTabs[state.currentTabId]) {
       getSpectrumFromInject(state.currentTabId);
     } else {
-      const time = Date.now() / 1000;
-      const dummySpectrum = new Array(64).fill(0);
-      for (let i = 0; i < 32; i++) {
-        dummySpectrum[i] = (Math.sin(time * 2 + i * 0.4) * 0.3 + 0.5) * 0.3;
-      }
       safeSendMessage({
         action: 'spectrumData',
-        spectrum: dummySpectrum,
-        hasAudio: true,
-        isDummy: true
+        spectrum: new Array(64).fill(0),
+        hasAudio: false,
+        rms: 0,
+        peak: 0,
+        clipping: false,
+        isDummy: false
       });
     }
     sendResponse({ status: 'requested' });
@@ -2028,50 +1920,205 @@ api.onMessage((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'getInjectSettings') {
+    const url = typeof request.url === 'string' && request.url ? request.url : sender?.tab?.url;
+    loadInjectSettings(url).then((payload) => {
+      sendResponse({ status: 'ok', ...payload });
+    }).catch((error) => {
+      sendResponse({ status: 'error', message: error?.message || 'settings_load_failed', settings: {} });
+    });
+    return true;
+  }
+
+  if (request.action === 'saveInjectSettings') {
+    const url = typeof request.url === 'string' && request.url ? request.url : sender?.tab?.url;
+    const settings = sanitizeSiteSettings(request.settings);
+    saveSiteSettings(url, settings).then((ok) => {
+      sendResponse({ status: ok ? 'ok' : 'error' });
+    }).catch((error) => {
+      sendResponse({ status: 'error', message: error?.message || 'settings_save_failed' });
+    });
+    return true;
+  }
+
+  if (request.action === 'getUserPresets') {
+    chrome.storage.local.get(['sf_userPresets', 'userPresets'], (result) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ status: 'error', message: chrome.runtime.lastError.message, presets: {} });
+        return;
+      }
+      const presets = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
+        ? result.sf_userPresets
+        : ((result.userPresets && typeof result.userPresets === 'object') ? result.userPresets : {});
+      sendResponse({ status: 'ok', presets });
+    });
+    return true;
+  }
+
   if (request.action === 'exportSettings') {
-    api.storageGet(null)
-      .then((data) => {
-        const exportData = {
-          version: '3.22.8',
-          timestamp: Date.now(),
-          settings: data
-        };
-        sendResponse({ status: 'ok', data: JSON.stringify(exportData) });
-      })
-      .catch((err) => {
-        sendResponse({ status: 'error', message: err.message });
-      });
+    chrome.storage.local.get(null, (data) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+        return;
+      }
+      const exportData = {
+        version: '3.22.8',
+        timestamp: Date.now(),
+        settings: data
+      };
+      sendResponse({ status: 'ok', data: JSON.stringify(exportData) });
+    });
     return true;
   }
 
   if (request.action === 'importSettings') {
     try {
-      const importData = JSON.parse(request.data);
-      if (importData.settings) {
-        api.storageSet(importData.settings)
-          .then(() => {
-            loadSavedState();
-            sendResponse({ status: 'ok' });
-          })
-          .catch((err) => {
-            sendResponse({ status: 'error', message: err.message });
-          });
-      } else {
-        sendResponse({ status: 'error', message: 'Неверный формат данных' });
+      if (typeof request.data !== 'string' || request.data.length > 2_000_000) {
+        throw new Error('Файл настроек слишком большой или некорректный');
       }
+      const importData = JSON.parse(request.data);
+      if (!importData || typeof importData !== 'object' || !importData.settings || typeof importData.settings !== 'object') {
+        throw new Error('Неверный формат данных');
+      }
+
+      const safeSettings = sanitizeImportedSettings(importData.settings);
+      if (importData.userPresets && typeof importData.userPresets === 'object') {
+        const presets = sanitizeUserPresets(importData.userPresets);
+        safeSettings.userPresets = presets;
+        safeSettings.sf_userPresets = presets;
+      }
+
+      const importedPresets = safeSettings.userPresets ?? safeSettings.sf_userPresets;
+      const settingsOnly = { ...safeSettings };
+      delete settingsOnly.userPresets;
+      delete settingsOnly.sf_userPresets;
+
+      const writes = [enqueueStoragePatch('importSettings', settingsOnly)];
+      if (importedPresets && typeof importedPresets === 'object') {
+        writes.push(enqueueUserPresetsMutation(() => importedPresets));
+      }
+
+      Promise.all(writes)
+        .then(() => {
+          loadSavedState();
+          sendResponse({ status: 'ok' });
+        })
+        .catch((error) => sendResponse({ status: 'error', message: error.message }));
     } catch(e) {
       sendResponse({ status: 'error', message: e.message });
     }
     return true;
   }
 
+  if (request.action === 'settingsSnapshot' && request.settings) {
+    let incoming;
+    try {
+      incoming = sanitizeImportedSettings(request.settings);
+    } catch (error) {
+      sendResponse({ status: 'error', message: error.message });
+      return true;
+    }
+    const data = {};
+    const map = {
+      eqSettings: ['eqSettings', 'sf_eqSettings'],
+      sf_eqSettings: ['eqSettings', 'sf_eqSettings'],
+      volumeBoost: ['volumeBoost', 'sf_volumeBoost'],
+      sf_volumeBoost: ['volumeBoost', 'sf_volumeBoost'],
+      bassBoost: ['bassBoost', 'sf_bassBoost'],
+      sf_bassBoost: ['bassBoost', 'sf_bassBoost'],
+      selectedPreset: ['selectedPreset', 'sf_selectedPreset'],
+      sf_selectedPreset: ['selectedPreset', 'sf_selectedPreset'],
+      theme: ['theme', 'sf_theme'],
+      sf_theme: ['theme', 'sf_theme'],
+      language: ['language', 'sf_language'],
+      sf_language: ['language', 'sf_language'],
+      savedVolume: ['savedVolume', 'sf_savedVolume'],
+      sf_savedVolume: ['savedVolume', 'sf_savedVolume'],
+      savedBass: ['savedBass', 'sf_savedBass'],
+      sf_savedBass: ['savedBass', 'sf_savedBass'],
+      nightMode: ['nightMode', 'sf_nightMode'],
+      sf_nightMode: ['nightMode', 'sf_nightMode'],
+      powerSaveMode: ['powerSaveMode', 'sf_powerSaveMode'],
+      sf_powerSaveMode: ['powerSaveMode', 'sf_powerSaveMode'],
+      debugMode: ['debugMode', 'sf_debugMode'],
+      sf_debugMode: ['debugMode', 'sf_debugMode'],
+      autoDisableOnSiteChange: ['autoDisableOnSiteChange'],
+      soundforgeAutoConnect: ['soundforgeAutoConnect']
+    };
+    for (const [sourceKey, targets] of Object.entries(map)) {
+      if (incoming[sourceKey] !== undefined) {
+        for (const targetKey of targets) data[targetKey] = incoming[sourceKey];
+      }
+    }
+
+    const writeSettings = enqueueStoragePatch('globalSettings', data);
+    const writePresets = incoming.userPresets
+      ? enqueueUserPresetsMutation(() => incoming.userPresets)
+      : Promise.resolve();
+
+    Promise.all([writeSettings, writePresets])
+      .then(() => sendResponse({ status: 'ok' }))
+      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    return true;
+  }
+
+  if (request.action === 'replaceUserPresets' && request.presets && typeof request.presets === 'object') {
+    const sanitizedPresets = sanitizeUserPresets(request.presets);
+    enqueueUserPresetsMutation(() => sanitizedPresets)
+      .then(() => sendResponse({ status: 'ok' }))
+      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    return true;
+  }
+
+  if (request.action === 'saveUserPreset' && typeof request.name === 'string' && request.name.length <= 100 && request.preset) {
+    const sanitizedPreset = sanitizeUserPresets({ [request.name]: request.preset })[request.name];
+    if (!sanitizedPreset) {
+      sendResponse({ status: 'error', message: 'Некорректный пресет' });
+      return true;
+    }
+    enqueueUserPresetsMutation((existing) => {
+      existing[request.name] = sanitizedPreset;
+      return existing;
+    })
+      .then(() => sendResponse({ status: 'ok' }))
+      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    return true;
+  }
+
+  if (request.action === 'deleteUserPreset' && request.name) {
+    enqueueUserPresetsMutation((existing) => {
+      delete existing[request.name];
+      return existing;
+    })
+      .then(() => sendResponse({ status: 'ok' }))
+      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    return true;
+  }
+
   if (request.action === 'getStatus') {
-    sendResponse({ 
-      status: state.isConnected ? 'connected' : 'disconnected',
-      autoConnect: state._autoConnectEnabled,
-      nightMode: state._nightMode,
-      powerSave: state._powerSaveMode,
-      currentPreset: state._currentPreset
+    const requestedTabId = Number.isInteger(request.targetTabId)
+      ? request.targetTabId
+      : null;
+
+    if (requestedTabId) {
+      const session = getTabSession(requestedTabId);
+      sendResponse({
+        status: session?.connected ? 'connected' : (session?.connecting ? 'connecting' : 'disconnected'),
+        tabId: requestedTabId
+      });
+      return true;
+    }
+
+    findActiveTabWithAudio((tab) => {
+      if (!tab) {
+        sendResponse({ status: 'disconnected', tabId: null });
+        return;
+      }
+      const session = getTabSession(tab.id);
+      sendResponse({
+        status: session?.connected ? 'connected' : (session?.connecting ? 'connecting' : 'disconnected'),
+        tabId: tab.id
+      });
     });
     return true;
   }
@@ -2079,26 +2126,96 @@ api.onMessage((request, sender, sendResponse) => {
   if (request.action === 'applyPreset') {
     if (request.preset) {
       state._currentPreset = request.preset;
-      api.storageSet({ selectedPreset: request.preset }).catch(() => {});
-      
-      findActiveTabWithAudio((tab) => {
-        if (tab) {
-          sendMessageToInject(tab.id, 'SF_APPLY_PRESET', { 
+
+      const payload = request.presetData
+        ? {
             preset: request.preset,
+            presetData: request.presetData,
             source: request.source || 'background'
-          });
-        }
-      });
-      
-      notifyWindows({ 
-        action: 'presetChanged', 
-        preset: request.preset,
-        source: request.source || 'background'
-      });
-      
-      addHistoryEntry('preset_applied', { preset: request.preset }, { source: request.source || 'background' });
+          }
+        : normalizePresetPayload(request.preset, request.source || 'background');
+
+      enqueueStoragePatch('globalSettings', {
+        selectedPreset: request.preset,
+        sf_selectedPreset: request.preset
+      }).catch(() => {});
+
+      const targetTabId = Number.isInteger(request.targetTabId)
+        ? request.targetTabId
+        : (sender?.tab?.id || null);
+
+      const notifyPresetChanged = (tabId) => {
+        notifyWindows({
+          action: 'presetChanged',
+          preset: request.preset,
+          presetData: request.presetData || null,
+          source: request.source || 'background',
+          tabId: tabId || null,
+          uiOnly: true
+        });
+      };
+
+      if (targetTabId && payload) {
+        sendMessageToInject(targetTabId, 'SF_APPLY_PRESET', payload);
+        notifyPresetChanged(targetTabId);
+      } else {
+        findActiveTabWithAudio((tab) => {
+          if (tab && payload) {
+            sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
+            notifyPresetChanged(tab.id);
+          } else {
+            notifyPresetChanged(null);
+          }
+        });
+      }
+
+      addHistoryEntry(
+        'preset_applied',
+        { preset: request.preset },
+        { source: request.source || 'background' }
+      );
     }
+
     sendResponse({ status: 'ok' });
+    return true;
+  }
+
+  if (request.action === 'effectChanged') {
+    const effect = ['spectrum', 'waves', 'fire', 'neon'].includes(request.effect)
+      ? request.effect
+      : 'spectrum';
+
+    chrome.storage.local.set({ soundforge_effect: effect }).catch(() => {});
+
+    notifyWindows({
+      action: 'effectChanged',
+      effect,
+      source: request.source || 'background',
+      tabId: Number.isInteger(request.targetTabId) ? request.targetTabId : null,
+      uiOnly: true
+    });
+
+    sendResponse({ status: 'ok', effect });
+    return true;
+  }
+
+  if (request.action === 'setTabVolumeMute') {
+    const targetTabId = Number.isInteger(request.targetTabId)
+      ? request.targetTabId
+      : (sender?.tab?.id || null);
+
+    if (!targetTabId) {
+      sendResponse({ status: 'no_tab' });
+      return true;
+    }
+
+    setTabVolumeMute(targetTabId, !!request.muted).then((ok) => {
+      sendResponse({
+        status: ok ? 'ok' : 'error',
+        tabId: targetTabId,
+        muted: !!request.muted
+      });
+    });
     return true;
   }
 
@@ -2116,7 +2233,8 @@ api.onMessage((request, sender, sendResponse) => {
           sendMessageToInject(tab.id, 'SF_SET_BASS', { value: settings.bass });
         }
         if (settings.preset) {
-          sendMessageToInject(tab.id, 'SF_APPLY_PRESET', { preset: settings.preset });
+          const payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
+          if (payload) sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
         }
       }
     });
@@ -2147,19 +2265,64 @@ api.onMessage((request, sender, sendResponse) => {
     return true;
   }
 
+  // ============================================
+  //  ALLOWED ACTIONS
+  // ============================================
+
   const allowedActions = ['connect', 'disconnect', 'updateEQ', 'reset', 'setVolume', 'setBass', 'reconnect'];
 
   if (allowedActions.includes(request.action)) {
+    const explicitTargetTabId = Number.isInteger(request.targetTabId)
+      ? request.targetTabId
+      : null;
+
+    if (explicitTargetTabId) {
+      chrome.tabs.get(explicitTargetTabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+          sendResponse({ status: 'no_tab', tabId: explicitTargetTabId });
+          return;
+        }
+
+        if (tab.url && isSystemUrl(tab.url)) {
+          sendResponse({ status: 'system_page', tabId: explicitTargetTabId });
+          return;
+        }
+
+        if (tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
+          sendResponse({ status: 'extension_page', tabId: explicitTargetTabId });
+          return;
+        }
+
+        handleTabAction(request, explicitTargetTabId, sendResponse);
+      });
+      return true;
+    }
+
     const isFromExtension = sender && sender.tab && sender.tab.url && 
       (sender.tab.url.startsWith('chrome-extension://') || sender.tab.url.startsWith('moz-extension://'));
     
     if (isFromExtension) {
       console.log(`🔄 Перенаправляем ${request.action} из окна в активную вкладку с аудио`);
       
+      if (request.action === 'connect') {
+        safeSendMessage({
+          action: 'statusUpdate',
+          status: 'connecting',
+          tabId: sender?.tab?.id || null
+        });
+      }
+      
       findActiveTabWithAudio((tab) => {
         if (!tab) {
           console.log('⛔ Нет доступной вкладки с аудио');
           sendResponse({ status: 'no_tab' });
+          if (request.action === 'connect') {
+            safeSendMessage({
+              action: 'statusUpdate',
+              status: 'disconnected',
+              tabId: sender?.tab?.id || null
+            });
+          }
           return;
         }
         
@@ -2169,12 +2332,26 @@ api.onMessage((request, sender, sendResponse) => {
         if (tab.url && isSystemUrl(tab.url)) {
           console.log(`⛔ Пропускаем действие на системной странице: ${tab.url}`);
           sendResponse({ status: 'system_page' });
+          if (request.action === 'connect') {
+            safeSendMessage({
+              action: 'statusUpdate',
+              status: 'disconnected',
+              tabId: sender?.tab?.id || null
+            });
+          }
           return;
         }
         
         if (tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
           console.log(`⛔ Активная вкладка - страница расширения, пропускаем`);
           sendResponse({ status: 'extension_page' });
+          if (request.action === 'connect') {
+            safeSendMessage({
+              action: 'statusUpdate',
+              status: 'disconnected',
+              tabId: sender?.tab?.id || null
+            });
+          }
           return;
         }
         
@@ -2183,44 +2360,108 @@ api.onMessage((request, sender, sendResponse) => {
       return true;
     }
     
-    api.tabsQuery({ active: true, currentWindow: true })
-      .then((tabs) => {
-        if (!tabs || tabs.length === 0) {
-          sendResponse({ status: 'no_tab' });
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
+        sendResponse({ status: 'no_tab' });
+        return;
+      }
+
+      const tabId = tabs[0].id;
+      
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ status: 'error' });
           return;
         }
-
-        const tabId = tabs[0].id;
         
-        api.tabsGet(tabId)
-          .then((tab) => {
-            if (tab && tab.url && isSystemUrl(tab.url)) {
-              console.log(`⛔ Пропускаем действие на системной странице: ${tab.url}`);
-              sendResponse({ status: 'system_page' });
-              return;
-            }
-            
-            if (tab && tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
-              console.log(`⛔ Активная вкладка - страница расширения, пропускаем`);
-              sendResponse({ status: 'extension_page' });
-              return;
-            }
-            
-            handleTabAction(request, tabId, sendResponse);
-          })
-          .catch(() => sendResponse({ status: 'error' }));
-      })
-      .catch(() => sendResponse({ status: 'error' }));
+        if (tab && tab.url && isSystemUrl(tab.url)) {
+          console.log(`⛔ Пропускаем действие на системной странице: ${tab.url}`);
+          sendResponse({ status: 'system_page' });
+          return;
+        }
+        
+        if (tab && tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
+          console.log(`⛔ Активная вкладка - страница расширения, пропускаем`);
+          sendResponse({ status: 'extension_page' });
+          return;
+        }
+        
+        handleTabAction(request, tabId, sendResponse);
+      });
+    });
     return true;
   }
 
   sendResponse({ status: 'unknown' });
 });
 
+// ============================================
+//  НАДЁЖНОЕ ОЖИДАНИЕ ПОДКЛЮЧЕНИЯ ВКЛАДКИ
+// ============================================
+
+function watchConnectionHandshake(tabId, maxAttempts = 20, intervalMs = 500) {
+  if (!tabId) return;
+
+  if (state._connectWatchTimers[tabId]) {
+    clearInterval(state._connectWatchTimers[tabId]);
+    delete state._connectWatchTimers[tabId];
+  }
+
+  let attempts = 0;
+  const timer = setInterval(() => {
+    attempts++;
+    const session = getTabSession(tabId);
+
+    if (session?.connected) {
+      clearInterval(timer);
+      delete state._connectWatchTimers[tabId];
+      session.connecting = false;
+      session.lastStatus = 'connected';
+      session.lastSeen = Date.now();
+      console.log(`✅ Handshake завершён: tab ${tabId} подключён за ~${attempts * intervalMs}мс`);
+      safeSendMessage({ action: 'statusUpdate', status: 'connected', tabId });
+      return;
+    }
+
+    if (session?.lastStatus === 'error' || state._failedTabs[tabId]) {
+      clearInterval(timer);
+      delete state._connectWatchTimers[tabId];
+      session.connecting = false;
+      console.warn(`❌ Handshake завершён ошибкой: tab ${tabId}`);
+      safeSendMessage({ action: 'statusUpdate', status: 'disconnected', tabId });
+      return;
+    }
+
+    if (attempts >= maxAttempts) {
+      clearInterval(timer);
+      delete state._connectWatchTimers[tabId];
+      session.connecting = false;
+      session.lastStatus = 'error';
+      console.warn(`❌ Handshake timeout: tab ${tabId} не подтвердил подключение за ${maxAttempts * intervalMs}мс`);
+      safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
+      return;
+    }
+
+    // Пока inject.js может ещё внедряться или AudioContext ещё создаётся,
+    // не переводим вкладку в disconnected преждевременно.
+    session.connecting = true;
+    session.lastStatus = 'connecting';
+  }, intervalMs);
+
+  state._connectWatchTimers[tabId] = timer;
+}
+
 function handleTabAction(request, tabId, sendResponse) {
   if (request.action === 'reconnect') {
     console.log('🔄 Переподключение');
-    state._isConnecting = false;
+    const session = getTabSession(tabId);
+    session.connected = false;
+    session.connecting = true;
+    session.shouldReconnect = true;
+    state.currentTabId = tabId;
+    state.isConnected = false;
+    state.active = false;
+    state._isConnecting = true;
     state._injectedTabs[tabId] = false;
     state._connectionAttempts = 0;
     state._isProcessingChange = false;
@@ -2231,16 +2472,20 @@ function handleTabAction(request, tabId, sendResponse) {
       sendMessageToInject(tabId, 'SF_RECONNECT');
     }, 1000);
     setTimeout(() => sendMessageToInject(tabId, 'SF_GET_STATUS'), 2000);
-    sendResponse({ status: 'reconnecting' });
+    sendResponse({ status: 'reconnecting', tabId });
     return;
   }
 
   if (request.action === 'disconnect') {
     console.log('⏹ ОТКЛЮЧЕНИЕ');
-    state.isConnected = false;
-    state._autoConnectEnabled = false;
-    state.currentTabId = null;
-    state.active = false;
+    if (state._connectWatchTimers[tabId]) {
+      clearInterval(state._connectWatchTimers[tabId]);
+      delete state._connectWatchTimers[tabId];
+    }
+    const session = getTabSession(tabId);
+    session.connected = false;
+    session.connecting = false;
+    session.shouldReconnect = false;
     state._isConnecting = false;
     state._connectionAttempts = 0;
     state._isProcessingChange = false;
@@ -2248,53 +2493,102 @@ function handleTabAction(request, tabId, sendResponse) {
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
     sendMessageToInject(tabId, 'SF_DISCONNECT');
-    saveConnectedState(false);
-    updateIcon(false);
+    if (state.currentTabId === tabId) {
+      state.isConnected = false;
+      state._autoConnectEnabled = false;
+      state.active = false;
+      saveConnectedState(false);
+      updateIcon(false);
+    }
     safeSendMessage({
       action: 'statusUpdate',
-      status: 'disconnected'
+      status: 'disconnected',
+      tabId: tabId
     });
     addHistoryEntry('eq_disabled', {}, { source: 'manual' });
-    sendResponse({ status: 'disconnected' });
+    sendResponse({ status: 'disconnected', tabId });
     return;
   }
 
   if (request.action === 'connect') {
-    if (state._isConnecting) {
-      sendResponse({ status: 'connecting' });
+    const session = getTabSession(tabId);
+    if (session.connecting) {
+      sendResponse({ status: 'connecting', tabId });
       return;
     }
-    if (state.isConnected) {
-      sendResponse({ status: 'connected' });
+    if (session.connected) {
+      sendResponse({ status: 'connected', tabId });
       return;
     }
 
     console.log('▶ ПОДКЛЮЧЕНИЕ');
-    state.isConnected = true;
+    session.connected = false;
+    session.connecting = true;
+    session.shouldReconnect = true;
+    state.isConnected = false;
     state._autoConnectEnabled = true;
     state.currentTabId = tabId;
-    state.active = true;
+    state.active = false;
     state._isConnecting = true;
     state._connectionAttempts = 0;
     state._isProcessingChange = false;
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
 
+    // ✅ ОТПРАВЛЯЕМ СТАТУС CONNECTING В ОКНО
+    safeSendMessage({
+      action: 'statusUpdate',
+      status: 'connecting',
+      tabId: tabId
+    });
+
     injectScriptDirectly(tabId);
     
     setTimeout(() => {
-      sendMessageToInject(tabId, 'SF_CONNECT');
+      sendMessageToInject(tabId, 'SF_CONNECT', {}, (response, error) => {
+        const currentSession = getTabSession(tabId);
+
+        if (response && response.status === 'connected') {
+          currentSession.connected = true;
+          currentSession.connecting = false;
+          currentSession.shouldReconnect = true;
+          currentSession.lastStatus = 'connected';
+          currentSession.lastSeen = Date.now();
+          state.currentTabId = tabId;
+          state.isConnected = true;
+          state.active = true;
+          state._isConnecting = false;
+          state._autoConnectEnabled = true;
+          saveConnectedState(true);
+          updateIcon(true);
+          safeSendMessage({ action: 'statusUpdate', status: 'connected', tabId });
+          console.log(`✅ Direct SF_CONNECT подтверждён: tab ${tabId}`);
+          return;
+        }
+
+        if (response && response.status === 'error') {
+          currentSession.connected = false;
+          currentSession.connecting = false;
+          currentSession.lastStatus = 'error';
+          state._isConnecting = false;
+          state._failedTabs[tabId] = true;
+          state._failureTimestamps[tabId] = Date.now();
+          console.warn(`❌ SF_CONNECT отклонён inject.js для tab ${tabId}:`, response.error || 'connect_failed');
+          safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
+          return;
+        }
+
+        if (error) {
+          console.warn(`⚠️ SF_CONNECT не получил прямой ответ для tab ${tabId}:`, error.message || error);
+        }
+      });
     }, 1500);
     
-    setTimeout(() => {
-      sendMessageToInject(tabId, 'SF_GET_STATUS');
-      state._isConnecting = false;
-    }, 3000);
-    
-    saveConnectedState(true);
-    updateIcon(true);
-    addHistoryEntry('eq_enabled', {}, { source: 'manual' });
-    sendResponse({ status: 'connected' });
+    // Наблюдаем за statusUpdate как fallback, но прямой ответ SF_CONNECT
+    // теперь является дополнительным надёжным подтверждением.
+    watchConnectionHandshake(tabId, 40, 500);
+
+    sendResponse({ status: 'connecting', tabId });
     return;
   }
 
@@ -2334,7 +2628,8 @@ function startPeriodicChecks() {
   
   state._statusCheckInterval = setInterval(() => {
     if (state.currentTabId && state.isConnected && !state._isConnecting) {
-      if (state._injectedTabs[state.currentTabId] && !state._failedTabs[state.currentTabId]) {
+      const session = getTabSession(state.currentTabId);
+      if (session?.injected && !state._failedTabs[state.currentTabId]) {
         sendMessageToInject(state.currentTabId, 'SF_GET_STATUS');
       }
     }
@@ -2349,17 +2644,14 @@ function startPeriodicChecks() {
         return;
       }
       
-      if (state.isConnected && state._autoConnectEnabled) {
+      const session = getTabSession(tabId);
+      if (session.shouldReconnect) {
         injectScriptDirectly(tabId);
-        if (!state._injectedTabs[tabId]) {
+        if (!session.injected) {
           setTimeout(() => {
             sendMessageToInject(tabId, 'SF_CONNECT');
           }, 1000);
         }
-      }
-      
-      if (state.isConnected) {
-        getSpectrumFromInject(tabId);
       }
     });
   }, interval);
@@ -2367,6 +2659,10 @@ function startPeriodicChecks() {
 
 function cleanupAll() {
   console.log('🧹 Очистка всех ресурсов background');
+  Object.keys(state._connectWatchTimers || {}).forEach((tabId) => {
+    try { clearInterval(state._connectWatchTimers[tabId]); } catch {}
+  });
+  state._connectWatchTimers = {};
   
   if (state._statusCheckInterval) {
     clearInterval(state._statusCheckInterval);
@@ -2392,6 +2688,10 @@ function cleanupAll() {
   Object.keys(state._injectedTabs).forEach(key => delete state._injectedTabs[key]);
   Object.keys(state._failedTabs).forEach(key => delete state._failedTabs[key]);
   Object.keys(state._failureTimestamps).forEach(key => delete state._failureTimestamps[key]);
+  Object.keys(state._tabSessions).forEach(key => delete state._tabSessions[key]);
+  Object.keys(state._documentTokens).forEach(key => delete state._documentTokens[key]);
+  Object.keys(state._lastSiteByTab).forEach(key => delete state._lastSiteByTab[key]);
+  Object.keys(state._tabMuteStates).forEach(key => delete state._tabMuteStates[key]);
 }
 
 startPeriodicChecks();
@@ -2400,10 +2700,15 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', cleanupAll);
 }
 
-setInterval(checkNightModeAuto, 600000);
+if (chrome.alarms?.create) {
+  chrome.alarms.create('soundforge-night-mode', { periodInMinutes: 10 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm?.name === 'soundforge-night-mode') checkNightModeAuto();
+  });
+}
 setTimeout(checkNightModeAuto, 5000);
 
-console.log('✅ SoundForge Background v3.22.8 (Firefox) готов!');
+console.log('✅ SoundForge Background v3.22.8 готов (Firefox)!');
 console.log('⌨️ Горячие клавиши:');
 console.log('   Ctrl+Shift+U - активация расширения');
 console.log('   Ctrl+Shift+E - включить/выключить эквалайзер');
@@ -2413,4 +2718,3 @@ console.log('🌙 Ночной режим: автоматически с 22:00 �
 console.log('⚡ Режим энергосбережения: снижает частоту обновлений');
 console.log('💾 Настройки сохраняются для каждого сайта');
 console.log('📜 Ведется история изменений');
-console.log('🦊 Работает в Firefox 153.0esr!');

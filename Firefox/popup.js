@@ -1,13 +1,6 @@
 // ============================================
 //  POPUP.JS - v3.22.8 (FIREFOX 153.0esr)
-//  ПОЛНАЯ ЛОКАЛИЗАЦИЯ: RU, UA, EN
-//  ВСЕ КНОПКИ И СООБЩЕНИЯ ПЕРЕВЕДЕНЫ
-//  РУЧНОЕ ПОДКЛЮЧЕНИЕ | ВСЕ НАСТРОЙКИ СОХРАНЯЮТСЯ
-//  50 ПРОФЕССИОНАЛЬНЫХ ПРЕСЕТОВ
-//  ГРОМКОСТЬ: 0% - 800%
-//  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ: СПЕКТР | ВОЛНЫ | ОГОНЬ | НЕОН
-//  ИСПРАВЛЕНО: КНОПКА ЭФФЕКТОВ РАБОТАЕТ В FIREFOX
-//  ИСПРАВЛЕНО: СТАТИСТИКА ПОКАЗЫВАЕТ ТЕКУЩИЕ ЗНАЧЕНИЯ GAIN
+//  С ИНТЕГРАЦИЕЙ НОВЫХ МОДУЛЕЙ
 // ============================================
 
 (function() {
@@ -48,6 +41,57 @@
       return result;
     };
   }
+
+  // ============================================
+  //  ИМПОРТ МОДУЛЕЙ
+  // ============================================
+
+  // Импорт новых модулей
+  import('./modules/storage.js').then(module => {
+    window._storageModule = module;
+    module.initStorage().then(() => {
+      console.log('✅ Хранилище готово');
+    });
+  });
+
+  import('./modules/stats.js').then(module => {
+    window._statsModule = module;
+    module.initStats();
+  });
+
+  import('./modules/history.js').then(module => {
+    window._historyModule = module;
+    module.initHistoryTracking();
+  });
+
+  import('./modules/hotkeys.js').then(module => {
+    window._hotkeysModule = module;
+    module.initHotkeys();
+  });
+
+  import('./modules/site-settings.js').then(module => {
+    window._siteSettingsModule = module;
+    module.initAutoDisable();
+  });
+
+  import('./modules/notifications.js').then(module => {
+    window._notificationsModule = module;
+    setTimeout(() => module.checkForUpdates(), 3000);
+  });
+
+  import('./modules/memory.js').then(module => {
+    window._memoryModule = module;
+    module.memoryManager.startMonitoring(30000);
+  });
+
+  import('./modules/presets.js').then(module => {
+    window._presetsModule = module;
+  });
+
+  import('./modules/logger.js').then(module => {
+    window._loggerModule = module;
+    console.log('✅ Logger готов');
+  });
 
   // ============================================
   //  ОПРЕДЕЛЕНИЕ API (Firefox использует browser)
@@ -482,11 +526,13 @@
     smoothSpectrum: new Float32Array(32),
     peakValue: -Infinity,
     peakHold: 0,
-    hasAudio: true,
+    hasAudio: false,
     rmsValue: 0,
     abPresetA: null,
     abPresetB: null,
     abMode: false,
+    abActive: 'A',
+    targetTabId: null,
     isLoading: false,
     isConnected: false,
     isConnecting: false,
@@ -494,7 +540,8 @@
     clipCount: 0,
     lastClipTime: 0,
     _debugMode: false,
-    currentEffect: 'spectrum'
+    currentEffect: 'spectrum',
+    userPresets: {}
   };
 
   var dom = {};
@@ -673,10 +720,8 @@
     dom.savePresetBtn = document.getElementById('savePresetBtn');
     dom.abCompareBtn = document.getElementById('abCompareBtn');
     dom.loadingOverlay = document.getElementById('loadingOverlay');
-    dom.loadingText = document.getElementById('loadingText');
     dom.expandBtn = document.getElementById('expandBtn');
     dom.volumeStatus = document.getElementById('volumeStatus');
-    dom.clipIndicator = document.getElementById('clipIndicator');
     dom.effectBtn = document.getElementById('effectBtn');
     dom.openWindowBtn = document.getElementById('openWindowBtn');
     dom.historyBtn = document.getElementById('historyBtn');
@@ -768,18 +813,18 @@
     if (api) {
       api.tabs.query({ active: true, currentWindow: true }, function(tabs) {
         if (api.runtime.lastError || !tabs || tabs.length === 0) {
-          info.textContent = '🌐 ' + t('loading');
+          info.textContent = '🌐 ' + t('site');
           return;
         }
         try {
           var url = new URL(tabs[0].url);
           info.textContent = '🌐 ' + url.hostname.replace('www.', '');
         } catch(e) {
-          info.textContent = '🌐 ' + t('loading');
+          info.textContent = '🌐 ' + t('site');
         }
       });
     } else {
-      info.textContent = '🌐 ' + t('loading');
+      info.textContent = '🌐 ' + t('site');
     }
   }
 
@@ -792,10 +837,6 @@
     
     if (dom.langToggle) {
       dom.langToggle.textContent = LANGUAGES[lang]?.flag || '🌐';
-    }
-    
-    if (dom.loadingText) {
-      dom.loadingText.textContent = 'Загрузка...';
     }
     
     if (dom.connectBtn) {
@@ -825,7 +866,6 @@
     if (dom.historyBtn) dom.historyBtn.textContent = t('history');
     if (dom.statsBtn) dom.statsBtn.textContent = t('stats');
     
-    // Обновляем кнопку эффектов
     updateEffectButtonLabel();
     
     var statsSpan = document.querySelector('.stats');
@@ -860,7 +900,7 @@
   }
 
   // ============================================
-  //  КНОПКА ЭФФЕКТОВ - ИСПРАВЛЕНО ДЛЯ FIREFOX
+  //  КНОПКА ЭФФЕКТОВ
   // ============================================
 
   function getEffectNameLocal(effectId) {
@@ -919,7 +959,6 @@
     
     updateEffectButtonLabel();
     
-    // ВАЖНО: Для Firefox используем addEventListener вместо onclick
     btn.removeEventListener('click', cycleEffect);
     btn.addEventListener('click', function(e) {
       e.preventDefault();
@@ -1558,6 +1597,8 @@
   //  АУДИО ФУНКЦИИ
   // ============================================
 
+  var PRESET_ORDER = ["flat", "natural", "universal", "balanced", "club", "dance", "edm", "synthwave", "deephouse", "festival", "rock", "metal", "hardrock", "grunge", "vocal", "podcast", "speech", "rap", "acoustic", "piano", "orchestra", "classical", "jazz", "headphones", "car", "night", "bassboost", "pop", "kpop", "world", "ambient", "wave", "phonk", "hiphop", "soul", "blues", "reggae", "chill", "lofi", "sunset", "logitech", "maxboost", "gaming", "movie", "fps", "hifi", "studio", "premium", "master", "clarity"];
+
   function getSliderGains() {
     var gains = {};
     if (dom.eqSliders) {
@@ -1569,12 +1610,10 @@
     return gains;
   }
 
-  function applyPreset(name) {
-    var preset = PRESETS[name];
-    if (!preset) return;
-    
-    console.log('🎵 Применяем пресет: ' + name);
-    
+  function syncPresetUIInPopup(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || state.userPresets[name];
+    if (!preset) return false;
+
     state.currentPreset = name;
     updatePresetInfo(name);
     if (dom.presetSelect) dom.presetSelect.value = name;
@@ -1585,7 +1624,7 @@
     sliders.forEach(function(slider) {
       var freq = slider.dataset.freq;
       if (gains[freq] !== undefined) {
-        var value = gains[freq];
+        var value = Number(gains[freq]) || 0;
         slider.value = value;
         var valueSpan = slider.parentElement.querySelector('.gain-value');
         if (valueSpan) {
@@ -1595,75 +1634,164 @@
       }
     });
 
+    var vol = preset.volume !== undefined ? Number(preset.volume) : 100;
+    vol = Math.min(800, Math.max(0, vol));
     if (dom.volumeSlider && dom.volumeDisplay) {
-      var vol = preset.volume || 100;
-      dom.volumeSlider.value = Math.min(800, Math.max(0, vol));
-      dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol)) + '%';
+      dom.volumeSlider.value = vol;
+      dom.volumeDisplay.textContent = vol + '%';
       updateVolumeStatus(vol);
     }
 
+    var bass = preset.bass !== undefined ? Number(preset.bass) : 0;
+    bass = Math.max(-12, Math.min(12, bass));
     if (dom.bassSlider && dom.bassDisplay) {
-      var bass = preset.bass || 0;
-      dom.bassSlider.value = Math.max(-12, Math.min(12, bass));
+      dom.bassSlider.value = bass;
       dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
     }
 
+    updateEQGraph();
+    return true;
+  }
+
+  function applyPreset(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || state.userPresets[name];
+    if (!preset) return;
+
+    console.log('🎵 Применяем пресет атомарно: ' + name);
+
+    resetABCompareState();
+    syncPresetUIInPopup(name, preset);
+
     var gainsData = getSliderGains();
-    
+    var volume = preset.volume !== undefined ? Number(preset.volume) : 100;
+    var bass = preset.bass !== undefined ? Number(preset.bass) : 0;
+
     if (api) {
-      api.runtime.sendMessage({ 
-        action: 'updateEQ', 
-        gains: gainsData, 
-        instant: true,
+      api.runtime.sendMessage({
+        action: 'applyPreset',
+        targetTabId: state.targetTabId,
+        preset: name,
+        presetData: {
+          gains: gainsData,
+          volume: Math.min(800, Math.max(0, volume)),
+          bass: Math.max(-12, Math.min(12, bass))
+        },
         source: 'popup'
       }).catch(function() {});
-      api.runtime.sendMessage({ 
-        action: 'setVolume', 
-        value: (preset.volume || 100) / 100, 
-        instant: true 
-      }).catch(function() {});
-      api.runtime.sendMessage({ 
-        action: 'setBass', 
-        value: preset.bass || 0, 
-        instant: true 
+    }
+
+    saveAllSettings();
+    setStatus('ready', t('preset_applied') + (PRESET_INFO[name]?.desc_ru || name));
+  }
+
+  function syncPresetUIOnly(name, presetOverride) {
+    var preset = presetOverride || PRESETS[name] || state.userPresets[name];
+    if (preset) syncPresetUIInPopup(name, preset);
+  }
+
+  function resetABCompareState() {
+    state.abPresetA = null;
+    state.abPresetB = null;
+    state.abMode = false;
+    state.abActive = 'A';
+    updateABCompareButton();
+  }
+
+  function getCurrentPresetSnapshotPopup() {
+    return {
+      gains: getSliderGains(),
+      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100,
+      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
+    };
+  }
+
+  function applyABSnapshotPopup(snapshot, label) {
+    if (!snapshot) return;
+
+    syncPresetUIInPopup('custom', snapshot);
+
+    if (api) {
+      api.runtime.sendMessage({
+        action: 'applyPreset',
+        targetTabId: state.targetTabId,
+        preset: 'custom',
+        presetData: {
+          gains: getSliderGains(),
+          volume: parseFloat(dom.volumeSlider ? dom.volumeSlider.value : snapshot.volume),
+          bass: parseFloat(dom.bassSlider ? dom.bassSlider.value : snapshot.bass)
+        },
+        source: 'popup_ab'
       }).catch(function() {});
     }
-    
+
+    state.currentPreset = 'custom';
     saveAllSettings();
-    updateEQGraph();
-    setStatus('ready', t('preset_applied') + (PRESET_INFO[name]?.desc_ru || name));
+    setStatus('ready', label || ('A/B ' + state.abActive));
+  }
+
+  function updateABCompareButton() {
+    if (!dom.abCompareBtn) return;
+    dom.abCompareBtn.textContent = state.abMode ? ('A/B: ' + state.abActive) : t('compare');
+  }
+
+  function toggleABComparePopup() {
+    var current = getCurrentPresetSnapshotPopup();
+
+    if (!state.abMode) {
+      state.abPresetA = JSON.parse(JSON.stringify(current));
+      state.abPresetB = null;
+      state.abMode = true;
+      state.abActive = 'A';
+      updateABCompareButton();
+      setStatus('ready', 'A сохранён');
+      return;
+    }
+
+    if (state.abActive === 'A') {
+      state.abPresetB = JSON.parse(JSON.stringify(current));
+      state.abActive = 'B';
+      applyABSnapshotPopup(state.abPresetB, 'B');
+      updateABCompareButton();
+      return;
+    }
+
+    if (state.abPresetA) {
+      state.abActive = 'A';
+      applyABSnapshotPopup(state.abPresetA, 'A');
+      updateABCompareButton();
+    }
   }
 
   function applySavedSettings(applyPresetToo) {
     applyPresetToo = applyPresetToo !== undefined ? applyPresetToo : true;
-    if (!api) return;
-    
-    api.storage.local.get(['eqSettings', 'volumeBoost', 'bassBoost', 'selectedPreset', 'savedVolume', 'savedBass'], function(result) {
-      if (api.runtime.lastError) return;
-      
-      if (result.savedVolume !== undefined && dom.volumeSlider && dom.volumeDisplay) {
-        var vol = Math.min(800, Math.max(0, result.savedVolume));
+    if (!api || !api.runtime || !api.runtime.sendMessage) return;
+
+    api.runtime.sendMessage({ action: 'getInjectSettings' }).then(function(response) {
+      if (!response || response.status !== 'ok' || !response.settings) return;
+      var result = response.settings;
+
+      if (result.theme) {
+        setTheme(result.theme);
+        updateThemeButtons(result.theme);
+        state.currentTheme = result.theme;
+      }
+      if (result.language) {
+        setCurrentLang(result.language);
+        state.currentLang = result.language;
+        updateLanguage();
+      }
+
+      if (result.volumeBoost !== undefined && dom.volumeSlider && dom.volumeDisplay) {
+        var vol = Math.min(800, Math.max(0, Math.round(Number(result.volumeBoost) * 100)));
         dom.volumeSlider.value = vol;
         dom.volumeDisplay.textContent = vol + '%';
         updateVolumeStatus(vol);
-        api.runtime.sendMessage({ action: 'setVolume', value: vol / 100 }).catch(function() {});
-      } else if (result.volumeBoost !== undefined && dom.volumeSlider && dom.volumeDisplay) {
-        var vol2 = Math.round(result.volumeBoost * 100);
-        dom.volumeSlider.value = Math.min(800, Math.max(0, vol2));
-        dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol2)) + '%';
-        updateVolumeStatus(vol2);
-        api.runtime.sendMessage({ action: 'setVolume', value: result.volumeBoost }).catch(function() {});
       }
 
-      if (result.savedBass !== undefined && dom.bassSlider && dom.bassDisplay) {
-        var bass = Math.min(12, Math.max(-12, result.savedBass));
+      if (result.bassBoost !== undefined && dom.bassSlider && dom.bassDisplay) {
+        var bass = Math.min(12, Math.max(-12, Number(result.bassBoost)));
         dom.bassSlider.value = bass;
         dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
-        api.runtime.sendMessage({ action: 'setBass', value: bass }).catch(function() {});
-      } else if (result.bassBoost !== undefined && dom.bassSlider && dom.bassDisplay) {
-        dom.bassSlider.value = result.bassBoost;
-        dom.bassDisplay.textContent = result.bassBoost.toFixed(1) + ' dB';
-        api.runtime.sendMessage({ action: 'setBass', value: result.bassBoost }).catch(function() {});
       }
 
       if (result.eqSettings) {
@@ -1671,23 +1799,36 @@
         sliders.forEach(function(slider) {
           var freq = slider.dataset.freq;
           if (result.eqSettings[freq] !== undefined) {
-            slider.value = result.eqSettings[freq];
+            var gain = Number(result.eqSettings[freq]) || 0;
+            slider.value = gain;
             var valueSpan = slider.parentElement.querySelector('.gain-value');
             if (valueSpan) {
-              valueSpan.textContent = result.eqSettings[freq].toFixed(1);
-              updateGainClass(valueSpan, result.eqSettings[freq]);
+              valueSpan.textContent = gain.toFixed(1);
+              updateGainClass(valueSpan, gain);
             }
           }
         });
-        var gains = getSliderGains();
-        api.runtime.sendMessage({ action: 'updateEQ', gains: gains }).catch(function() {});
       }
 
       if (applyPresetToo && result.selectedPreset && PRESETS[result.selectedPreset]) {
         if (dom.presetSelect) dom.presetSelect.value = result.selectedPreset;
-        applyPreset(result.selectedPreset);
+        state.currentPreset = result.selectedPreset;
+        updatePresetInfo(result.selectedPreset);
       }
-    });
+
+      updateEQGraph();
+      updateSiteInfo();
+    }).catch(function() {});
+  }
+
+  function saveSettingsPatch(patch) {
+    try {
+      if (api && api.runtime && api.runtime.sendMessage) {
+        api.runtime.sendMessage({ action: 'settingsSnapshot', settings: patch }).catch(function() {});
+      } else if (api && api.storage && api.storage.local) {
+        api.storage.local.set(patch).catch(function() {});
+      }
+    } catch (e) {}
   }
 
   function saveAllSettings() {
@@ -1739,12 +1880,17 @@
     if (dom.presetSelect) dom.presetSelect.value = 'flat';
     
     var gains = getSliderGains();
+    resetABCompareState();
     if (api) {
-      api.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true, source: 'popup_reset' }).catch(function() {});
-      api.runtime.sendMessage({ action: 'setVolume', value: 1.0, instant: true }).catch(function() {});
-      api.runtime.sendMessage({ action: 'setBass', value: 0, instant: true }).catch(function() {});
+      api.runtime.sendMessage({
+        action: 'applyPreset',
+        targetTabId: state.targetTabId,
+        preset: 'flat',
+        presetData: { gains: gains, volume: 100, bass: 0 },
+        source: 'popup_reset'
+      }).catch(function() {});
     }
-    
+
     saveAllSettings();
     updateEQGraph();
     
@@ -1787,10 +1933,11 @@
       setStatus('connecting', t('status_connecting'));
       state.isConnecting = true;
       state.currentStatus = 'connecting';
-      api.runtime.sendMessage({ action: 'connect' }).then(function(response) {
+      api.runtime.sendMessage({ action: 'connect', targetTabId: state.targetTabId }).then(function(response) {
+        if (response && response.tabId != null) state.targetTabId = response.tabId;
         showLoading(false);
         setTimeout(function() {
-          api.runtime.sendMessage({ action: 'getStatus' }).then(function(resp) {
+          api.runtime.sendMessage({ action: 'getStatus', targetTabId: state.targetTabId }).then(function(resp) {
             state.isConnecting = false;
             if (resp && resp.status === 'connected') {
               state.isConnected = true;
@@ -1969,22 +2116,36 @@
         if (request.rms !== undefined) {
           state.rmsValue = request.rms;
         }
-        state.hasAudio = true;
+        state.hasAudio = request.hasAudio === true;
+        state.isClipping = request.clipping === true;
         updateSpectrum();
         sendResponse({ status: 'ok' });
         return true;
       }
       
       if (request.action === 'presetChanged' && request.preset) {
-        console.log('🔄 Пресет изменен через горячие клавиши: ' + request.preset);
-        if (PRESETS[request.preset]) {
-          applyPreset(request.preset);
-          setStatus('ready', t('preset_applied') + (PRESET_INFO[request.preset]?.desc_ru || request.preset));
-        }
-        sendResponse({ status: 'ok' });
+        api.tabs.query({ active: true, currentWindow: true }).then(function(tabs) {
+          var activeTabId = tabs && tabs[0] ? tabs[0].id : null;
+          if (request.tabId != null && activeTabId != null &&
+              Number(request.tabId) !== Number(activeTabId)) {
+            sendResponse({ status: 'ignored' });
+            return;
+          }
+          if (request.tabId != null) state.targetTabId = request.tabId;
+          syncPresetUIOnly(request.preset, request.presetData || null);
+          sendResponse({ status: 'ok' });
+        }).catch(function() {
+          sendResponse({ status: 'ok' });
+        });
         return true;
       }
       
+      if (request.action === 'userPresetsUpdated') {
+        loadUserPresets().then(function() { populatePresetSelect(); });
+        sendResponse({ status: 'ok' });
+        return true;
+      }
+
       if (request.action === 'settingsReset') {
         console.log('🔄 Настройки сброшены через горячие клавиши');
         handleReset();
@@ -1993,24 +2154,45 @@
       }
       
       if (request.action === 'statusUpdate') {
-        if (request.status === 'connected') {
-          setStatus('connected', t('status_connected'));
-          state.isConnected = true;
-          if (api) api.storage.local.set({ soundforgeConnected: true }).catch(function() {});
-          applySavedSettings(false);
-        } else if (request.status === 'disconnected') {
-          setStatus('disconnected', t('status_disconnected'));
-          state.isConnected = false;
-          if (api) api.storage.local.set({ soundforgeConnected: false }).catch(function() {});
-        } else if (request.status === 'error') {
-          setStatus('disconnected', t('status_error'));
-          state.isConnected = false;
-          if (api) api.storage.local.set({ soundforgeConnected: false }).catch(function() {});
+        var applyStatus = function() {
+          if (request.status === 'connected') {
+            setStatus('connected', t('status_connected'));
+            state.isConnected = true;
+            state.isConnecting = false;
+            if (request.tabId != null) state.targetTabId = request.tabId;
+            applySavedSettings(false);
+          } else if (request.status === 'connecting') {
+            setStatus('connecting', t('status_connecting'));
+            state.isConnecting = true;
+            if (request.tabId != null) state.targetTabId = request.tabId;
+          } else if (request.status === 'disconnected') {
+            setStatus('disconnected', t('status_disconnected'));
+            state.isConnected = false;
+            state.isConnecting = false;
+            if (request.tabId != null) state.targetTabId = request.tabId;
+          } else if (request.status === 'error') {
+            setStatus('disconnected', t('status_error'));
+            state.isConnected = false;
+            state.isConnecting = false;
+          }
+        };
+
+        if (request.tabId == null || !api.tabs || !api.tabs.query) {
+          applyStatus();
+          sendResponse({ status: 'ok' });
+        } else {
+          api.tabs.query({ active: true, currentWindow: true }).then(function(tabs) {
+            if (tabs && tabs[0] && Number(tabs[0].id) === Number(request.tabId)) {
+              applyStatus();
+            }
+            sendResponse({ status: 'ok' });
+          }).catch(function() {
+            sendResponse({ status: 'ok' });
+          });
         }
-        sendResponse({ status: 'ok' });
         return true;
       }
-      
+
       if (request.action === 'nightModeStatus') {
         extraButtonsState.nightActive = request.enabled;
         updateExtraButtons();
@@ -2067,7 +2249,7 @@
   }
 
   // ============================================
-  //  КНОПКА ИСТОРИЯ - С ПОДДЕРЖКОЙ 3 ЯЗЫКОВ
+  //  КНОПКА ИСТОРИЯ
   // ============================================
 
   function setupHistoryButton() {
@@ -2159,7 +2341,6 @@
     
     var labels = getButtonLabels();
     
-    // Кнопка Ночной режим
     var nightBtn = document.createElement('button');
     nightBtn.className = 'btn btn-night-mode';
     nightBtn.dataset.active = 'false';
@@ -2180,7 +2361,6 @@
       }).catch(function() {});
     });
     
-    // Кнопка Энергосбережение
     var powerBtn = document.createElement('button');
     powerBtn.className = 'btn btn-power-save';
     powerBtn.dataset.active = 'false';
@@ -2290,7 +2470,6 @@
         if (dom.langToggle) {
           dom.langToggle.textContent = LANGUAGES[savedLang]?.flag || '🌐';
         }
-        if (dom.loadingText) dom.loadingText.textContent = 'Загрузка...';
       }).catch(function() {});
     }
   }
@@ -2304,12 +2483,28 @@
       api.storage.local.set({ language: newLang }).catch(function() {});
     }
     updateLanguage();
-    if (dom.loadingText) dom.loadingText.textContent = 'Загрузка...';
   }
 
   // ============================================
   //  ПРЕСЕТЫ
   // ============================================
+
+  function loadUserPresets() {
+    return new Promise(function(resolve) {
+      try {
+        if (api && api.runtime && api.runtime.sendMessage) {
+          api.runtime.sendMessage({ action: 'getUserPresets' }).then(function(response) {
+            if (response && response.status === 'ok' && response.presets) {
+              state.userPresets = response.presets;
+            }
+            resolve(state.userPresets);
+          }).catch(function() { resolve(state.userPresets); });
+        } else {
+          resolve(state.userPresets);
+        }
+      } catch (e) { resolve(state.userPresets); }
+    });
+  }
 
   function populatePresetSelect() {
     var select = dom.presetSelect;
@@ -2317,7 +2512,7 @@
     select.innerHTML = '';
 
     var categories = {};
-    var presetNames = Object.keys(PRESETS);
+    var presetNames = PRESET_ORDER.slice();
 
     presetNames.forEach(function(name) {
       var category = PRESET_CATEGORIES[name] || '🎧 Специальные';
@@ -2350,8 +2545,7 @@
     });
 
     try {
-      var saved = localStorage.getItem('soundforge_user_presets');
-      var userPresets = saved ? JSON.parse(saved) : {};
+      var userPresets = state.userPresets || {};
       var userKeys = Object.keys(userPresets);
       if (userKeys.length > 0) {
         var userOptgroup = document.createElement('optgroup');
@@ -2392,22 +2586,18 @@
     restoreConnectionState();
     setupMessageListener();
 
-    // Кнопка подключения
     dom.connectBtn.addEventListener('click', function(e) {
       e.preventDefault();
       handleConnectDisconnect();
     });
 
-    // Кнопка сброса
     dom.resetBtn.addEventListener('click', function(e) {
       e.preventDefault();
       handleReset();
     });
 
-    // ИНИЦИАЛИЗАЦИЯ КНОПКИ ЭФФЕКТОВ (ИСПРАВЛЕНО ДЛЯ FIREFOX)
     initEffectButton();
 
-    // Кнопка открытия окна
     if (dom.openWindowBtn) {
       dom.openWindowBtn.addEventListener('click', function(e) {
         e.preventDefault();
@@ -2416,13 +2606,9 @@
       });
     }
 
-    // КНОПКА ИСТОРИЯ
     setupHistoryButton();
-
-    // КНОПКА СТАТИСТИКА
     setupStatsButton();
 
-    // Выбор пресета
     if (dom.presetSelect) {
       dom.presetSelect.addEventListener('change', function() {
         var value = this.value;
@@ -2437,8 +2623,7 @@
         if (value.startsWith('user_')) {
           var userPresetName = value.substring(5);
           try {
-            var saved = localStorage.getItem('soundforge_user_presets');
-            var userPresets = saved ? JSON.parse(saved) : {};
+            var userPresets = state.userPresets || {};
             if (userPresets[userPresetName]) {
               var preset = userPresets[userPresetName];
               var tempPreset = {
@@ -2492,7 +2677,6 @@
       });
     }
 
-    // Слайдеры EQ
     if (dom.eqSliders) {
       var slidersList = Array.from(dom.eqSliders);
       slidersList.forEach(function(slider) {
@@ -2509,7 +2693,7 @@
           if (api) {
             api.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true }).catch(function() {});
           }
-          saveAllSettings();
+          saveSettingsPatch({ eqSettings: gains });
           state.currentPreset = 'custom';
           updatePresetInfo('custom');
           if (dom.presetSelect) dom.presetSelect.value = '';
@@ -2520,13 +2704,12 @@
           if (api) {
             api.runtime.sendMessage({ action: 'updateEQ', gains: gains }).catch(function() {});
           }
-          saveAllSettings();
+          saveSettingsPatch({ eqSettings: gains });
           updateEQGraph();
         });
       });
     }
 
-    // Громкость
     if (dom.volumeSlider && dom.volumeDisplay) {
       var initialVolume = parseInt(dom.volumeSlider.value) || 100;
       updateVolumeStatus(initialVolume);
@@ -2547,11 +2730,10 @@
         if (api) {
           api.runtime.sendMessage({ action: 'setVolume', value: val / 100 }).catch(function() {});
         }
-        saveAllSettings();
+        saveSettingsPatch({ volumeBoost: val / 100, savedVolume: val });
       });
     }
 
-    // Bass Boost
     if (dom.bassSlider && dom.bassDisplay) {
       dom.bassSlider.addEventListener('input', function() {
         dom.bassDisplay.textContent = parseFloat(this.value).toFixed(1) + ' dB';
@@ -2559,35 +2741,31 @@
         if (api) {
           api.runtime.sendMessage({ action: 'setBass', value: val, instant: true }).catch(function() {});
         }
-        saveAllSettings();
+        saveSettingsPatch({ bassBoost: val });
       });
       dom.bassSlider.addEventListener('change', function() {
         var val = parseFloat(this.value);
         if (api) {
           api.runtime.sendMessage({ action: 'setBass', value: val }).catch(function() {});
         }
-        saveAllSettings();
+        saveSettingsPatch({ bassBoost: val });
       });
     }
 
-    // Переключение языка
     if (dom.langToggle) {
       dom.langToggle.addEventListener('click', function() {
         toggleLanguage();
       });
     }
 
-    // Экспорт
     if (dom.exportBtn) {
       dom.exportBtn.addEventListener('click', handleExport);
     }
 
-    // Импорт
     if (dom.importBtn) {
       dom.importBtn.addEventListener('click', handleImport);
     }
 
-    // Сохранить пресет
     if (dom.savePresetBtn) {
       dom.savePresetBtn.addEventListener('click', function() {
         var name = prompt(t('save_preset') + ':', 'My Preset');
@@ -2596,11 +2774,24 @@
           var volume = dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100;
           var bass = dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0;
           try {
-            var presets = JSON.parse(localStorage.getItem('soundforge_user_presets') || '{}');
-            presets[name] = { gains: gains, volume: volume, bass: bass, timestamp: Date.now() };
-            localStorage.setItem('soundforge_user_presets', JSON.stringify(presets));
-            setStatus('ready', t('preset_saved') + name);
-            populatePresetSelect();
+            var presetData = { gains: gains, volume: volume, bass: bass, timestamp: Date.now() };
+            if (api && api.runtime && api.runtime.sendMessage) {
+              api.runtime.sendMessage({ action: 'saveUserPreset', name: name, preset: presetData }).then(function(response) {
+                if (!response || response.status === 'ok') {
+                  state.userPresets[name] = presetData;
+                  setStatus('ready', t('preset_saved') + name);
+                  populatePresetSelect();
+                } else {
+                  setStatus('disconnected', t('error'));
+                }
+              }).catch(function() {
+                setStatus('disconnected', t('error'));
+              });
+            } else {
+              state.userPresets[name] = presetData;
+              setStatus('ready', t('preset_saved') + name);
+              populatePresetSelect();
+            }
           } catch(e) {
             console.error('Ошибка сохранения пресета:', e);
             setStatus('disconnected', t('error'));
@@ -2609,14 +2800,10 @@
       });
     }
 
-    // A/B сравнение
     if (dom.abCompareBtn) {
-      dom.abCompareBtn.addEventListener('click', function() {
-        setStatus('ready', t('compare_mode'));
-      });
+      dom.abCompareBtn.addEventListener('click', toggleABComparePopup);
     }
 
-    // Развернуть окно
     if (dom.expandBtn) {
       dom.expandBtn.addEventListener('click', function() {
         var body = document.body;
@@ -2635,17 +2822,14 @@
       });
     }
 
-    // Загрузка настроек
     applySavedSettings(true);
     updateSiteInfo();
     updateEQGraph();
     updateLanguage();
 
-    // Визуализация
     visualizationLoop();
     console.log('🔄 Визуализация запущена');
 
-    // Запрос спектра
     if (api) {
       setInterval(function() {
         api.runtime.sendMessage({ action: 'getSpectrum' }).catch(function() {});
@@ -2662,7 +2846,6 @@
       }, 5000);
     }
 
-    // Добавляем кнопки и информацию
     addNewFeatureButtons();
     addHotkeyInfo();
 
@@ -2677,7 +2860,6 @@
     console.log('⚡ Режим энергосбережения: снижает частоту обновлений');
   }
 
-  // Запуск после загрузки DOM
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
