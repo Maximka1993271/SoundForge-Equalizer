@@ -388,6 +388,11 @@ export const PRESETS = {
   }
 };
 
+// Canonical built-in preset order used by all interfaces.
+export const PRESET_ORDER = Object.freeze([
+  'flat', 'natural', 'universal', 'balanced', 'club', 'dance', 'edm', 'synthwave', 'deephouse', 'festival', 'rock', 'metal', 'hardrock', 'grunge', 'vocal', 'podcast', 'speech', 'rap', 'acoustic', 'piano', 'orchestra', 'classical', 'jazz', 'headphones', 'car', 'night', 'bassboost', 'pop', 'kpop', 'world', 'ambient', 'wave', 'phonk', 'hiphop', 'soul', 'blues', 'reggae', 'chill', 'lofi', 'sunset', 'logitech', 'maxboost', 'gaming', 'movie', 'fps', 'hifi', 'studio', 'premium', 'master', 'clarity'
+]);
+
 // ============================================
 //  КАТЕГОРИИ ПРЕСЕТОВ
 // ============================================

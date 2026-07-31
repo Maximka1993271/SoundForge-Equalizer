@@ -75,6 +75,15 @@ function cycleEffect() {
   setCurrentEffect(nextEffect);
   state.currentEffect = nextEffect;
   updateEffectButtonLabel();
+  try {
+    chrome.runtime.sendMessage({
+      action: 'effectChanged',
+      effect: nextEffect,
+      source: 'popup'
+    });
+  } catch (e) {
+    console.warn('⚠️ Не удалось синхронизировать эффект с Window:', e);
+  }
   
   console.log(`🎨 Эффект изменен: ${getEffectName(nextEffect)}`);
 }
@@ -85,6 +94,15 @@ function cycleEffect() {
 
 export function updateEffectButtonLanguage() {
   updateEffectButtonLabel();
+}
+
+export function syncEffect(effect) {
+  const valid = Object.values(EFFECTS).includes(effect);
+  if (!valid) return false;
+  const changed = setCurrentEffect(effect);
+  state.currentEffect = effect;
+  updateEffectButtonLabel();
+  return changed;
 }
 
 // ============================================
@@ -134,35 +152,14 @@ class SmoothSpectrum {
     this.transitionProgress = 1;
     this.dummyPhase = 0;
     
-    for (let i = 0; i < size; i++) {
-      const val = Math.sin(i * 0.3) * 0.15 + 0.15;
-      this.smooth[i] = val;
-      this.peak[i] = val;
-      this.lastRealData[i] = val;
-    }
+    this.smooth.fill(0);
+    this.peak.fill(0);
+    this.lastRealData.fill(0);
   }
 
-  generateDummyData(time) {
-    this.dummyPhase += 0.015;
-    const result = new Float32Array(this.size);
-    const amp = 0.30;
-    
-    for (let i = 0; i < this.size; i++) {
-      const pos = i / this.size;
-      const wave1 = Math.sin(time * 1.2 + pos * 2.5) * 0.25;
-      const wave2 = Math.sin(time * 1.8 + pos * 4.5 + 1.0) * 0.18;
-      const wave3 = Math.sin(time * 0.7 + pos * 1.2 + 2.0) * 0.12;
-      const wave4 = Math.sin(this.dummyPhase + pos * 6.0) * 0.08;
-      
-      const bassPulse = Math.sin(time * 0.6) * 0.06 + 0.06;
-      const bassBoost = i < 10 ? bassPulse * (1 - i / 10) : 0;
-      const highFalloff = i > 40 ? 1 - (i - 40) / 24 : 1;
-      
-      let value = 0.10 + wave1 + wave2 + wave3 + wave4 + bassBoost;
-      value = Math.max(0, Math.min(1, value * amp * highFalloff));
-      result[i] = value;
-    }
-    return result;
+  generateDummyData() {
+    // No fake audio activity: silence must render as silence.
+    return new Float32Array(this.size);
   }
 
   update(data, isDummy = false) {
@@ -235,13 +232,9 @@ class SmoothSpectrum {
   reset() {
     this.transitionProgress = 0;
     this.hasData = false;
-    const time = Date.now() / 1000;
-    for (let i = 0; i < this.size; i++) {
-      const val = Math.sin(time * 0.5 + i * 0.3) * 0.15 + 0.15;
-      this.smooth[i] = val;
-      this.peak[i] = val * 0.8;
-      this.lastRealData[i] = val;
-    }
+    this.smooth.fill(0);
+    this.peak.fill(0);
+    this.lastRealData.fill(0);
   }
 }
 
@@ -251,8 +244,8 @@ const smoothSpectrum = new SmoothSpectrum(64);
 //  ПЛАВНЫЙ ФИЛЬТР ДЛЯ VU
 // ============================================
 
-let _vuSmooth = 0.15;
-let _vuPeakSmooth = 0.15;
+let _vuSmooth = 0;
+let _vuPeakSmooth = 0;
 let _vuPeakHold = 0;
 let _vuHistory = [];
 const _vuHistorySize = 10;
@@ -291,7 +284,7 @@ function smoothVU(value) {
 //  КЛИППИНГ
 // ============================================
 
-export function checkClipping(rmsValue) {
+export function checkClipping(rmsValue, peakValue = 0, clipping = false) {
   if (!CLIP_CONFIG.enabled) return;
   if (rmsValue === undefined || rmsValue === null) return;
   
@@ -315,7 +308,8 @@ export function checkClipping(rmsValue) {
   const isExtremeVolume = currentVolume >= CLIP_CONFIG.volumeThreshold;
   const isCriticalRms = smoothRms > CLIP_CONFIG.levels.critical;
   const isHighRms = smoothRms > CLIP_CONFIG.levels.danger;
-  const isClippingNow = (isExtremeVolume && isHighRms) || isCriticalRms;
+  const isPeakClipping = peakValue >= 0.99 || clipping === true;
+  const isClippingNow = isPeakClipping || (isExtremeVolume && isHighRms) || isCriticalRms;
   
   if (isClippingNow) {
     if (now - _clipState.lastTrigger < CLIP_CONFIG.cooldownTime) {
@@ -325,7 +319,7 @@ export function checkClipping(rmsValue) {
     let level = 'danger';
     let warningText = '';
     
-    if (isCriticalRms || currentVolume >= 600) {
+    if (isPeakClipping || isCriticalRms || currentVolume >= 600) {
       level = 'critical';
       const warning = t('clipping.critical');
       warningText = warning ? `${warning.title}\n${warning.message}` : 'CRITICAL CLIPPING';
@@ -621,11 +615,10 @@ export function updateSpectrum() {
 
   renderEffect(processedData);
   
-  let maxVal = 0;
-  for (let m = 0; m < Math.min(processedData.length, 32); m++) {
-    if (processedData[m] > maxVal) maxVal = processedData[m];
-  }
-  updateVUMeter(maxVal);
+  const vuValue = state.hasAudio
+    ? Math.max(0, Math.min(1, Math.max(state.rmsValue || 0, (state.peakValue || 0) * 0.5)))
+    : 0;
+  updateVUMeter(vuValue);
 }
 
 // ============================================
@@ -693,7 +686,7 @@ export function updateVUMeter(value) {
     }
   }
   
-  checkClipping(vuData.smooth);
+  checkClipping(state.rmsValue || 0, state.peakValue || 0, state.isClipping === true);
 }
 
 // ============================================
@@ -728,14 +721,18 @@ export function visualizationLoop() {
 
 export function resetVisualization() {
   smoothSpectrum.reset();
-  _vuSmooth = 0.15;
-  _vuPeakSmooth = 0.15;
+  _vuSmooth = 0;
+  _vuPeakSmooth = 0;
   _vuPeakHold = 0;
   _vuHistory = [];
   // FIX: Сбрасываем состояние клиппинга
   _clipState.isClipping = false;
   _clipState.history = [];
   _clipState.smoothRms = 0;
+  state.rmsValue = 0;
+  state.peakValue = 0;
+  state.isClipping = false;
+  state.hasAudio = false;
   if (_clipState.timeoutId) {
     clearTimeout(_clipState.timeoutId);
     _clipState.timeoutId = null;

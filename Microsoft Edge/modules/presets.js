@@ -173,6 +173,7 @@ export function loadUserPreset(name) {
   state.abPresetA = null;
   state.abPresetB = null;
   state.abMode = false;
+  state.abActive = null;
   if (dom.abCompareBtn) {
     dom.abCompareBtn.textContent = t('compare');
     dom.abCompareBtn.style.background = '';
@@ -195,6 +196,7 @@ export function handlePresetSelect(value) {
     state.abPresetA = null;
     state.abPresetB = null;
     state.abMode = false;
+  state.abActive = null;
     if (dom.abCompareBtn) {
       dom.abCompareBtn.textContent = t('compare');
       dom.abCompareBtn.style.background = '';
@@ -212,6 +214,7 @@ export function handlePresetSelect(value) {
       state.abPresetA = null;
       state.abPresetB = null;
       state.abMode = false;
+  state.abActive = null;
       if (dom.abCompareBtn) {
         dom.abCompareBtn.textContent = t('compare');
         dom.abCompareBtn.style.background = '';
@@ -229,30 +232,106 @@ export function handlePresetSelect(value) {
 //  A/B СРАВНЕНИЕ
 // ============================================
 
+function resetABCompareState() {
+  state.abPresetA = null;
+  state.abPresetB = null;
+  state.abMode = false;
+  state.abActive = null;
+  if (dom.abCompareBtn) {
+    dom.abCompareBtn.textContent = t('compare');
+    dom.abCompareBtn.style.background = '';
+    dom.abCompareBtn.style.color = '';
+  }
+}
+
+function updateABCompareButton() {
+  if (!dom.abCompareBtn) return;
+  if (!state.abPresetA) {
+    dom.abCompareBtn.textContent = '🔀 A/B';
+    dom.abCompareBtn.style.background = '';
+    dom.abCompareBtn.style.color = '';
+    return;
+  }
+  if (!state.abPresetB) {
+    dom.abCompareBtn.textContent = '🔀 Save B';
+    dom.abCompareBtn.style.background = '#607D8B';
+    dom.abCompareBtn.style.color = '#fff';
+    return;
+  }
+  dom.abCompareBtn.textContent = `🔀 ${state.abActive || 'A'}`;
+  dom.abCompareBtn.style.background = state.abActive === 'B' ? '#2196F3' : '#4CAF50';
+  dom.abCompareBtn.style.color = '#fff';
+}
+
+function applyABSnapshot(snapshot, side) {
+  if (!snapshot) return;
+
+  const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+  sliders.forEach((slider) => {
+    const value = Number(snapshot.gains?.[slider.dataset.freq] ?? 0);
+    slider.value = Number.isFinite(value) ? value : 0;
+    const valueSpan = slider.parentElement?.querySelector('.gain-value');
+    if (valueSpan) {
+      valueSpan.textContent = Number(slider.value).toFixed(1);
+      updateGainClass(valueSpan, Number(slider.value));
+    }
+  });
+
+  const volumePercent = Math.max(0, Math.min(800, (Number.isFinite(Number(snapshot.volume)) ? Number(snapshot.volume) : 1) * 100));
+  const bass = Math.max(-12, Math.min(12, (Number.isFinite(Number(snapshot.bass)) ? Number(snapshot.bass) : 0)));
+
+  if (dom.volumeSlider) dom.volumeSlider.value = volumePercent;
+  if (dom.volumeDisplay) dom.volumeDisplay.textContent = `${volumePercent}%`;
+  if (dom.bassSlider) dom.bassSlider.value = bass;
+  if (dom.bassDisplay) dom.bassDisplay.textContent = `${bass.toFixed(1)} dB`;
+
+  state.currentPreset = 'custom';
+  updatePresetInfo('custom');
+
+  const gains = getSliderGains();
+  chrome.runtime.sendMessage({ action: 'updateEQ', gains, instant: true, source: `ab-${side}` });
+  chrome.runtime.sendMessage({ action: 'setVolume', value: volumePercent / 100, instant: true, source: `ab-${side}` });
+  chrome.runtime.sendMessage({ action: 'setBass', value: bass, instant: true, source: `ab-${side}` });
+
+  setStatus('ready', `🔀 A/B: ${side}`);
+}
+
 export function toggleABCompare() {
-  state.abMode = !state.abMode;
-  if (state.abMode) {
+  // First click: capture A.
+  if (!state.abPresetA) {
     state.abPresetA = {
       gains: getSliderGains(),
       volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
       bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
     };
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = '🔀 A';
-      dom.abCompareBtn.style.background = '#4CAF50';
-      dom.abCompareBtn.style.color = '#fff';
-    }
-    setStatus('ready', '🔀 Режим A/B: сохранено состояние A');
-  } else {
-    state.abPresetA = null;
     state.abPresetB = null;
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = t('compare');
-      dom.abCompareBtn.style.background = '';
-      dom.abCompareBtn.style.color = '';
-    }
-    setStatus('ready', t('status_ready'));
+    state.abMode = false;
+    state.abActive = null;
+    updateABCompareButton();
+    setStatus('ready', '🔀 A/B: состояние A сохранено. Настройте B и нажмите ещё раз.');
+    return;
   }
+
+  // Second click: capture B and immediately return to A.
+  if (!state.abPresetB) {
+    state.abPresetB = {
+      gains: getSliderGains(),
+      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
+      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
+    };
+    state.abMode = true;
+    state.abActive = 'A';
+    updateABCompareButton();
+    applyABSnapshot(state.abPresetA, 'A');
+    setStatus('ready', '🔀 A/B готов: нажимайте кнопку для переключения A ↔ B.');
+    return;
+  }
+
+  // Subsequent clicks: real A/B toggle.
+  state.abActive = state.abActive === 'A' ? 'B' : 'A';
+  state.abMode = true;
+  updateABCompareButton();
+  applyABSnapshot(state.abActive === 'A' ? state.abPresetA : state.abPresetB, state.abActive);
 }
 
 // ============================================

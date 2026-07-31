@@ -3,7 +3,7 @@
 //  ИСПРАВЛЕНО: дублирующийся экспорт initAudioContext
 //  ИСПРАВЛЕНО: все экспорты уникальны
 //  ИСПРАВЛЕНО: applyPresetWithAnimation правильно обрабатывает isUserPreset
-//  ИСПРАВЛЕНО: очистка таймеров при ошибках
+//  ИСПРАВЛЕНО: добавлен импорт PRESET_INFO
 // ============================================
 
 import { state, dom } from './state.js';
@@ -250,8 +250,7 @@ export function initAudioContext() {
         }
         
         _audioContext = new AudioContextClass({
-            latencyHint: 'interactive',
-            sampleRate: 48000
+            latencyHint: 'interactive'
         });
         
         if (_audioContext.state === 'suspended') {
@@ -286,60 +285,57 @@ function startSpectrumPolling() {
     
     _spectrumUpdateInterval = setInterval(() => {
         if (!_analyserNode || !_audioContext || _audioContext.state === 'closed') {
-            const dummyData = generateDummySpectrum();
-            state.spectrumData = dummyData;
-            state.spectrumData.isDummy = true;
+            const silentData = new Float32Array(64);
+            silentData.isDummy = false;
+            state.spectrumData = silentData;
+            state.hasAudio = false;
+            state.rmsValue = 0;
             return;
         }
         
         try {
-            const dataArray = new Float32Array(_analyserNode.frequencyBinCount);
-            _analyserNode.getFloatFrequencyData(dataArray);
-            
+            const frequencyData = new Float32Array(_analyserNode.frequencyBinCount);
+            const timeDomainData = new Float32Array(_analyserNode.fftSize);
+            _analyserNode.getFloatFrequencyData(frequencyData);
+            _analyserNode.getFloatTimeDomainData(timeDomainData);
+
             let hasAudio = false;
-            for (let i = 0; i < Math.min(dataArray.length, 16); i++) {
-                if (dataArray[i] > -80) {
-                    hasAudio = true;
-                    break;
-                }
+            let sumSquares = 0;
+            let peak = 0;
+            for (let i = 0; i < timeDomainData.length; i++) {
+                const sample = Number.isFinite(timeDomainData[i]) ? timeDomainData[i] : 0;
+                const abs = Math.abs(sample);
+                sumSquares += sample * sample;
+                if (abs > peak) peak = abs;
             }
-            
+            const rms = Math.sqrt(sumSquares / Math.max(1, timeDomainData.length));
+            hasAudio = rms > 0.001 || peak > 0.005;
+
             const normalized = new Float32Array(64);
-            for (let i = 0; i < Math.min(dataArray.length, 64); i++) {
-                const val = (dataArray[i] + 100) / 100;
+            for (let i = 0; i < Math.min(frequencyData.length, 64); i++) {
+                const db = frequencyData[i];
+                const val = Number.isFinite(db) ? (db + 100) / 100 : 0;
                 normalized[i] = Math.max(0, Math.min(1, val));
             }
             
             state.spectrumData = normalized;
-            state.spectrumData.isDummy = !hasAudio;
+            state.spectrumData.isDummy = false;
             state.hasAudio = hasAudio;
-            
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i] * dataArray[i];
-            }
-            state.rmsValue = Math.sqrt(sum / dataArray.length);
-            state.rmsValue = Math.max(0, Math.min(1, (state.rmsValue + 100) / 100));
+            state.rmsValue = Math.max(0, Math.min(1, rms));
+            state.peakValue = Math.max(0, Math.min(1, peak));
             
         } catch (e) {
-            const dummyData = generateDummySpectrum();
-            state.spectrumData = dummyData;
-            state.spectrumData.isDummy = true;
+            const silentData = new Float32Array(64);
+            silentData.isDummy = false;
+            state.spectrumData = silentData;
+            state.hasAudio = false;
+            state.rmsValue = 0;
         }
-    }, 50);
+    }, 80);
 }
 
 function generateDummySpectrum() {
-    const time = Date.now() / 1000;
-    const dummy = new Float32Array(64);
-    for (let i = 0; i < 64; i++) {
-        const freq = i / 64;
-        const val = Math.sin(time * 1.5 + freq * 8) * 0.2 +
-                   Math.sin(time * 2.2 + freq * 15 + 1.2) * 0.15 +
-                   Math.sin(time * 0.8 + freq * 4 + 2.5) * 0.1;
-        dummy[i] = Math.max(0, Math.min(1, 0.1 + val));
-    }
-    return dummy;
+    return new Float32Array(64);
 }
 
 // ============================================
@@ -622,40 +618,56 @@ export function applyPreset(name) {
 // ============================================
 
 export function applySavedSettings(applyPresetToo = true) {
-    chrome.storage.local.get(['eqSettings', 'volumeBoost', 'bassBoost', 'selectedPreset', 'savedVolume', 'savedBass'], (result) => {
-        if (result.savedVolume !== undefined && dom.volumeSlider && dom.volumeDisplay) {
-            const vol = Math.min(800, Math.max(0, result.savedVolume));
+    chrome.storage.local.get([
+        'sf_eqSettings', 'eqSettings',
+        'sf_volumeBoost', 'volumeBoost',
+        'sf_bassBoost', 'bassBoost',
+        'sf_selectedPreset', 'selectedPreset',
+        'sf_savedVolume', 'savedVolume',
+        'sf_savedBass', 'savedBass'
+    ], (result) => {
+        const eqSettings = result.sf_eqSettings ?? result.eqSettings;
+        const volumeBoost = result.sf_volumeBoost ?? result.volumeBoost;
+        const bassBoost = result.sf_bassBoost ?? result.bassBoost;
+        const selectedPreset = result.sf_selectedPreset ?? result.selectedPreset;
+        const savedVolume = result.sf_savedVolume ?? result.savedVolume;
+        const savedBass = result.sf_savedBass ?? result.savedBass;
+
+        if (savedVolume !== undefined && dom.volumeSlider && dom.volumeDisplay) {
+            const vol = Math.min(800, Math.max(0, Number(savedVolume) || 0));
             dom.volumeSlider.value = vol;
             dom.volumeDisplay.textContent = vol + '%';
             chrome.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
-        } else if (result.volumeBoost !== undefined && dom.volumeSlider && dom.volumeDisplay) {
-            const vol = Math.round(result.volumeBoost * 100);
-            dom.volumeSlider.value = Math.min(800, Math.max(0, vol));
-            dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol)) + '%';
-            chrome.runtime.sendMessage({ action: 'setVolume', value: result.volumeBoost });
+        } else if (volumeBoost !== undefined && dom.volumeSlider && dom.volumeDisplay) {
+            const vol = Math.min(800, Math.max(0, Math.round((Number(volumeBoost) || 0) * 100)));
+            dom.volumeSlider.value = vol;
+            dom.volumeDisplay.textContent = vol + '%';
+            chrome.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
         }
 
-        if (result.savedBass !== undefined && dom.bassSlider && dom.bassDisplay) {
-            const bass = Math.min(12, Math.max(-12, result.savedBass));
+        if (savedBass !== undefined && dom.bassSlider && dom.bassDisplay) {
+            const bass = Math.min(12, Math.max(-12, Number(savedBass) || 0));
             dom.bassSlider.value = bass;
             dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
             chrome.runtime.sendMessage({ action: 'setBass', value: bass });
-        } else if (result.bassBoost !== undefined && dom.bassSlider && dom.bassDisplay) {
-            dom.bassSlider.value = result.bassBoost;
-            dom.bassDisplay.textContent = result.bassBoost.toFixed(1) + ' dB';
-            chrome.runtime.sendMessage({ action: 'setBass', value: result.bassBoost });
+        } else if (bassBoost !== undefined && dom.bassSlider && dom.bassDisplay) {
+            const bass = Math.min(12, Math.max(-12, Number(bassBoost) || 0));
+            dom.bassSlider.value = bass;
+            dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
+            chrome.runtime.sendMessage({ action: 'setBass', value: bass });
         }
 
-        if (result.eqSettings) {
+        if (eqSettings) {
             const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
             sliders.forEach((slider) => {
                 const freq = slider.dataset.freq;
-                if (result.eqSettings[freq] !== undefined) {
-                    slider.value = result.eqSettings[freq];
+                if (eqSettings[freq] !== undefined) {
+                    const gain = Number(eqSettings[freq]) || 0;
+                    slider.value = gain;
                     const valueSpan = slider.parentElement ? slider.parentElement.querySelector('.gain-value') : null;
                     if (valueSpan) {
-                        valueSpan.textContent = result.eqSettings[freq].toFixed(1);
-                        updateGainClass(valueSpan, result.eqSettings[freq]);
+                        valueSpan.textContent = gain.toFixed(1);
+                        updateGainClass(valueSpan, gain);
                     }
                 }
             });
@@ -663,9 +675,9 @@ export function applySavedSettings(applyPresetToo = true) {
             chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains });
         }
 
-        if (applyPresetToo && result.selectedPreset && PRESETS[result.selectedPreset]) {
-            if (dom.presetSelect) dom.presetSelect.value = result.selectedPreset;
-            applyPresetEQOnly(result.selectedPreset);
+        if (applyPresetToo && selectedPreset && PRESETS[selectedPreset]) {
+            if (dom.presetSelect) dom.presetSelect.value = selectedPreset;
+            applyPresetEQOnly(selectedPreset);
         }
     });
 }

@@ -13,6 +13,7 @@ class StorageManager {
   constructor() {
     this._cache = new Map();
     this._syncInProgress = false;
+    this._flushPromise = null;
     this._lastSync = null;
     this._pendingWrites = new Map();
     this._writeDebounce = null;
@@ -40,6 +41,34 @@ class StorageManager {
     };
     // FIX: Проверка доступности localStorage
     this._hasLocalStorage = this._checkLocalStorage();
+
+    // Keep the in-page cache synchronized with writes made by the background
+    // service worker or another extension page. This prevents stale popup/window
+    // state after cross-context edits.
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+          if (areaName !== 'local') return;
+          let hasCanonicalChange = false;
+          for (const [key, change] of Object.entries(changes || {})) {
+            if (!key.startsWith(this._prefix)) continue;
+            hasCanonicalChange = true;
+            if (change.newValue === undefined) this._cache.delete(key);
+            else this._cache.set(key, change.newValue);
+            this._notifyListeners(key.substring(this._prefix.length), change.newValue);
+          }
+          if (hasCanonicalChange && this._hasLocalStorage) {
+            try {
+              const cacheData = {};
+              for (const [key, value] of this._cache) {
+                if (key.startsWith(this._prefix)) cacheData[key] = value;
+              }
+              localStorage.setItem(this._prefix + 'cache_data', JSON.stringify({ data: cacheData, timestamp: Date.now() }));
+            } catch {}
+          }
+        });
+      }
+    } catch {}
   }
 
   /**
@@ -71,8 +100,11 @@ class StorageManager {
       
       if (!data || Object.keys(data).length === 0) {
         console.log('[Storage] Настройки не найдены, создаем дефолтные');
-        await this._saveToChrome(this._defaults);
-        await this._updateCache(this._defaults);
+        const canonicalDefaults = Object.fromEntries(
+          Object.entries(this._defaults).map(([key, value]) => [this._prefix + key, value])
+        );
+        await this._saveToChrome(canonicalDefaults);
+        await this._updateCache(canonicalDefaults);
       } else {
         await this._updateCache(data);
         console.log('[Storage] Настройки загружены из chrome.storage');
@@ -84,6 +116,7 @@ class StorageManager {
       return this._cache;
     } catch (e) {
       console.error('[Storage] Ошибка инициализации:', e);
+      this._initialized = false;
       await this._updateCache(this._defaults);
       return this._cache;
     }
@@ -112,6 +145,17 @@ class StorageManager {
       return this._cache.get(cacheKey);
     }
     return defaultValue !== null ? defaultValue : this._defaults[key];
+  }
+
+  /**
+   * Обновить локальный кэш без прямой записи в chrome.storage.
+   * Используется, когда background.js является единым писателем настроек.
+   */
+  updateCache(settings = {}) {
+    if (!settings || typeof settings !== 'object') return;
+    for (const [key, value] of Object.entries(settings)) {
+      this._cache.set(this._prefix + key, value);
+    }
   }
 
   /**
@@ -144,10 +188,7 @@ class StorageManager {
     this._cache.set(cacheKey, value);
     this._pendingWrites.set(cacheKey, value);
     
-    clearTimeout(this._writeDebounce);
-    this._writeDebounce = setTimeout(() => {
-      this._flushWrites();
-    }, 100);
+    this._scheduleFlush();
     
     this._notifyListeners(key, value);
     return value;
@@ -163,10 +204,7 @@ class StorageManager {
       this._pendingWrites.set(cacheKey, value);
     }
     
-    clearTimeout(this._writeDebounce);
-    this._writeDebounce = setTimeout(() => {
-      this._flushWrites();
-    }, 100);
+    this._scheduleFlush();
     
     for (const [key, value] of Object.entries(settings)) {
       this._notifyListeners(key, value);
@@ -239,16 +277,20 @@ class StorageManager {
    */
   async clear() {
     console.log('[Storage] Очистка всех данных');
+    clearTimeout(this._writeDebounce);
+    if (this._flushPromise) await this._flushPromise.catch(() => {});
     this._cache.clear();
     this._pendingWrites.clear();
     await this._clearChrome();
     await this._clearLocalStorageCache();
-    
-    for (const [key, value] of Object.entries(this._defaults)) {
-      const cacheKey = this._prefix + key;
-      this._cache.set(cacheKey, value);
-    }
-    
+
+    const canonicalDefaults = Object.fromEntries(
+      Object.entries(this._defaults).map(([key, value]) => [this._prefix + key, value])
+    );
+    await this._saveToChrome(canonicalDefaults);
+    await this._updateCache(canonicalDefaults);
+    await this._refreshCanonicalBackup();
+
     for (const [key, value] of Object.entries(this._defaults)) {
       this._notifyListeners(key, value);
     }
@@ -310,16 +352,19 @@ class StorageManager {
   }
 
   _saveToChrome(data) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         chrome.storage.local.set(data, () => {
           if (chrome.runtime.lastError) {
-            console.warn('[Storage] Ошибка сохранения в chrome.storage:', chrome.runtime.lastError);
+            const error = new Error(chrome.runtime.lastError.message);
+            console.warn('[Storage] Ошибка сохранения в chrome.storage:', error);
+            reject(error);
+            return;
           }
           resolve();
         });
       } else {
-        resolve();
+        reject(new Error('chrome.storage.local недоступен'));
       }
     });
   }
@@ -363,93 +408,126 @@ class StorageManager {
     }
   }
 
+  _scheduleFlush() {
+    clearTimeout(this._writeDebounce);
+    this._writeDebounce = setTimeout(() => {
+      this._flushWrites().catch((error) => {
+        console.error('[Storage] Ошибка очереди записи:', error);
+      });
+    }, 100);
+  }
+
   async _flushWrites() {
-    if (this._pendingWrites.size === 0) return;
-    if (this._syncInProgress) return;
-    
-    this._syncInProgress = true;
-    
+    if (this._flushPromise) return this._flushPromise;
+
+    this._flushPromise = (async () => {
+      this._syncInProgress = true;
+      try {
+        while (this._pendingWrites.size > 0) {
+          // Snapshot only the entries that are about to be persisted.
+          const snapshot = new Map(this._pendingWrites);
+          const data = Object.fromEntries(snapshot);
+
+          await this._saveToChrome(data);
+
+          // Remove only values that are still equal to the persisted snapshot.
+          // Newer writes that arrived while chrome.storage was busy are kept.
+          for (const [key, value] of snapshot) {
+            if (Object.is(this._pendingWrites.get(key), value)) {
+              this._pendingWrites.delete(key);
+            }
+          }
+
+          this._lastSync = Date.now();
+          await this._refreshCanonicalBackup();
+        }
+      } finally {
+        this._syncInProgress = false;
+        this._flushPromise = null;
+      }
+    })();
+
+    return this._flushPromise;
+  }
+
+  async _refreshCanonicalBackup() {
+    if (!this._hasLocalStorage) return;
     try {
-      const data = {};
-      for (const [key, value] of this._pendingWrites) {
-        data[key] = value;
-      }
-      
-      await this._saveToChrome(data);
-      await this._updateCache(data);
-      if (this._hasLocalStorage) {
-        await this._saveToLocalStorage(data);
-      }
-      this._pendingWrites.clear();
-      this._lastSync = Date.now();
-    } catch (e) {
-      console.error('[Storage] Ошибка записи:', e);
-    } finally {
-      this._syncInProgress = false;
+      const canonical = this.getAll();
+      localStorage.setItem(this._prefix + 'cache_data', JSON.stringify({
+        data: Object.fromEntries(Object.entries(canonical).map(([key, value]) => [this._prefix + key, value])),
+        timestamp: Date.now()
+      }));
+      await this._saveToLocalStorage(canonical, true);
+    } catch (error) {
+      console.warn('[Storage] Не удалось обновить backup:', error);
     }
   }
 
-  async _saveToLocalStorage(data) {
+  async _saveToLocalStorage(data, isCanonicalSnapshot = false) {
     if (!this._hasLocalStorage) return;
     try {
       const settings = {
-        gains: data[this._prefix + 'eqSettings'] ?? this._defaults.eqSettings,
-        volume: data[this._prefix + 'volumeBoost'] ?? this._defaults.volumeBoost,
-        bass: data[this._prefix + 'bassBoost'] ?? this._defaults.bassBoost,
-        isEnabled: data[this._prefix + 'isConnected'] ?? false,
-        autoConnect: false,
-        userPresets: data[this._prefix + 'userPresets'] ?? {},
-        debugMode: data[this._prefix + 'debugMode'] ?? false
+        gains: isCanonicalSnapshot ? (data.eqSettings ?? this._defaults.eqSettings) : (data[this._prefix + 'eqSettings'] ?? this._defaults.eqSettings),
+        volume: isCanonicalSnapshot ? (data.volumeBoost ?? this._defaults.volumeBoost) : (data[this._prefix + 'volumeBoost'] ?? this._defaults.volumeBoost),
+        bass: isCanonicalSnapshot ? (data.bassBoost ?? this._defaults.bassBoost) : (data[this._prefix + 'bassBoost'] ?? this._defaults.bassBoost),
+        isEnabled: isCanonicalSnapshot ? (data.isConnected ?? false) : (data[this._prefix + 'isConnected'] ?? false),
+        autoConnect: isCanonicalSnapshot ? (data.autoConnect ?? true) : (data[this._prefix + 'autoConnect'] ?? true),
+        userPresets: isCanonicalSnapshot ? (data.userPresets ?? {}) : (data[this._prefix + 'userPresets'] ?? {}),
+        debugMode: isCanonicalSnapshot ? (data.debugMode ?? false) : (data[this._prefix + 'debugMode'] ?? false),
+        nightMode: isCanonicalSnapshot ? (data.nightMode ?? false) : (data[this._prefix + 'nightMode'] ?? false),
+        powerSaveMode: isCanonicalSnapshot ? (data.powerSaveMode ?? false) : (data[this._prefix + 'powerSaveMode'] ?? false)
       };
-      
-      localStorage.setItem('soundforge_settings_v322', JSON.stringify(settings));
-      
-      const cacheData = {
-        timestamp: Date.now(),
-        settings: settings
-      };
-      localStorage.setItem('soundforge_cache', JSON.stringify(cacheData));
+      const serialized = JSON.stringify(settings);
+      localStorage.setItem('soundforge_settings_v322', serialized);
+      localStorage.setItem('soundforge_cache', JSON.stringify({ timestamp: Date.now(), settings }));
     } catch (e) {
-      // Игнорируем ошибки localStorage
+      console.warn('[Storage] Ошибка сохранения legacy backup:', e);
     }
   }
 
   async _syncFromLocalStorage() {
     if (!this._hasLocalStorage) return;
     try {
+      let current = await this._loadFromChrome();
+      const hadChromeData = !!current && Object.keys(current).length > 0;
+
       const oldSettings = localStorage.getItem('soundforge_settings_v322');
-      if (oldSettings) {
+      if ((!current || Object.keys(current).length === 0) && oldSettings) {
         const parsed = JSON.parse(oldSettings);
-        const current = await this._loadFromChrome();
-        
-        if (!current || Object.keys(current).length === 0) {
-          console.log('[Storage] Перенос настроек из localStorage');
-          
-          const migrated = {
-            eqSettings: parsed.gains ?? this._defaults.eqSettings,
-            volumeBoost: parsed.volume ?? this._defaults.volumeBoost,
-            bassBoost: parsed.bass ?? this._defaults.bassBoost,
-            isConnected: parsed.isEnabled ?? false,
-            userPresets: parsed.userPresets ?? {},
-            debugMode: parsed.debugMode ?? false
-          };
-          
-          await this._saveToChrome(migrated);
-          await this._updateCache(migrated);
-        }
+        console.log('[Storage] Перенос настроек из legacy localStorage');
+
+        const migrated = {
+          [this._prefix + 'eqSettings']: parsed.gains ?? this._defaults.eqSettings,
+          [this._prefix + 'volumeBoost']: parsed.volume ?? this._defaults.volumeBoost,
+          [this._prefix + 'bassBoost']: parsed.bass ?? this._defaults.bassBoost,
+          [this._prefix + 'isConnected']: parsed.isEnabled ?? false,
+          [this._prefix + 'userPresets']: parsed.userPresets ?? {},
+          [this._prefix + 'debugMode']: parsed.debugMode ?? false
+        };
+
+        await this._saveToChrome(migrated);
+        await this._updateCache(migrated);
+        current = { ...migrated };
       }
-      
+
+      // localStorage cache is only a recovery source. Never let stale cached
+      // values overwrite canonical chrome.storage values that already exist.
       const cacheData = localStorage.getItem(this._prefix + 'cache_data');
       if (cacheData) {
         try {
           const parsed = JSON.parse(cacheData);
           if (parsed.timestamp && Date.now() - parsed.timestamp < this._cacheTTL) {
-            for (const [key, value] of Object.entries(parsed.data || {})) {
-              this._cache.set(key, value);
+            const canonicalCache = parsed.data || {};
+            const sourceWasEmpty = !hadChromeData && Object.keys(current || {}).length === 0;
+            for (const [key, value] of Object.entries(canonicalCache)) {
+              if (sourceWasEmpty || current?.[key] === undefined) {
+                this._cache.set(key, value);
+              }
             }
           }
         } catch (e) {
-          // Игнорируем
+          // Игнорируем поврежденный recovery cache
         }
       }
     } catch (e) {

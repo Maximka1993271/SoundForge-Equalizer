@@ -24,15 +24,16 @@ export const state = {
   // Данные спектра
   spectrumData: new Float32Array(64),
   smoothSpectrum: new Float32Array(32),
-  peakValue: -Infinity,
+  peakValue: 0,
   peakHold: 0,
-  hasAudio: true,
+  hasAudio: false,
   rmsValue: 0,
   
   // A/B сравнение
   abPresetA: null,
   abPresetB: null,
   abMode: false,
+  abActive: null,
   
   // Состояние загрузки
   isLoading: false,
