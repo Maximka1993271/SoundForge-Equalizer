@@ -1,0 +1,74 @@
+{
+  "manifest_version": 2,
+  "name": "SoundForge Equalizer",
+  "version": "3.22.8",
+  "description": "Премиальный 10-полосный эквалайзер для всех сайтов. Точная настройка частот, глубокий бас и чистые верха - звук, который вы заслужили.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "webNavigation",
+    "<all_urls>",
+    "notifications",
+    "alarms"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "web_accessible_resources": [
+    "icons/SoundForge.png",
+    "icons/SoundForge-off.png"
+  ],
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Активация расширения"
+    },
+    "toggle_eq": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "Включить/выключить эквалайзер"
+    },
+    "next_preset": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Следующий пресет"
+    },
+    "reset_settings": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Сбросить все настройки"
+    }
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "SoundForge EQ",
+    "default_icon": {
+      "16": "icons/SoundForge.png",
+      "48": "icons/SoundForge.png",
+      "128": "icons/SoundForge.png"
+    }
+  },
+  "icons": {
+    "16": "icons/SoundForge.png",
+    "48": "icons/SoundForge.png",
+    "128": "icons/SoundForge.png"
+  },
+  "applications": {
+    "gecko": {
+      "id": "soundforge-equalizer@maxim-melnikov.com",
+      "strict_min_version": "88.0"
+    }
+  },
+  "content_security_policy": "script-src 'self'; object-src 'self'"
+}

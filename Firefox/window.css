@@ -1,0 +1,617 @@
+/* ============================================
+   WINDOW.CSS - Standalone Window Styles
+   FIREFOX 153.0esr + FULLSCREEN API + WINDOWS BUTTON
+   ОПТИМАЛЬНЫЙ РАЗМЕР ШРИФТА И КНОПОК
+   ============================================ */
+
+/* ============================================
+   ОГРАНИЧЕНИЕ ШИРИНЫ ОКНА
+   ============================================ */
+
+body {
+  max-width: 460px !important;
+  padding: 14px !important;
+  margin: 0 auto !important;
+  width: 100%;
+  max-height: 100vh;
+  border-radius: 0;
+  overflow-y: auto;
+  min-height: 100vh;
+  font-size: 13px !important;
+}
+
+body:not(.expanded) {
+  max-width: 460px !important;
+  padding: 14px !important;
+}
+
+/* ============================================
+   УВЕЛИЧЕННЫЙ ШРИФТ ДЛЯ ВСЕХ ЭЛЕМЕНТОВ
+   ============================================ */
+
+/* Заголовок */
+.header h1 {
+  font-size: 20px !important;
+}
+
+.header {
+  margin-bottom: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+/* Кнопки в шапке */
+.header-controls .lang-toggle,
+.header-controls .expand-toggle,
+.header-controls .close-window {
+  width: 30px !important;
+  height: 30px !important;
+  font-size: 15px !important;
+}
+
+.theme-option {
+  width: 28px !important;
+  height: 28px !important;
+  font-size: 14px !important;
+}
+
+/* ============================================
+   СТАТУС-БАР
+   ============================================ */
+
+.status-bar {
+  padding: 8px 12px !important;
+  margin-bottom: 10px !important;
+}
+
+.status-indicator {
+  font-size: 12px !important;
+}
+
+.status-dot {
+  width: 9px !important;
+  height: 9px !important;
+}
+
+.site-info {
+  font-size: 11px !important;
+  padding: 3px 10px !important;
+}
+
+/* ============================================
+   КНОПКИ (ОСНОВНЫЕ)
+   ============================================ */
+
+.btn {
+  padding: 5px 14px !important;
+  font-size: 12px !important;
+  border-radius: 18px !important;
+}
+
+.btn-connect {
+  font-size: 12px !important;
+  padding: 5px 16px !important;
+}
+
+.btn-reset {
+  font-size: 12px !important;
+  padding: 5px 16px !important;
+}
+
+/* ============================================
+   ДОПОЛНИТЕЛЬНЫЕ КНОПКИ
+   ============================================ */
+
+.extra-buttons {
+  gap: 6px !important;
+  margin-bottom: 10px !important;
+}
+
+.extra-buttons .btn {
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  border-radius: 12px !important;
+}
+
+/* Кнопки Ночной и Эконом */
+.btn-night-mode,
+.btn-power-save {
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  border-radius: 12px !important;
+}
+
+/* ============================================
+   ПРЕСЕТЫ
+   ============================================ */
+
+.preset-info {
+  font-size: 11px !important;
+  padding: 4px 12px !important;
+  margin-bottom: 8px !important;
+}
+
+.preset-selector select {
+  padding: 6px 30px 6px 12px !important;
+  font-size: 11px !important;
+}
+
+/* ============================================
+   СПЕКТР И ВИЗУАЛИЗАЦИЯ
+   ============================================ */
+
+#spectrumCanvas {
+  height: 60px !important;
+}
+
+.spectrum-labels {
+  font-size: 7px !important;
+}
+
+/* VU-метр */
+.vu-meter {
+  height: 14px !important;
+}
+
+.vu-peak {
+  height: 20px !important;
+  top: -3px !important;
+  width: 3px !important;
+}
+
+.vu-value {
+  font-size: 11px !important;
+  min-width: 50px !important;
+}
+
+.vu-labels {
+  font-size: 7px !important;
+}
+
+/* ============================================
+   ГРАФИК АЧХ
+   ============================================ */
+
+.eq-graph-container {
+  height: 95px !important;
+  padding: 10px 8px 12px 20px !important;
+}
+
+#eqGraphCanvas {
+  height: 65px !important;
+}
+
+.eq-graph-left-values {
+  font-size: 8px !important;
+  height: 65px !important;
+}
+
+.eq-graph-right-values {
+  font-size: 8px !important;
+  gap: 8px !important;
+}
+
+.eq-graph-labels {
+  font-size: 7px !important;
+}
+
+/* ============================================
+   СЛАЙДЕРЫ ЭКВАЛАЙЗЕРА
+   ============================================ */
+
+.slider-row {
+  padding: 3px 4px !important;
+  gap: 8px !important;
+}
+
+.slider-row .freq-label {
+  font-size: 10px !important;
+  min-width: 30px !important;
+  max-width: 34px !important;
+}
+
+.slider-row .gain-value {
+  font-size: 11px !important;
+  min-width: 28px !important;
+  max-width: 32px !important;
+}
+
+.slider-row input[type="range"] {
+  height: 4px !important;
+}
+
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.slider-row input[type="range"]::-moz-range-thumb {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* ============================================
+   МЕТКИ ЧАСТОТ
+   ============================================ */
+
+.freq-labels {
+  font-size: 7px !important;
+  padding: 0 38px 0 38px !important;
+}
+
+/* ============================================
+   ДОПОЛНИТЕЛЬНЫЕ КОНТРОЛЫ (Громкость, Bass)
+   ============================================ */
+
+.extra-controls {
+  padding: 8px 6px !important;
+  margin-bottom: 8px !important;
+  gap: 12px !important;
+}
+
+.extra-control label {
+  font-size: 10px !important;
+}
+
+.extra-control .value-display {
+  font-size: 11px !important;
+}
+
+.extra-control input[type="range"] {
+  height: 4px !important;
+}
+
+.extra-control input[type="range"]::-webkit-slider-thumb {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.extra-control input[type="range"]::-moz-range-thumb {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.volume-status {
+  font-size: 9px !important;
+  padding: 2px 8px !important;
+}
+
+/* ============================================
+   ФУТЕР
+   ============================================ */
+
+.footer {
+  padding-top: 8px !important;
+  margin-top: 6px !important;
+}
+
+.footer .author,
+.footer .stats,
+.footer .version {
+  font-size: 10px !important;
+}
+
+.visualization-status {
+  font-size: 9px !important;
+}
+
+/* ============================================
+   ИНДИКАТОР КЛИППИНГА
+   ============================================ */
+
+#clipIndicator {
+  font-size: 14px !important;
+  padding: 8px 16px !important;
+}
+
+/* ============================================
+   ПОЛНОЭКРАННЫЙ РЕЖИМ
+   ============================================ */
+
+body.fullscreen-expanded #spectrumCanvas {
+  height: 100px !important;
+}
+
+body.fullscreen-expanded #eqGraphCanvas {
+  height: 120px !important;
+}
+
+body.fullscreen-expanded .eq-graph-container {
+  height: 160px !important;
+}
+
+body.fullscreen-expanded .slider-row .freq-label {
+  font-size: 13px !important;
+  min-width: 42px !important;
+}
+
+body.fullscreen-expanded .slider-row .gain-value {
+  font-size: 14px !important;
+  min-width: 36px !important;
+}
+
+body.fullscreen-expanded .extra-buttons .btn {
+  font-size: 12px !important;
+  padding: 6px 14px !important;
+}
+
+body.fullscreen-expanded .btn {
+  font-size: 14px !important;
+  padding: 7px 20px !important;
+}
+
+body.fullscreen-expanded .header h1 {
+  font-size: 26px !important;
+}
+
+body.fullscreen-expanded .preset-selector select {
+  font-size: 14px !important;
+  padding: 9px 38px 9px 14px !important;
+}
+
+body.fullscreen-expanded .preset-info {
+  font-size: 14px !important;
+  padding: 6px 16px !important;
+}
+
+body.fullscreen-expanded .extra-control label {
+  font-size: 12px !important;
+}
+
+body.fullscreen-expanded .extra-control .value-display {
+  font-size: 14px !important;
+}
+
+body.fullscreen-expanded .footer .author,
+body.fullscreen-expanded .footer .stats,
+body.fullscreen-expanded .footer .version {
+  font-size: 12px !important;
+}
+
+body.fullscreen-expanded .status-indicator {
+  font-size: 14px !important;
+}
+
+body.fullscreen-expanded .site-info {
+  font-size: 13px !important;
+  padding: 4px 14px !important;
+}
+
+body.fullscreen-expanded .volume-status {
+  font-size: 11px !important;
+  padding: 3px 12px !important;
+}
+
+body.fullscreen-expanded .vu-value {
+  font-size: 14px !important;
+}
+
+body.fullscreen-expanded .eq-graph-left-values {
+  font-size: 10px !important;
+  height: 90px !important;
+}
+
+body.fullscreen-expanded .eq-graph-right-values {
+  font-size: 10px !important;
+  gap: 12px !important;
+}
+
+body.fullscreen-expanded .eq-graph-labels {
+  font-size: 10px !important;
+}
+
+body.fullscreen-expanded .freq-labels {
+  font-size: 9px !important;
+  padding: 0 48px 0 48px !important;
+}
+
+body.fullscreen-expanded .spectrum-labels {
+  font-size: 9px !important;
+}
+
+body.fullscreen-expanded .lang-toggle,
+body.fullscreen-expanded .expand-toggle,
+body.fullscreen-expanded .close-window {
+  width: 36px !important;
+  height: 36px !important;
+  font-size: 18px !important;
+}
+
+body.fullscreen-expanded .theme-option {
+  width: 34px !important;
+  height: 34px !important;
+  font-size: 16px !important;
+}
+
+/* ============================================
+   АДАПТИВ ДЛЯ МАЛЫХ ЭКРАНОВ
+   ============================================ */
+
+@media (max-width: 480px) {
+  body {
+    padding: 10px !important;
+  }
+  
+  .header h1 {
+    font-size: 16px !important;
+  }
+  
+  .btn {
+    font-size: 10px !important;
+    padding: 3px 10px !important;
+  }
+  
+  .slider-row .freq-label {
+    font-size: 9px !important;
+    min-width: 24px !important;
+  }
+  
+  .slider-row .gain-value {
+    font-size: 10px !important;
+    min-width: 22px !important;
+  }
+  
+  .extra-buttons .btn {
+    font-size: 9px !important;
+    padding: 2px 8px !important;
+  }
+  
+  .preset-info {
+    font-size: 10px !important;
+  }
+  
+  .preset-selector select {
+    font-size: 10px !important;
+  }
+  
+  .status-indicator {
+    font-size: 10px !important;
+  }
+  
+  .site-info {
+    font-size: 9px !important;
+  }
+  
+  .extra-control label {
+    font-size: 9px !important;
+  }
+  
+  .extra-control .value-display {
+    font-size: 10px !important;
+  }
+  
+  .footer .author,
+  .footer .stats,
+  .footer .version {
+    font-size: 9px !important;
+  }
+  
+  .volume-status {
+    font-size: 8px !important;
+  }
+  
+  .freq-labels {
+    font-size: 6px !important;
+    padding: 0 24px 0 24px !important;
+  }
+  
+  #spectrumCanvas {
+    height: 50px !important;
+  }
+  
+  .eq-graph-container {
+    height: 80px !important;
+  }
+  
+  #eqGraphCanvas {
+    height: 55px !important;
+  }
+  
+  .vu-value {
+    font-size: 10px !important;
+    min-width: 40px !important;
+  }
+}
+
+/* ============================================
+   КНОПКА ЗАКРЫТИЯ
+   ============================================ */
+
+.close-window {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  color: #ff6b6b;
+  flex-shrink: 0;
+}
+
+.close-window:hover {
+  transform: scale(1.1);
+  background: rgba(255, 107, 107, 0.2);
+}
+
+[data-theme="light"] .close-window {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #e94560;
+}
+
+[data-theme="light"] .close-window:hover {
+  background: rgba(233, 69, 96, 0.15);
+}
+
+/* ============================================
+   КНОПКА РАЗВЕРНУТЬ (FULLSCREEN)
+   ============================================ */
+
+.expand-toggle {
+  font-size: 15px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.expand-toggle:hover {
+  transform: scale(1.1);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] .expand-toggle {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1a1a2e;
+}
+
+[data-theme="light"] .expand-toggle:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================
+   КНОПКИ В ЗАГОЛОВКЕ
+   ============================================ */
+
+.header-controls .expand-toggle {
+  margin-left: 4px;
+}
+
+.header-controls .close-window {
+  margin-left: 4px;
+}
+
+.header-controls .lang-toggle {
+  margin-left: 4px;
+}
+
+/* ============================================
+   ПРАВИЛЬНОЕ ОТОБРАЖЕНИЕ В FULLSCREEN
+   ============================================ */
+
+:-webkit-full-screen .header,
+:-moz-full-screen .header,
+:fullscreen .header {
+  position: relative;
+  z-index: 10;
+}
+
+:-webkit-full-screen .status-bar,
+:-moz-full-screen .status-bar,
+:fullscreen .status-bar {
+  position: relative;
+  z-index: 9;
+}

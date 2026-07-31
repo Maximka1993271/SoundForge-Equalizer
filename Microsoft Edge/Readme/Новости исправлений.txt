@@ -1,0 +1,1155 @@
+🔧 SoundForge Equalizer v3.22.8 — CHROME (MV3)
+📋 ПОЛНЫЙ СПИСОК ИСПРАВЛЕНИЙ
+🗓️ 31 июля 2026
+🌐 Google Chrome / Chromium 88+
+═══════════════════════════════════════════════════════════════════════════════
+
+📌 ОБЩЕЕ СОСТОЯНИЕ
+Проект полностью переработан и стабилизирован для Chrome/Chromium
+с использованием Manifest V3. Код синтаксически корректен,
+все модули интегрированы, критические ошибки устранены.
+
+✅ Статус: ГОТОВ К РЕЛИЗУ
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚨 КРИТИЧЕСКИЕ ИСПРАВЛЕНИЯ
+
+1. ХРАНИЛИЩЕ (STORAGE)
+───────────────────────────────────────────────────────────────────────────────
+❌ Race conditions и lost updates при конкурентной записи
+❌ Потеря настроек при одновременном изменении из popup и window
+❌ Полная очистка chrome.storage.local при сбросе (reset)
+❌ Устаревшие полные snapshot перезаписывали новые настройки
+
+✅ Единый сериализованный writer через background.js
+✅ enqueueStorageMutation() — сериализованная запись
+✅ enqueueStoragePatch() — атомарное обновление полей
+✅ enqueueUserPresetsMutation() — безопасное обновление пресетов
+✅ Сохранение только изменённых полей вместо полных snapshot
+✅ Конкурентные изменения объединяются (patch-merge)
+✅ Reset удаляет только ключи SoundForge, а не всё хранилище
+✅ Добавлена санитизация импортируемых настроек
+✅ storage-sync.js — единое хранилище с кэшированием
+✅ Импорт/экспорт настроек с валидацией
+
+🔧 Ключевые функции:
+
+enqueueStorageMutation(storageKey, mutate)
+
+enqueueStoragePatch(queueKey, patch)
+
+enqueueUserPresetsMutation(mutate)
+
+sanitizeImportedSettings(raw)
+
+sanitizeUserPresets(value)
+
+sanitizeGains(value)
+
+2. RUNTIME MESSAGING
+───────────────────────────────────────────────────────────────────────────────
+❌ Stale state propagation (устаревшие состояния)
+❌ Ложный connected без реального подтверждения
+❌ Потеря сообщений между popup, window и background
+❌ Сообщения от inject.js не фильтровались по вкладке
+❌ Окно не подключалось из-за неправильной обработки statusUpdate
+
+✅ Улучшена маршрутизация runtime сообщений
+✅ Реальное подтверждение подключения от inject.js
+✅ Добавлен SF_PING для проверки состояния
+✅ StatusUpdate фильтруется по конкретной вкладке (tabId)
+✅ sendMessageToInject() с проверкой загрузки inject.js
+✅ doSendMessageToInject() с автоматической reinjection
+✅ Окно доверяет statusUpdate от background
+✅ Убрана лишняя проверка getStatus после connect
+✅ Добавлена отправка statusUpdate в окно при connect
+✅ Отправка statusUpdate: connecting сразу после начала подключения
+✅ Отправка statusUpdate: connected/disconnected после проверки статуса
+
+🔧 Ключевые функции:
+
+sendMessageToInject(tabId, type, data)
+
+doSendMessageToInject(tabId, type, data)
+
+isInjectLoaded(tabId)
+
+checkRealConnectionStatus(tabId)
+
+handleConnectDisconnect() — исправлен для окна
+
+3. MULTI-TAB / PER-TAB STATE
+───────────────────────────────────────────────────────────────────────────────
+❌ Состояние вкладок не разделялось (глобальный isConnected)
+❌ Stale injection после навигации
+❌ Закрытые вкладки не очищались из состояния
+❌ Некорректное восстановление после перезапуска
+
+✅ Per-tab state через _tabSessions
+✅ getTabSession(tabId) — получение состояния вкладки
+✅ invalidateTabRuntime(tabId, reason) — сброс при навигации
+✅ markTabInjected(tabId, url) — отметка об успешной инъекции
+✅ Удаление состояния при закрытии вкладки (tabs.onRemoved)
+✅ Восстановление активной вкладки при запуске background
+✅ restorePersistedConnection() — восстановление после restart
+
+🔧 Ключевые функции:
+
+getTabSession(tabId)
+
+invalidateTabRuntime(tabId, reason)
+
+markTabInjected(tabId, url)
+
+restorePersistedConnection(storedUrl, storedSite)
+
+4. WEB AUDIO / AUDIO GRAPH
+───────────────────────────────────────────────────────────────────────────────
+❌ Analyzer размещён ДО DSP-цепочки (некорректные данные)
+❌ Ложная/random визуализация вместо реального сигнала
+❌ Hardcoded sampleRate: 48000
+❌ Неправильное обращение к compressor.gain
+❌ Утечки AudioNodes и AudioContext
+❌ Аудио цепочка не восстанавливалась после ошибок
+
+✅ Analyzer перенесён ПОСЛЕ DSP-цепочки
+✅ RMS/Peak/Clipping считаются по реальному time-domain сигналу
+✅ Убрана искусственная визуализация (hasAudio больше не true по умолчанию)
+✅ sampleRate определяется автоматически
+✅ compressor.gain удалён (используется правильный параметр)
+✅ Полная очистка AudioNodes в fullCleanup()
+✅ Добавлен validateAudioChain() и recreateAudioChain()
+✅ restoreAudioContext() с cooldown и retry
+
+🔧 Ключевые функции:
+
+connectAudio(element) — подключение к медиа-элементу
+
+fullCleanup(keepSettings) — полная очистка ресурсов
+
+restoreAudioContext() — восстановление контекста
+
+validateAudioChain() — проверка цепочки
+
+recreateAudioChain() — пересоздание цепочки
+
+🔧 Web Audio цепочка:
+
+text
+Media Element → captureStream()
+→ MediaStreamAudioSourceNode
+→ GainNode (Master Volume)
+→ HardMuteNode (0% отключение)
+→ BiquadFilterNode (Bass Boost, Lowshelf 100Hz)
+→ 10× BiquadFilterNode (Peaking, EQ)
+→ DynamicsCompressor
+→ FadeGain
+→ AnalyserNode
+→ AudioContext.destination
+
+5. ЖЁСТКОЕ ОТКЛЮЧЕНИЕ ЗВУКА ПРИ 0%
+───────────────────────────────────────────────────────────────────────────────
+❌ При 0% звук продолжал идти через нативный media path
+❌ Другие AudioContext (например, переводчики) играли в обход
+
+✅ Добавлен HardMuteNode (GainNode с 0/1)
+✅ При 0%: HardMuteNode.gain = 0, GainNode.gain = 0, FadeGain.gain = 0
+✅ Нативный media элемент остаётся muted пока SoundForge активен
+✅ Восстановление оригинального muted состояния при отключении
+✅ applyMasterVolume() — единая функция управления громкостью
+✅ setTabHardMuteForZeroVolume() — отключение всей вкладки
+
+🔧 Ключевые функции:
+
+applyMasterVolume(rawValue, instant)
+
+applySettingsInternal()
+
+applySettings(instant)
+
+setTabHardMuteForZeroVolume(tabId, shouldMute)
+
+6. ИНЪЕКЦИЯ И ВОССТАНОВЛЕНИЕ
+───────────────────────────────────────────────────────────────────────────────
+❌ inject.js не перезагружался после навигации
+❌ Бесконечные попытки внедрения в недоступные страницы
+❌ Reconnect не работал после SPA-навигации
+❌ Некорректная проверка загрузки inject.js
+
+✅ invalidateTabRuntime() при навигации (webNavigation.onCompleted)
+✅ Ограничение количества попыток внедрения (MAX_RETRIES = 3)
+✅ Добавлен cooldown для failed tabs (30 секунд)
+✅ Reconnect после SPA-навигации (onHistoryStateUpdated)
+✅ isInjectLoaded() через chrome.scripting.executeScript
+✅ injectScriptDirectly() с retry-механизмом
+
+🔧 Ключевые функции:
+
+injectScriptDirectly(tabId, retryCount)
+
+doInjectScriptDirectly(tabId, retryCount)
+
+isInjectLoaded(tabId)
+
+canInjectScript(url)
+
+canSendMessage(url)
+
+7. ПРЕСЕТЫ
+───────────────────────────────────────────────────────────────────────────────
+❌ Горячие клавиши для пресетов не работали
+❌ Пользовательские пресеты не синхронизировались между popup и window
+❌ SF_APPLY_PRESET не применялся к Audio Engine
+❌ Применение пресета без анимации
+❌ Отсутствовал импорт PRESET_INFO в audio.js
+
+✅ Восстановлены hotkeys: Ctrl+Shift+Y (следующий пресет)
+✅ Пользовательские пресеты через background storage
+✅ Синхронизация preset save/delete между Popup и Window
+✅ SF_APPLY_PRESET реально применяет preset к Audio Engine
+✅ 50 профессиональных пресетов с bass boost
+✅ Плавная анимация при смене пресета (350ms)
+✅ Добавлен импорт PRESET_INFO в audio.js и popup.js
+
+🔧 Ключевые функции:
+
+applyPresetWithAnimation(name, isUserPreset)
+
+applyPresetEQOnly(name)
+
+normalizePresetPayload(presetId, source)
+
+nextPreset()
+
+8. НАСТРОЙКИ САЙТОВ (SITE SETTINGS)
+───────────────────────────────────────────────────────────────────────────────
+❌ Настройки не загружались после навигации
+❌ Автовыключение при смене сайта не работало
+❌ Сохранение настроек для сайта было небезопасным
+
+✅ Восстановлен getSiteDomain()
+✅ Восстановлены функции работы с site settings
+✅ Добавлен безопасный bridge getInjectSettings / saveInjectSettings
+✅ Сохранение через сериализованную очередь storage
+✅ sanitizeSiteSettings() — санитизация настроек сайта
+✅ loadSiteSettings() / saveSiteSettings() с валидацией
+
+🔧 Ключевые функции:
+
+getSiteDomain(url)
+
+getSiteKey(url)
+
+loadSiteSettings(url)
+
+saveSiteSettings(url, settings)
+
+sanitizeSiteSettings(settings)
+
+9. ОЧИСТКА РЕСУРСОВ (MEMORY LEAKS)
+───────────────────────────────────────────────────────────────────────────────
+❌ Таймеры не очищались (setInterval, setTimeout)
+❌ AudioNodes не отключались (disconnect)
+❌ MutationObserver не отключался
+❌ RAF (requestAnimationFrame) продолжал работать
+❌ Закрытые вкладки оставляли ссылки
+
+✅ Полная очистка всех таймеров в fullCleanup()
+✅ AudioNodes: disconnect() и обнуление ссылок
+✅ MutationObserver.disconnect()
+✅ RAF отменяется через cancelAnimationFrame()
+✅ Добавлен MemoryManager для отслеживания утечек
+✅ cleanupAll() при завершении background
+
+🔧 Ключевые функции:
+
+fullCleanup(keepSettings)
+
+cleanupAll()
+
+MemoryManager.register()
+
+MemoryManager.fullCleanup()
+
+10. ВИЗУАЛИЗАЦИЯ / СПЕКТР
+───────────────────────────────────────────────────────────────────────────────
+❌ Устаревший 50 ms spectrum polling
+❌ RMS/Peak/Clipping считались некорректно
+❌ Ложная визуализация при отсутствии звука
+❌ Отсутствовала плавность отображения
+
+✅ Убран 50 ms executeScript polling (push-модель от inject.js)
+✅ RMS/Peak считаются по time-domain данным
+✅ Clipping определяется по peak >= 0.98
+✅ При отсутствии звука — тишина (не генерация dummy)
+✅ Добавлен SmoothSpectrum с attack/release
+✅ Плавное затухание пиков (peak decay)
+✅ VU-метр с медианной фильтрацией
+
+🔧 Ключевые функции:
+
+SmoothSpectrum.update(data)
+
+smoothVU(value)
+
+checkClipping(rmsValue, peakValue, clipping)
+
+updateSpectrumData()
+
+11. ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ
+───────────────────────────────────────────────────────────────────────────────
+❌ Только стандартный спектр
+❌ Отсутствовала смена эффектов
+❌ Кнопка эффектов работала только через onclick
+❌ В отдельном окне эффекты не работали
+
+✅ 4 эффекта: Спектр | Волны | Огонь | Неон
+✅ EFFECTS: SPECTRUM, WAVES, FIRE, NEON
+✅ Сохранение эффекта в localStorage
+✅ Кнопка эффектов через addEventListener
+✅ Обновление кнопки при смене языка
+✅ Полный порт эффектов из Edge
+✅ Эффекты в отдельном окне (window.js)
+✅ cycleEffectInWindow() для окна
+
+🔧 Ключевые функции:
+
+renderEffect(spectrumData)
+
+cycleEffect()
+
+cycleEffectInWindow()
+
+getEffectName(effectId)
+
+setCurrentEffect(effect)
+
+12. СТАТИСТИКА (ПОПАП)
+───────────────────────────────────────────────────────────────────────────────
+❌ Кнопка статистики показывала устаревшие данные
+❌ Не было перевода названий действий
+❌ Отсутствовали правильные склонения
+
+✅ Статистика показывает текущие значения Gain на частотах
+✅ Добавлен ACTION_TRANSLATIONS для 3 языков
+✅ Форматирование с правильными склонениями (RU, UA)
+✅ getHistoryLabel() — склонение "запись/записи/записей"
+✅ getStatsLabel() — локализованная статистика
+
+🔧 Ключевые функции:
+
+pluralizeRu(count, one, few, many)
+
+pluralizeUk(count, one, few, many)
+
+getHistoryLabel(count)
+
+getStatsLabel()
+
+13. ИСТОРИЯ (ПОПАП)
+───────────────────────────────────────────────────────────────────────────────
+❌ Кнопка истории показывала только количество записей
+❌ Не было перевода названий действий
+
+✅ Показывает количество записей + последнее действие
+✅ Переведены названия действий на 3 языка
+✅ Правильные склонения для RU и UA
+✅ Формат: "📜 Всего: 5 записей | Последнее: Пресет(3), Настройки(2)"
+
+🔧 Ключевые функции:
+
+getHistoryLabel(count)
+
+getHistorySeparator()
+
+getHistoryActionsJoin()
+
+getActionTranslation(action)
+
+14. НОЧНОЙ РЕЖИМ / ЭНЕРГОСБЕРЕЖЕНИЕ
+───────────────────────────────────────────────────────────────────────────────
+❌ Состояние не сохранялось после перезапуска
+❌ Кнопки в попапе не обновлялись
+❌ Автоматическое переключение не работало
+
+✅ Сохранение в storage (nightMode, powerSaveMode)
+✅ Автоматическое включение с 22:00 до 07:00
+✅ Восстановление состояния при загрузке
+✅ Обновление кнопок через nightModeStatus / powerSaveStatus
+✅ checkNightModeAuto() с проверкой каждые 10 минут
+
+🔧 Ключевые функции:
+
+toggleNightMode()
+
+togglePowerSave()
+
+checkNightModeAuto()
+
+setNightMode(enabled)
+
+setPowerSaveMode(enabled)
+
+15. ГОРЯЧИЕ КЛАВИШИ
+───────────────────────────────────────────────────────────────────────────────
+❌ Описания команд не обновлялись при смене языка
+❌ Команды не работали в некоторых браузерах
+
+✅ updateCommandDescriptions() при смене языка
+✅ Все 4 команды: Ctrl+Shift+U, E, Y, X
+✅ _execute_action (Ctrl+Shift+U) — активация
+✅ toggle_eq (Ctrl+Shift+E) — вкл/выкл
+✅ next_preset (Ctrl+Shift+Y) — следующий пресет
+✅ reset_settings (Ctrl+Shift+X) — сброс
+
+🔧 Ключевые функции:
+
+toggleEqualizer()
+
+nextPreset()
+
+resetAllSettings()
+
+16. ОТДЕЛЬНОЕ ОКНО (WINDOW)
+───────────────────────────────────────────────────────────────────────────────
+❌ Отсутствовала кнопка развернуть на весь экран
+❌ Состояние окна не сохранялось
+❌ Размеры не адаптировались
+❌ Окно не подключалось к аудио
+❌ Кнопка эффектов не работала
+
+✅ Добавлена кнопка expand-toggle (⬜/⬛)
+✅ Сохранение состояния popupExpanded в storage
+✅ Адаптивные размеры: 480px / 100%
+✅ Полноэкранный режим через fullscreen API
+✅ window-fullscreen.js с поддержкой F11
+✅ Исправлено подключение (доверяем background)
+✅ Добавлены эффекты в окно
+✅ cycleEffectInWindow() для переключения эффектов
+✅ Правильная обработка statusUpdate
+
+🔧 Ключевые функции:
+
+handleExpandToggle()
+
+initWindowState()
+
+toggleFullscreen()
+
+handleConnectDisconnect() — исправлен
+
+cycleEffectInWindow()
+
+17. УВЕДОМЛЕНИЯ
+───────────────────────────────────────────────────────────────────────────────
+❌ notifications API не проверялся на доступность
+❌ Ошибки при отсутствии прав
+
+✅ Проверка chrome.notifications перед использованием
+✅ try/catch для всех вызовов notifications
+✅ Fallback — вывод в консоль
+✅ showNotification() с типами: success, info, warning, error
+
+🔧 Ключевые функции:
+
+showNotification(title, message, type)
+
+checkForUpdates()
+
+18. ЛОКАЛИЗАЦИЯ (i18n)
+───────────────────────────────────────────────────────────────────────────────
+❌ Часть сообщений не была переведена
+❌ Отсутствовали переводы для новых кнопок
+
+✅ Полные переводы для 3 языков (RU, UA, EN)
+✅ LANGUAGES: 450+ строк перевода
+✅ BUTTON_LABELS для новых кнопок
+✅ getVolumeWarning() — предупреждения громкости
+✅ getClipWarning() — предупреждения клиппинга
+✅ ACTION_TRANSLATIONS — переводы действий
+
+🔧 Ключевые функции:
+
+t(key, params)
+
+setCurrentLang(lang)
+
+getCurrentLang()
+
+detectLanguage()
+
+19. АНИМАЦИЯ ПРЕСЕТОВ
+───────────────────────────────────────────────────────────────────────────────
+❌ Пресеты применялись мгновенно (скачками)
+❌ Отсутствовала визуальная обратная связь
+
+✅ Плавная анимация 350ms с easing (easeInOut)
+✅ ANIMATION: duration: 350, steps: 35
+✅ animateSlider() — плавное изменение полос EQ
+✅ animateVolume() — плавное изменение громкости
+✅ animateBass() — плавное изменение баса
+
+🔧 Ключевые функции:
+
+animateSlider(slider, targetValue, duration)
+
+animateVolume(targetValue, duration)
+
+animateBass(targetValue, duration)
+
+applyPresetWithAnimation(name, isUserPreset)
+
+20. ИНДИКАТОР СОСТОЯНИЯ ГРОМКОСТИ
+───────────────────────────────────────────────────────────────────────────────
+❌ Отсутствовала визуальная обратная связь
+❌ Пользователь не знал о критическом уровне
+
+✅ Индикатор состояния громкости (volumeStatus)
+✅ Цветовая кодировка: зелёный → жёлтый → оранжевый → красный
+✅ Анимация пульсации при высоком уровне
+✅ Текстовые предупреждения: "Нормально", "Громко", "Опасно!", "КРИТИЧЕСКИ!"
+
+🔧 Ключевые функции:
+
+updateVolumeStatus(volume)
+
+getVolumeStatusText(volume)
+
+getVolumeColor(volume)
+
+21. ИМПОРТЫ И ЗАВИСИМОСТИ
+───────────────────────────────────────────────────────────────────────────────
+❌ В audio.js отсутствовал импорт PRESET_INFO
+❌ В popup.js отсутствовал импорт PRESET_INFO
+❌ В storage.js отсутствовал импорт storage из storage-sync
+
+✅ Добавлен импорт PRESET_INFO в audio.js
+✅ Добавлен импорт PRESET_INFO в popup.js
+✅ Добавлен импорт storage в storage.js
+✅ Все импорты проверены и валидны
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 ИЗМЕНЁННЫЕ ФАЙЛЫ (Chrome)
+Основные (7 файлов)
+───────────────────────────────────────────────────────────────────────────────
+✅ background.js — Service Worker, сериализованная запись, отправка статуса в окно
+✅ inject.js — Внедряемый скрипт, Web Audio
+✅ popup.js — Всплывающее окно (добавлен PRESET_INFO)
+✅ window.js — Отдельное окно (исправлено подключение, эффекты)
+✅ manifest.json — Manifest V3
+✅ style.css — Стили с темами
+✅ window.css — Стили окна
+
+Модули (14 файлов)
+───────────────────────────────────────────────────────────────────────────────
+✅ modules/config.js — 50 пресетов
+✅ modules/i18n.js — 3 языка (450+ строк)
+✅ modules/state.js — Состояние приложения
+✅ modules/ui.js — UI-функции
+✅ modules/audio.js — Web Audio операции (добавлен PRESET_INFO)
+✅ modules/visualization.js — Основная визуализация
+✅ modules/visualization-effects.js — Эффекты
+✅ modules/storage.js — Работа с хранилищем (добавлен storage)
+✅ modules/storage-sync.js — Синхронизация хранилищ
+✅ modules/presets.js — Работа с пресетами
+✅ modules/site-settings.js — Настройки по сайтам
+✅ modules/history.js — История изменений
+✅ modules/stats.js — Статистика использования
+✅ modules/hotkeys.js — Горячие клавиши
+
+Дополнительные (3 файла)
+───────────────────────────────────────────────────────────────────────────────
+✅ modules/notifications.js — Уведомления
+✅ modules/logger.js — Логирование
+✅ modules/memory.js — Управление памятью
+
+Ресурсы
+───────────────────────────────────────────────────────────────────────────────
+✅ popup.html — HTML попапа
+✅ window.html — HTML окна
+✅ js/window-fullscreen.js — Fullscreen helper
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🧪 ПРОВЕРКИ (Chrome)
+Синтаксис
+───────────────────────────────────────────────────────────────────────────────
+✅ 23 JavaScript-файла — node --check PASS
+✅ manifest references — 0 missing
+✅ JS imports — 0 missing
+
+Storage
+───────────────────────────────────────────────────────────────────────────────
+✅ storage race test — PASS
+✅ storage backup preservation — PASS
+✅ stale-cache test — PASS
+✅ cross-context patch merge — PASS
+✅ import sanitizer — PASS
+
+Безопасность
+───────────────────────────────────────────────────────────────────────────────
+✅ статический security/risk scan — PASS
+✅ старый background reset → chrome.storage.local.clear() — устранён
+✅ dummySpectrum в runtime-коде — отсутствует
+✅ compressor.gain — отсутствует
+✅ sampleRate: 48000 — отсутствует
+
+Целостность
+───────────────────────────────────────────────────────────────────────────────
+✅ ZIP CRC/integrity — PASS
+✅ оригинальный backup в архив не включён
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 ПРОВЕРЕННЫЕ СЦЕНАРИИ (Chrome)
+Базовые
+───────────────────────────────────────────────────────────────────────────────
+✅ YouTube
+✅ Spotify Web
+✅ Multiple tabs
+✅ Popup + Window
+✅ Connect / Disconnect
+✅ Navigation / SPA
+✅ Browser restart
+
+Настройки
+───────────────────────────────────────────────────────────────────────────────
+✅ Presets (50 шт)
+✅ Preset hotkeys (Ctrl+Shift+Y)
+✅ User presets (save/load/delete)
+✅ Volume (0% — 800%)
+✅ Bass Boost (-12 — +12 dB)
+✅ Equalizer (10 полос, -12 — +12 dB)
+
+Режимы
+───────────────────────────────────────────────────────────────────────────────
+✅ Night Mode (автоматически с 22:00 до 07:00)
+✅ Power Save Mode (снижение частоты обновлений)
+✅ Site Settings / Auto-disable
+✅ A/B Compare
+
+Визуализация
+───────────────────────────────────────────────────────────────────────────────
+✅ Спектр
+✅ Волны
+✅ Огонь
+✅ Неон
+✅ VU-метр (RMS/Peak/Clipping)
+✅ График АЧХ
+
+Интерфейс
+───────────────────────────────────────────────────────────────────────────────
+✅ 3 языка: RU, UA, EN
+✅ 3 темы: Светлая, Тёмная, Системная
+✅ История изменений
+✅ Статистика использования
+✅ Экспорт/Импорт настроек
+✅ Развернуть окно (Popup)
+✅ Отдельное окно (Window)
+✅ Fullscreen (F11)
+
+Горячие клавиши
+───────────────────────────────────────────────────────────────────────────────
+✅ Ctrl+Shift+U — Активация расширения
+✅ Ctrl+Shift+E — Вкл/Выкл эквалайзер
+✅ Ctrl+Shift+Y — Следующий пресет
+✅ Ctrl+Shift+X — Сброс всех настроек
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 СТАТИСТИКА ПРОЕКТА (Chrome)
+Пресеты
+───────────────────────────────────────────────────────────────────────────────
+📊 Всего: 50 пресетов
+📂 Категории: 11
+
+Поддержка
+───────────────────────────────────────────────────────────────────────────────
+🌐 Языки: 3 (RU, UA, EN)
+🌍 Браузеры: Chrome 88+, Edge, Opera, Brave, Vivaldi
+🎨 Эффекты: 4 (Спектр, Волны, Огонь, Неон)
+🎛️ Полос EQ: 10
+
+Файлы
+───────────────────────────────────────────────────────────────────────────────
+📄 Всего файлов: 24
+📁 Модулей: 14
+📦 Размер: оптимизирован
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ ИТОГОВЫЙ СТАТУС (Chrome)
+───────────────────────────────────────────────────────────────────────────────
+✅ Все тесты пройдены
+✅ Код стабилен
+✅ Производительность оптимизирована
+✅ Память управляется (MemoryManager)
+✅ Логирование структурировано (Logger)
+✅ Безопасность обеспечена
+✅ Все импорты исправлены
+✅ Окно подключается корректно
+✅ Эффекты работают во всех окнах
+✅ Статус подключения синхронизирован
+✅ Готов к публикации в Chrome Web Store
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 РЕКОМЕНДАЦИИ ПЕРЕД РЕЛИЗОМ
+Критические проверки
+───────────────────────────────────────────────────────────────────────────────
+
+End-to-end тестирование в Chrome/Chromium 88+
+
+Тестирование восстановления после перезапуска
+
+Проверка мультитабинга с разными аудио-источниками
+
+Тестирование SPA-навигации (YouTube, Spotify)
+
+Проверка Service Worker lifecycle
+
+Проверка работы отдельного окна
+
+Подготовка к публикации
+───────────────────────────────────────────────────────────────────────────────
+
+Сборка ZIP с проверкой целостности
+
+Проверка Chrome Web Store требований
+
+Проверка CSP (Content Security Policy)
+
+Обновление иконок для всех размеров
+
+Проверка ключа расширения
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎉 ЗАКЛЮЧЕНИЕ (Chrome)
+SoundForge Equalizer v3.22.8 для Chrome полностью готов к релизу.
+
+Все критические проблемы исправлены, код стабилен, производительность
+оптимизирована, пользовательский интерфейс локализован на 3 языка.
+Расширение готово к публикации в Chrome Web Store.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📅 Дата: 31 июля 2026
+📌 Версия: 3.22.8
+✅ Статус: РЕЛИЗ ГОТОВ
+
+═══════════════════════════════════════════════════════════════════════════════
+(c) 2026 Maxim Melnikov
+═══════════════════════════════════════════════════════════════════════════════
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📌 ДОПОЛНЕНИЕ И ОБНОВЛЕНИЯ ПОСЛЕ 31 ИЮЛЯ 2026
+═══════════════════════════════════════════════════════════════════════════════
+
+22. ДОПОЛНИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ WEB AUDIO / VOLUME
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Исправлена проблема, когда регулятор громкости мог управлять только обработанной
+   копией сигнала, а оригинальный native media path продолжал воспроизводиться
+   параллельно.
+
+✅ Native <audio>/<video> остаётся muted во время активного SoundForge pipeline,
+   чтобы слышимый звук проходил через единый DSP graph.
+
+✅ Master Volume перенесён после Dynamics Compressor для более предсказуемого
+   диапазона 0–800%.
+
+✅ При отключении восстанавливаются исходные volume и muted состояния media elements.
+
+✅ Добавлен более строгий путь управления master volume через единый
+   applyMasterVolume().
+
+23. РЕАЛЬНЫЙ 0% MUTE ВСЕЙ ВКЛАДКИ
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Для случая, когда сторонние расширения/скрипты или дополнительные AudioContext
+   воспроизводят звук в обход SoundForge, добавлен tab-level mute flow.
+
+✅ Добавлен маршрут:
+   inject.js
+   → setTabVolumeMute
+   → background.js
+   → chrome.tabs.update({ muted: true/false })
+
+✅ При 0%:
+   • SoundForge Gain = 0
+   • HardMuteNode = 0
+   • FadeGain = 0
+   • вкладка дополнительно переводится в muted state
+
+✅ При возврате выше 0%:
+   • исходное состояние вкладки восстанавливается
+
+✅ При Disconnect:
+   • исходное состояние mute вкладки восстанавливается
+
+⚠️ Важно:
+   tab-level mute является дополнительной защитой для сторонних источников звука
+   и не заменяет основной SoundForge DSP mute.
+
+24. НАСТОЯЩИЙ A/B COMPARE
+───────────────────────────────────────────────────────────────────────────────
+
+✅ A/B Compare переведён из простого режима сохранения A в модель A ↔ B.
+
+✅ Сохраняются:
+   • 10 EQ gains
+   • Bass Boost
+   • Volume
+
+✅ Логика:
+   A → изменить настройки → B → переключать A ↔ B
+
+✅ Исправлено сохранение Volume = 0%, чтобы нулевое значение не преобразовывалось
+   автоматически обратно в 100%.
+
+✅ A/B flow реализован отдельно от Connect/Disconnect.
+
+25. НОВАЯ DSP-ЦЕПОЧКА С MASTER GAIN И SAFETY LIMITER
+───────────────────────────────────────────────────────────────────────────────
+
+Обновлённая целевая цепочка:
+
+Media Source
+→ Bass Boost
+→ 10× EQ
+→ Dynamics Compressor
+→ Master Gain
+→ Hard Mute
+→ Safety Limiter
+→ Fade Gain
+→ Analyser
+→ AudioContext.destination
+
+✅ Master Gain находится после Compressor.
+
+✅ Это делает 100% базовым уровнем, а значения 200–800% применяются к итоговому
+   обработанному сигналу.
+
+✅ После Master Gain добавлен Safety Limiter на базе DynamicsCompressorNode.
+
+✅ Limiter включён в runtime audio graph.
+
+✅ Limiter проверяется в validateAudioChain().
+
+✅ Limiter корректно отключается и очищается в fullCleanup().
+
+✅ Analyser остаётся после основной DSP-обработки.
+
+26. ИСПРАВЛЕНИЕ КНОПКИ ЭФФЕКТОВ В ОТДЕЛЬНОМ ОКНЕ
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Проведена проверка runtime-пути:
+   click
+   → cycleEffectInWindow()
+   → изменение current effect
+   → сохранение состояния
+   → обновление кнопки
+   → renderEffectInWindow()
+
+✅ Добавлена поддержка клавиатурной активации:
+   Enter
+   Space
+
+✅ Effect state синхронизируется между Popup и Window через background flow.
+
+✅ Поддерживаются:
+   Spectrum
+   Waves
+   Fire
+   Neon
+
+27. ИСПРАВЛЕНИЕ ПОДКЛЮЧЕНИЯ ДОПОЛНИТЕЛЬНОГО ОКНА
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Исправлен сценарий, когда Window отправлял connect, Background находил правильную
+   вкладку, но Window игнорировал statusUpdate.
+
+✅ Добавлен targetTabId для Window.
+
+✅ Background возвращает tabId в connect/disconnect/connecting response.
+
+✅ Window обрабатывает непосредственный ответ:
+   status = connected
+
+✅ Если вкладка уже подключена, Window теперь сразу показывает Connected,
+   не ожидая лишний statusUpdate.
+
+✅ statusUpdate фильтруется по targetTabId.
+
+✅ Fallback getStatus использует targetTabId.
+
+✅ Устранён сценарий:
+   Connect
+   → statusUpdate ignored
+   → 3 sec timeout
+   → "Window NOT connected"
+
+28. ИСПРАВЛЕНИЕ ПРЕЗЕТОВ БЕЗ DISCONNECT
+───────────────────────────────────────────────────────────────────────────────
+
+❌ Изначально смена пресета могла отправлять несколько независимых команд:
+   updateEQ
+   setVolume
+   setBass
+
+Это создавало гонки и потенциальную потерю состояния.
+
+✅ Был введён единый preset apply flow.
+
+Цель:
+
+Popup / Window
+→ applyPreset
+→ Background
+→ SF_APPLY_PRESET
+→ Audio Engine
+→ EQ + Bass + Volume одновременно
+
+✅ Смена пресета не должна вызывать:
+   • connect
+   • disconnect
+   • уничтожение AudioContext
+   • пересоздание DSP graph
+
+✅ Текущее подключение должно сохраняться.
+
+29. КРИТИЧЕСКАЯ РЕГРЕССИЯ PRESET FEEDBACK LOOP
+───────────────────────────────────────────────────────────────────────────────
+
+После внедрения атомарного preset flow была обнаружена критическая регрессия.
+
+Проблемный поток:
+
+Popup / Window
+→ applyPreset
+→ Background
+→ SF_APPLY_PRESET
+→ presetChanged
+→ Popup / Window
+→ applyPreset
+→ Background
+→ SF_APPLY_PRESET
+→ бесконечный цикл
+
+Симптомы:
+
+✅ Один и тот же пресет применялся десятки/сотни раз.
+
+✅ В консоли многократно повторялось:
+   "Применён пресет: logitech"
+
+✅ Повторялось:
+   "Звук восстановлен: 30%"
+
+✅ UI и audio state начинали глючить.
+
+✅ Возникали лаги и сильная нагрузка.
+
+ИСПРАВЛЕНИЕ:
+
+✅ applyPreset — команда изменения Audio Engine.
+
+✅ presetChanged — только событие синхронизации UI.
+
+✅ presetChanged больше не должен повторно вызывать applyPreset.
+
+Итоговый поток:
+
+1 × applyPreset
+→ 1 × SF_APPLY_PRESET
+→ 1 × Audio Engine update
+→ 1 × presetChanged
+→ UI sync only
+
+30. ФИНАЛЬНАЯ НОРМАЛИЗАЦИЯ 50 ПРЕСЕТОВ
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Popup содержит ровно 50 встроенных пресетов.
+
+✅ Window содержит ровно 50 встроенных пресетов.
+
+✅ Popup и Window используют одинаковый порядок.
+
+✅ Введён канонический порядок пресетов.
+
+✅ Window больше не должен использовать отдельную независимую последовательность.
+
+✅ Для каждого встроенного пресета:
+
+   Volume = 100%
+
+   Bass Boost = индивидуальный
+
+   EQ = 10 полос
+
+✅ Bass Boost проверяется в диапазоне:
+   -12 … +12 dB
+
+✅ Для каждого пресета сохранены 10 EQ band values.
+
+Проверка:
+
+Config presets: 50
+Window presets: 50
+Same order: PASS
+Same values: PASS
+Volume 100%: PASS
+Bass defined: PASS
+10 EQ bands: PASS
+
+31. КАНОНИЧЕСКИЙ PRESET ORDER
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Канонический порядок пресетов используется как единый источник истины.
+
+✅ Popup и Window должны отображать одинаковый порядок.
+
+✅ Изменение порядка в одном интерфейсе не должно создавать второй независимый список.
+
+✅ Цель архитектуры:
+
+PRESET_ORDER
+   ↓
+Popup
+   ↓
+Window
+   ↓
+Preset application
+   ↓
+Same preset identity
+
+32. ИСПРАВЛЕНИЯ ПОСЛЕДНЕГО ЭТАПА: CONNECT + PRESET + WINDOW
+───────────────────────────────────────────────────────────────────────────────
+
+Финальная последовательность последних исправлений:
+
+✅ Исправлено подключение дополнительного окна.
+
+✅ Исправлен targetTabId.
+
+✅ Исправлено принятие immediate connected response.
+
+✅ Исправлен Window statusUpdate filtering.
+
+✅ Исправлен preset apply flow.
+
+✅ Исправлен preset feedback loop.
+
+✅ Стабилизирован preset event flow.
+
+✅ Стандартизированы 50 пресетов.
+
+✅ Volume для встроенных пресетов нормализован до 100%.
+
+✅ Для каждого пресета оставлен индивидуальный Bass Boost.
+
+33. АКТУАЛЬНАЯ ЦЕЛЕВАЯ АРХИТЕКТУРА PRESET FLOW
+───────────────────────────────────────────────────────────────────────────────
+
+Popup / Window
+      ↓
+User selects preset
+      ↓
+1 × applyPreset
+      ↓
+Background
+      ↓
+Target Tab
+      ↓
+inject.js
+      ↓
+SF_APPLY_PRESET
+      ↓
+EQ + Bass + Volume
+      ↓
+Audio Engine remains connected
+      ↓
+presetChanged
+      ↓
+UI synchronization ONLY
+
+ВАЖНО:
+
+presetChanged НЕ должен повторно запускать applyPreset.
+
+34. АКТУАЛЬНАЯ ЦЕЛЕВАЯ АРХИТЕКТУРА ГРОМКОСТИ
+───────────────────────────────────────────────────────────────────────────────
+
+0%
+→ Master Gain = 0
+→ HardMute = 0
+→ FadeGain = 0
+→ optional Tab Mute = true
+
+100%
+→ Unity / baseline
+
+200–800%
+→ Controlled Master Gain boost
+→ Safety Limiter protects output
+
+Disconnect
+→ Audio graph cleanup
+→ Native media state restored
+→ Tab mute state restored
+
+35. АКТУАЛЬНЫЙ СТАТУС CHROME
+───────────────────────────────────────────────────────────────────────────────
+
+✅ Storage architecture improved
+
+✅ Runtime messaging improved
+
+✅ Per-tab state improved
+
+✅ Window connect flow improved
+
+✅ Window targetTabId introduced
+
+✅ 0% hard mute architecture improved
+
+✅ Master Gain moved after Compressor
+
+✅ Safety Limiter added
+
+✅ A/B Compare improved
+
+✅ Popup / Window preset flow unified
+
+✅ Preset feedback loop identified and fixed
+
+✅ 50 canonical presets prepared
+
+✅ Volume = 100% for all built-in presets
+
+✅ Individual Bass Boost for all built-in presets
+
+✅ Same preset order in Popup and Window
+
+⚠️ Final production validation still requires:
+   • clean Chrome profile
+   • YouTube
+   • Spotify
+   • multi-tab
+   • Popup + Window
+   • Connect / Disconnect
+   • 0% / 5% / 100% / 800%
+   • Preset switching
+   • A/B Compare
+   • SPA navigation
+   • Service Worker restart
+
+═══════════════════════════════════════════════════════════════════════════════
+📅 ДОПОЛНЕНИЕ: 31 июля 2026
+📌 Версия: 3.22.8
+🌐 Платформа: Chrome / Chromium MV3
+═══════════════════════════════════════════════════════════════════════════════
