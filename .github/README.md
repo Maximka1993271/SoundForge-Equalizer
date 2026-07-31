@@ -463,3 +463,397 @@ MIT License
   <sub>SoundForge Equalizer v3.22.8 — 31 July 2026</sub><br/>
   <sub>🔓 Open Source — fully open source code</sub>
 </p>
+
+
+---
+
+# 🔄 Latest Maintenance & Stabilization Update — 31 July 2026
+
+> This section was appended as a historical update.
+> **All previous README content above remains unchanged.**
+
+## 🦊 Firefox 153.0 ESR — Window Connect Runtime Handshake Improvements
+
+The latest Firefox 153.0 ESR debugging uncovered a deeper connection-handshake issue in the standalone SoundForge Window.
+
+The problematic sequence could be:
+
+```text
+Window
+→ Connect
+→ Background
+→ statusUpdate: connecting
+→ transient statusUpdate: disconnected
+→ Window keeps waiting
+→ timeout / infinite loading
+```
+
+In another case, the connection could already be established while the standalone Window still displayed a loading overlay.
+
+The latest stabilization work addresses both cases.
+
+### ✅ Transient `disconnected` handling
+
+While a connection handshake is actively in progress:
+
+```text
+isConnecting = true
+```
+
+an intermediate:
+
+```text
+statusUpdate: disconnected
+```
+
+is treated as a transient state rather than an immediate final failure.
+
+The handshake continues until one of the following occurs:
+
+- real `connected`;
+- explicit `error`;
+- final timeout.
+
+### ✅ Loading cleanup after successful connection
+
+A dedicated connect polling/cleanup flow is used so that:
+
+```text
+statusUpdate: connected
+```
+
+stops the connection polling and clears the loading UI.
+
+The intended sequence is:
+
+```text
+connected
+↓
+stopConnectPolling()
+↓
+isConnecting = false
+↓
+isConnected = true
+↓
+showLoading(false)
+↓
+Connected UI
+```
+
+This prevents the situation where audio is already connected but the Window remains visually stuck on `Loading...`.
+
+### ✅ Target tab routing
+
+The standalone Window uses:
+
+```text
+targetTabId
+```
+
+to identify the browser tab controlled by the Window.
+
+Connection status is filtered against the intended target tab so that status messages from unrelated tabs do not overwrite the Window state.
+
+---
+
+## 🔌 Direct `SF_CONNECT` Confirmation
+
+The latest Firefox connection flow is designed to use the actual async result of:
+
+```text
+Window
+→ Background
+→ SF_CONNECT
+→ inject.js
+→ connectAudio()
+→ real Web Audio graph
+→ connected / error
+```
+
+`statusUpdate` remains useful for synchronization, but the direct `SF_CONNECT` result is intended to provide a concrete runtime confirmation.
+
+This reduces reliance on a single status broadcast path.
+
+---
+
+## 🔁 Firefox `connectAudio()` Retry Flow
+
+Firefox may expose a media element before its audio track is fully ready.
+
+Possible temporary states include:
+
+- `captureStream()` not yet ready;
+- `mozCaptureStream()` not yet ready;
+- MediaStream exists but has no audio tracks yet;
+- YouTube is still buffering;
+- the media element is still initializing.
+
+The Firefox runtime connection flow therefore includes retry handling.
+
+The intended behavior is:
+
+```text
+connectAudio()
+↓
+media/audio not ready?
+↓
+retry
+↓
+check audio tracks
+↓
+create AudioContext
+↓
+create DSP graph
+↓
+connect source
+↓
+validate chain
+↓
+connected
+```
+
+The latest runtime patch uses a bounded retry strategy rather than an unbounded loop.
+
+---
+
+## ⏱️ Firefox Window Connection Watchdog
+
+The connection handshake now has a bounded watchdog.
+
+The intended final states are:
+
+```text
+connecting
+    ↓
+connected
+```
+
+or:
+
+```text
+connecting
+    ↓
+error / timeout
+```
+
+The Window should never remain permanently in:
+
+```text
+Loading...
+```
+
+without eventually reaching a finite state.
+
+---
+
+## 🎚️ Final Audio DSP Architecture
+
+The current target architecture for both Chrome and Firefox is:
+
+```text
+Media Source
+    ↓
+Bass Boost
+    ↓
+10 × EQ
+    ↓
+Dynamics Compressor
+    ↓
+Master Gain
+    ↓
+Hard Mute
+    ↓
+Safety Limiter
+    ↓
+Fade Gain
+    ↓
+Analyser
+    ↓
+AudioContext.destination
+```
+
+### Why this ordering matters
+
+`Master Gain` is placed after the main EQ/Bass/Compressor processing so that:
+
+```text
+100%  = baseline
+200%  = boosted output
+400%  = stronger boost
+800%  = maximum supported boost
+```
+
+The Safety Limiter provides an additional protection layer against excessive output peaks.
+
+---
+
+## 🔇 Volume = 0% Full Mute Protection
+
+The current architecture uses multiple layers when `Volume = 0%`:
+
+```text
+Master Gain = 0
+HardMute = 0
+FadeGain = 0
+Tab Mute = true when required
+```
+
+This is intended to cover both:
+
+- the SoundForge audio graph;
+- third-party or parallel audio sources in the same browser tab.
+
+When normal volume is restored, the previous tab mute state should be restored.
+
+---
+
+## 🎵 Preset Architecture
+
+The final preset architecture is intended to use a single command/event separation:
+
+```text
+applyPreset
+=
+COMMAND
+```
+
+```text
+presetChanged
+=
+UI SYNCHRONIZATION EVENT
+```
+
+This prevents the feedback loop that previously caused:
+
+```text
+applyPreset
+→ presetChanged
+→ applyPreset
+→ presetChanged
+→ ...
+```
+
+### Final built-in preset standard
+
+All 50 built-in presets are intended to use:
+
+- `Volume = 100%`;
+- individual `Bass Boost`;
+- 10 EQ band values;
+- one canonical preset order.
+
+The same order is intended across:
+
+```text
+Popup
+Window
+Hotkeys
+Preset Application
+```
+
+---
+
+## 🔄 A/B Compare
+
+The A/B system is designed to preserve:
+
+- 10 EQ values;
+- Bass Boost;
+- Volume.
+
+The intended workflow is:
+
+```text
+A
+↓
+Change settings
+↓
+B
+↓
+A ↔ B
+```
+
+A/B switching should not require reconnecting or rebuilding the main AudioContext.
+
+---
+
+## 🎨 Visualization Effects
+
+The current effect set remains:
+
+- Spectrum
+- Waves
+- Fire
+- Neon
+
+The standalone Window is intended to support the same effect switching flow as the Popup.
+
+---
+
+## 🧩 Cross-Browser Architecture
+
+SoundForge uses a cross-browser compatibility layer for:
+
+- Chrome / Chromium MV3;
+- Firefox MV2;
+- Edge Chromium;
+- Opera;
+- Brave;
+- Vivaldi.
+
+The project uses browser API normalization where appropriate, including:
+
+- `browser.*`;
+- `chrome.*` fallback;
+- Promise/callback compatibility.
+
+---
+
+## 🧪 Latest Validation Status
+
+The latest project iterations have included static validation for:
+
+- JavaScript syntax;
+- JSON parsing;
+- local imports;
+- manifest resources;
+- preset count;
+- canonical preset ordering;
+- Volume = 100% for built-in presets;
+- Bass values;
+- 10 EQ bands;
+- ZIP integrity.
+
+The latest Firefox Window Connect runtime patch additionally requires final manual end-to-end verification in Firefox 153.0 ESR for:
+
+- Connect;
+- Disconnect;
+- real audio output;
+- `Volume 0%`;
+- `Volume 100%`;
+- `Volume 800%`;
+- preset switching;
+- A/B Compare;
+- effect switching;
+- multi-tab isolation;
+- SPA navigation;
+- Firefox restart/reload;
+- coexistence with other audio userscripts/extensions.
+
+> **Status note:** The latest Firefox Window Connect handshake changes are considered the current stabilization work. A final browser-level E2E pass in Firefox 153.0 ESR should be completed before treating this exact runtime path as release-final.
+
+---
+
+## 📚 Historical Note
+
+This README preserves the original project documentation and release information above.
+
+The section you are reading is an appended historical maintenance record covering the latest stabilization work performed after the original README content was written.
+
+**No previous README content has been removed or overwritten.**
+
+---
+
+**Latest maintenance update:** 31 July 2026  
+**Version:** 3.22.8  
+**Platforms:** Chrome / Chromium / Firefox 153.0 ESR / Edge / Opera / Brave / Vivaldi
