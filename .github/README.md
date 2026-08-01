@@ -180,30 +180,6 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 🎨 Effect → 📊 Spectrum → 🌊 Waves → 🔥 Fire → 💜 Neon → 🔄
 
-
-### Effect Preview
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><b>📊 Spectrum</b></td>
-      <td align="center"><b>🌊 Waves</b></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="https://via.placeholder.com/200x100/1a1a2e/4CAF50?text=Spectrum" width="200"/></td>
-      <td align="center"><img src="https://via.placeholder.com/200x100/1a1a2e/66ccff?text=Waves" width="200"/></td>
-    </tr>
-    <tr>
-      <td align="center"><b>🔥 Fire</b></td>
-      <td align="center"><b>💜 Neon</b></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="https://via.placeholder.com/200x100/1a1a2e/ff6b35?text=Fire" width="200"/></td>
-      <td align="center"><img src="https://via.placeholder.com/200x100/1a1a2e/9b59b6?text=Neon" width="200"/></td>
-    </tr>
-  </table>
-</div>
-
 ---
 
 ## 📸 Screenshots
