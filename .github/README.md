@@ -1,4 +1,4 @@
-<h1 align="center">SoundForge Equalizer v3.22.8</h1>
+<h1 align="center">SoundForge Equalizer v3.22.10</h1>
 
 <p align="center">
   <a href="https://github.com/Maximka1993271/SoundForge-Equalizer/releases">
