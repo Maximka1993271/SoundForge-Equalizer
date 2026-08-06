@@ -1,7 +1,10 @@
 // ============================================
-//  BROWSER-COMPAT.JS - Кроссбраузерная совместимость
+//  BROWSER-COMPAT.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Кроссбраузерная совместимость
 //  Версия: 1.0.0
 //  Обеспечивает работу во всех браузерах
+//  EDGE OPTIMIZED: детекция Edge 151
 // ============================================
 
 /**
@@ -34,6 +37,7 @@ class BrowserInfo {
     if (ua.includes('edg/')) {
       this.name = Browser.EDGE;
       this.version = this._extractVersion(ua, 'edg/');
+      this.isEdge = true;
     } else if (ua.includes('opr/') || ua.includes('opera')) {
       this.name = Browser.OPERA;
       this.version = this._extractVersion(ua, 'opr/');
@@ -70,6 +74,9 @@ class BrowserInfo {
     
     // Версия в виде числа
     this.versionNumber = parseFloat(this.version);
+    
+    // Проверка Edge 151
+    this.isEdge151 = this.isEdge && this.versionNumber >= 151;
   }
 
   _extractVersion(ua, marker) {
@@ -105,6 +112,8 @@ class BrowserInfo {
       isChromium: this.isChromium,
       isFirefox: this.isFirefox,
       isSafari: this.isSafari,
+      isEdge: this.isEdge,
+      isEdge151: this.isEdge151,
       isMobile: this.isMobile,
       isDesktop: this.isDesktop,
       userAgent: navigator.userAgent
@@ -136,10 +145,9 @@ export function createCrossBrowserAudioContext(options = {}) {
       sampleRate: options.sampleRate || 48000
     });
     
-    // Firefox может требовать дополнительной инициализации
-    if (browserInfo.isFirefox && context.state === 'suspended') {
-      // Firefox часто требует пользовательского взаимодействия
-      console.log('[Compat] Firefox: AudioContext в состоянии suspended');
+    // Edge 151 может требовать дополнительной инициализации
+    if (browserInfo.isEdge && context.state === 'suspended') {
+      console.log('[Compat] Edge: AudioContext в состоянии suspended');
     }
     
     return context;
@@ -198,7 +206,6 @@ export function captureStreamFromElement(element) {
 
   // Способ 4: Альтернативный подход через MediaStream (экспериментальный)
   try {
-    // Некоторые браузеры могут поддерживать создание MediaStream из элемента
     if (element.srcObject) {
       const stream = element.srcObject;
       if (stream && stream.getAudioTracks().length > 0) {
@@ -223,8 +230,8 @@ export function checkAPISupport() {
     captureStream: false,
     mozCaptureStream: false,
     webkitCaptureStream: false,
-    chromeAPI: !!(typeof chrome !== 'undefined' && chrome.runtime),
-    browserAPI: !!(typeof browser !== 'undefined' && browser.runtime),
+    edgeAPI: !!globalThis.browser?.runtime,
+    chromeAPI: !!globalThis.chrome?.runtime,
     storage: !!window.localStorage,
     webAudio: false,
     canvas: !!window.CanvasRenderingContext2D,
@@ -253,11 +260,14 @@ export function checkAPISupport() {
     support.webAudio = false;
   }
 
+  // Edge 151 specific
+  support.isEdge151 = browserInfo.isEdge151;
+
   return support;
 }
 
 // ============================================
-//  КРОССБРАУЗЕРНЫЙ CHROME API
+//  КРОССБРАУЗЕРНЫЙ API (EDGE OPTIMIZED)
 // ============================================
 
 /**
@@ -265,14 +275,17 @@ export function checkAPISupport() {
  */
 export class ExtensionAPI {
   constructor() {
-    this._useChrome = typeof chrome !== 'undefined' && chrome.runtime;
-    this._useBrowser = typeof browser !== 'undefined' && browser.runtime;
+    this._useEdge = !!globalThis.browser?.runtime;
+    this._useChrome = !!globalThis.chrome?.runtime;
     this._api = null;
     
-    if (this._useChrome) {
-      this._api = chrome;
-    } else if (this._useBrowser) {
-      this._api = browser;
+    // Приоритет: browser (Edge) > chrome (Chromium)
+    if (this._useEdge) {
+      this._api = globalThis.browser;
+      this._isEdge = true;
+    } else if (this._useChrome) {
+      this._api = globalThis.chrome;
+      this._isEdge = false;
     } else {
       console.warn('[Compat] API расширения не доступно');
     }
@@ -286,6 +299,13 @@ export class ExtensionAPI {
   }
 
   /**
+   * Проверка, используется ли Edge API
+   */
+  isEdge() {
+    return this._isEdge;
+  }
+
+  /**
    * Отправка сообщения
    */
   sendMessage(message) {
@@ -296,13 +316,13 @@ export class ExtensionAPI {
       }
 
       try {
-        if (this._useBrowser) {
-          // Firefox использует browser.runtime.sendMessage с промисом
+        if (this._isEdge) {
+          // Edge использует browser.runtime.sendMessage с промисом
           this._api.runtime.sendMessage(message)
             .then(resolve)
             .catch(reject);
         } else {
-          // Chrome/Edge используют колбэк
+          // Chrome/Chromium используют колбэк
           this._api.runtime.sendMessage(message, (response) => {
             if (this._api.runtime.lastError) {
               reject(this._api.runtime.lastError);
@@ -400,7 +420,7 @@ export class ExtensionAPI {
       }
 
       try {
-        if (this._useBrowser) {
+        if (this._isEdge) {
           this._api.tabs.query({ active: true, currentWindow: true })
             .then(resolve)
             .catch(reject);
@@ -435,7 +455,7 @@ export class ExtensionAPI {
           files: Array.isArray(script) ? script : [script]
         };
 
-        if (this._useBrowser) {
+        if (this._isEdge) {
           this._api.scripting.executeScript(options)
             .then(resolve)
             .catch(reject);
@@ -721,6 +741,30 @@ export function safeConsoleError(...args) {
 }
 
 // ============================================
+//  EDGE 151 СПЕЦИФИЧНЫЕ УТИЛИТЫ
+// ============================================
+
+/**
+ * Проверка, является ли браузер Edge 151
+ */
+export function isEdge151() {
+  return browserInfo.isEdge151;
+}
+
+/**
+ * Получение информации о Edge 151
+ */
+export function getEdge151Info() {
+  return {
+    isEdge: browserInfo.isEdge,
+    version: browserInfo.version,
+    versionNumber: browserInfo.versionNumber,
+    isEdge151: browserInfo.isEdge151,
+    isMinVersion: browserInfo.isMinVersion(151, 0)
+  };
+}
+
+// ============================================
 //  ЭКСПОРТ
 // ============================================
 
@@ -742,5 +786,7 @@ export default {
   safeRevokeObjectURL,
   safeConsoleLog,
   safeConsoleWarn,
-  safeConsoleError
+  safeConsoleError,
+  isEdge151,
+  getEdge151Info
 };

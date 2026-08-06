@@ -1,10 +1,15 @@
 // ============================================
-//  STORAGE-SYNC.JS - Единая система хранения
+//  STORAGE-SYNC.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Единая система хранения
 //  Версия: 1.0.1
-//  Обеспечивает синхронизацию между localStorage и chrome.storage
-//  ИСПРАВЛЕНО: обработка ошибок во всех методах
-//  ИСПРАВЛЕНО: fallback при недоступности localStorage
+//  Обеспечивает синхронизацию между localStorage и edgeAPI.storage
+//  EDGE OPTIMIZED: обработка ошибок во всех методах
+//  EDGE OPTIMIZED: fallback при недоступности localStorage
 // ============================================
+
+const edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
 
 /**
  * Единый менеджер хранилища
@@ -39,15 +44,14 @@ class StorageManager {
       userPresets: {},
       settingsVersion: '3.22.8'
     };
-    // FIX: Проверка доступности localStorage
+    // Проверка доступности localStorage
     this._hasLocalStorage = this._checkLocalStorage();
 
     // Keep the in-page cache synchronized with writes made by the background
-    // service worker or another extension page. This prevents stale popup/window
-    // state after cross-context edits.
+    // service worker or another extension page.
     try {
-      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-        chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (typeof edgeAPI !== 'undefined' && edgeAPI.storage?.onChanged) {
+        edgeAPI.storage.onChanged.addListener((changes, areaName) => {
           if (areaName !== 'local') return;
           let hasCanonicalChange = false;
           for (const [key, change] of Object.entries(changes || {})) {
@@ -107,7 +111,7 @@ class StorageManager {
         await this._updateCache(canonicalDefaults);
       } else {
         await this._updateCache(data);
-        console.log('[Storage] Настройки загружены из chrome.storage');
+        console.log('[Storage] Настройки загружены из edgeAPI.storage');
       }
       
       await this._syncFromLocalStorage();
@@ -148,7 +152,7 @@ class StorageManager {
   }
 
   /**
-   * Обновить локальный кэш без прямой записи в chrome.storage.
+   * Обновить локальный кэш без прямой записи в edgeAPI.storage.
    * Используется, когда background.js является единым писателем настроек.
    */
   updateCache(settings = {}) {
@@ -336,10 +340,10 @@ class StorageManager {
 
   _loadFromChrome() {
     return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(null, (result) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[Storage] Ошибка загрузки из chrome.storage:', chrome.runtime.lastError);
+      if (typeof edgeAPI !== 'undefined' && edgeAPI.storage) {
+        edgeAPI.storage.local.get(null, (result) => {
+          if (edgeAPI.runtime.lastError) {
+            console.warn('[Storage] Ошибка загрузки из edgeAPI.storage:', edgeAPI.runtime.lastError);
             resolve(null);
           } else {
             resolve(result);
@@ -353,28 +357,28 @@ class StorageManager {
 
   _saveToChrome(data) {
     return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set(data, () => {
-          if (chrome.runtime.lastError) {
-            const error = new Error(chrome.runtime.lastError.message);
-            console.warn('[Storage] Ошибка сохранения в chrome.storage:', error);
+      if (typeof edgeAPI !== 'undefined' && edgeAPI.storage) {
+        edgeAPI.storage.local.set(data, () => {
+          if (edgeAPI.runtime.lastError) {
+            const error = new Error(edgeAPI.runtime.lastError.message);
+            console.warn('[Storage] Ошибка сохранения в edgeAPI.storage:', error);
             reject(error);
             return;
           }
           resolve();
         });
       } else {
-        reject(new Error('chrome.storage.local недоступен'));
+        reject(new Error('edgeAPI.storage.local недоступен'));
       }
     });
   }
 
   _clearChrome() {
     return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.clear(() => {
-          if (chrome.runtime.lastError) {
-            console.warn('[Storage] Ошибка очистки chrome.storage:', chrome.runtime.lastError);
+      if (typeof edgeAPI !== 'undefined' && edgeAPI.storage) {
+        edgeAPI.storage.local.clear(() => {
+          if (edgeAPI.runtime.lastError) {
+            console.warn('[Storage] Ошибка очистки edgeAPI.storage:', edgeAPI.runtime.lastError);
           }
           resolve();
         });
@@ -424,14 +428,11 @@ class StorageManager {
       this._syncInProgress = true;
       try {
         while (this._pendingWrites.size > 0) {
-          // Snapshot only the entries that are about to be persisted.
           const snapshot = new Map(this._pendingWrites);
           const data = Object.fromEntries(snapshot);
 
           await this._saveToChrome(data);
 
-          // Remove only values that are still equal to the persisted snapshot.
-          // Newer writes that arrived while chrome.storage was busy are kept.
           for (const [key, value] of snapshot) {
             if (Object.is(this._pendingWrites.get(key), value)) {
               this._pendingWrites.delete(key);
@@ -511,8 +512,6 @@ class StorageManager {
         current = { ...migrated };
       }
 
-      // localStorage cache is only a recovery source. Never let stale cached
-      // values overwrite canonical chrome.storage values that already exist.
       const cacheData = localStorage.getItem(this._prefix + 'cache_data');
       if (cacheData) {
         try {

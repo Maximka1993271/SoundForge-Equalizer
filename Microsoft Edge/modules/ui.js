@@ -1,31 +1,64 @@
 // ============================================
-//  UI.JS - Обновление интерфейса (v3.22.8)
-//  ИСПРАВЛЕНО: обработка ошибок в updateSiteInfo
+//  UI.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Обновление интерфейса
+//  EDGE OPTIMIZED: обработка ошибок в updateSiteInfo
+//  EDGE OPTIMIZED: защита connection-state для UI-сообщений
 // ============================================
 
 import { state, dom, updateState } from './state.js';
 import { t, getCurrentLang } from './i18n.js';
 import { PRESETS, PRESET_INFO } from './config.js';
 
+const edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
+
+// ============================================
+//  СОСТОЯНИЯ ПОДКЛЮЧЕНИЯ (для защиты)
+// ============================================
+
+const CONNECTION_STATES = new Set(['connecting', 'connected', 'disconnected', 'error']);
+
+function normalizeStatus(requested, current) {
+  if (requested === 'ready' && CONNECTION_STATES.has(current)) return current;
+  return requested;
+}
+
+// ============================================
+//  УСТАНОВКА СТАТУСА (С ЗАЩИТОЙ)
+// ============================================
+
 export function setStatus(status, text) {
-  updateState({ currentStatus: status });
+  // `ready` часто используется для коротких информационных сообщений.
+  // Оно не должно заменять реальное состояние подключения.
+  const previousStatus = state.currentStatus;
+  const preserveConnectionState = status === 'ready' &&
+    ['connected', 'connecting', 'disconnected'].includes(previousStatus);
+  const effectiveStatus = preserveConnectionState ? previousStatus : status;
+  
+  if (!preserveConnectionState) updateState({ currentStatus: status });
+  
   const dot = dom.statusDot;
   const txt = dom.statusText;
   const btn = dom.connectBtn;
 
   if (dot) {
     dot.className = 'status-dot';
-    if (status === 'connected') dot.classList.add('active');
-    else if (status === 'connecting') dot.classList.add('connecting');
-    else if (status === 'disconnected') dot.classList.add('inactive');
-    else if (status === 'reset') dot.classList.add('reset');
+    if (effectiveStatus === 'connected') dot.classList.add('active');
+    else if (effectiveStatus === 'connecting') dot.classList.add('connecting');
+    else if (effectiveStatus === 'disconnected') dot.classList.add('inactive');
+    else if (effectiveStatus === 'reset') dot.classList.add('reset');
   }
   if (txt) {
     txt.className = 'status-text';
     txt.textContent = text || t('status_ready');
   }
-  updateConnectButton(status);
+  updateConnectButton(effectiveStatus);
 }
+
+// ============================================
+//  ОБНОВЛЕНИЕ КНОПКИ ПОДКЛЮЧЕНИЯ
+// ============================================
 
 export function updateConnectButton(status) {
   const btn = dom.connectBtn;
@@ -45,6 +78,10 @@ export function updateConnectButton(status) {
   }
 }
 
+// ============================================
+//  ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ПРЕСЕТЕ
+// ============================================
+
 export function updatePresetInfo(name) {
   const el = dom.presetInfoDisplay;
   if (el) {
@@ -58,6 +95,10 @@ export function updatePresetInfo(name) {
   }
 }
 
+// ============================================
+//  ПОЛУЧЕНИЕ ОПИСАНИЯ ПРЕСЕТА
+// ============================================
+
 export function getPresetDesc(name) {
   const info = PRESET_INFO[name];
   if (!info) return t('preset');
@@ -67,11 +108,19 @@ export function getPresetDesc(name) {
   return info.desc_en || info.desc_ru || t('preset');
 }
 
+// ============================================
+//  ПОЛУЧЕНИЕ ОТОБРАЖЕНИЯ ПРЕСЕТА
+// ============================================
+
 export function getPresetDisplay(name) {
   const info = PRESET_INFO[name];
   if (!info) return '🎛️ ' + t('preset');
   return info.icon + ' ' + getPresetDesc(name);
 }
+
+// ============================================
+//  ОБНОВЛЕНИЕ КЛАССА ЗНАЧЕНИЯ GAIN
+// ============================================
 
 export function updateGainClass(element, value) {
   const val = parseFloat(value);
@@ -81,6 +130,10 @@ export function updateGainClass(element, value) {
   else element.classList.add('zero');
 }
 
+// ============================================
+//  ПОКАЗ ОВЕРЛЕЯ ЗАГРУЗКИ
+// ============================================
+
 export function showLoading(show) {
   updateState({ isLoading: show });
   const overlay = dom.loadingOverlay;
@@ -89,6 +142,10 @@ export function showLoading(show) {
   }
 }
 
+// ============================================
+//  ПЕРЕКЛЮЧЕНИЕ ТЕМЫ
+// ============================================
+
 export function toggleTheme() {
   state.currentTheme = state.currentTheme === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', state.currentTheme);
@@ -96,6 +153,10 @@ export function toggleTheme() {
     dom.themeToggle.textContent = state.currentTheme === 'dark' ? '🌙' : '☀️';
   }
 }
+
+// ============================================
+//  РАЗВЕРТЫВАНИЕ/СВЕРТЫВАНИЕ ОКНА
+// ============================================
 
 export function toggleExpand() {
   const body = document.body;
@@ -112,14 +173,17 @@ export function toggleExpand() {
   }
 }
 
+// ============================================
+//  ОБНОВЛЕНИЕ ИНФОРМАЦИИ О САЙТЕ (EDGE OPTIMIZED)
+// ============================================
+
 export function updateSiteInfo() {
   const info = dom.siteInfo;
   if (!info) return;
   
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    // FIX: Проверяем ошибку chrome.runtime.lastError
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка получения вкладки:', chrome.runtime.lastError);
+  edgeAPI.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения вкладки:', edgeAPI.runtime.lastError);
       info.textContent = t('site');
       return;
     }
@@ -141,3 +205,22 @@ export function updateSiteInfo() {
     }
   });
 }
+
+// ============================================
+//  ЭКСПОРТ ПО УМОЛЧАНИЮ
+// ============================================
+
+export default {
+  setStatus,
+  updateConnectButton,
+  updatePresetInfo,
+  getPresetDesc,
+  getPresetDisplay,
+  updateGainClass,
+  showLoading,
+  toggleTheme,
+  toggleExpand,
+  updateSiteInfo,
+  normalizeStatus,
+  CONNECTION_STATES
+};

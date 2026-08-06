@@ -1,11 +1,17 @@
 // ============================================
-//  STORAGE.JS - Работа с хранилищем (v3.22.8)
-//  ИСПРАВЛЕНО: обработка ошибок в exportSettings
+//  STORAGE.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Работа с хранилищем
+//  EDGE OPTIMIZED: обработка ошибок в exportSettings
+//  EDGE OPTIMIZED: единое хранилище через storage-sync
 // ============================================
 
 import { state, dom } from './state.js';
 import { getCurrentLang } from './i18n.js';
 import { storage } from './storage-sync.js';
+
+const edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
 
 const CANONICAL_KEYS = {
   eqSettings: 'sf_eqSettings',
@@ -21,6 +27,10 @@ const CANONICAL_KEYS = {
 
 let _lastUserPresetsSnapshot = null;
 let _lastSettingsSnapshot = null;
+
+// ============================================
+//  ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЬСКИХ ПРЕСЕТОВ
+// ============================================
 
 export function getUserPresets() {
   try {
@@ -55,10 +65,14 @@ export function getUserPresets() {
 
 function sendPresetMutation(action, payload) {
   try {
-    const maybePromise = chrome.runtime.sendMessage({ action, ...payload });
+    const maybePromise = edgeAPI.runtime.sendMessage({ action, ...payload });
     if (maybePromise?.catch) maybePromise.catch(() => {});
   } catch {}
 }
+
+// ============================================
+//  СОХРАНЕНИЕ ПОЛЬЗОВАТЕЛЬСКИХ ПРЕСЕТОВ
+// ============================================
 
 export function saveUserPresets(presets) {
   try {
@@ -66,7 +80,6 @@ export function saveUserPresets(presets) {
     const previous = _lastUserPresetsSnapshot || getUserPresets();
     const serialized = JSON.stringify(normalized);
     localStorage.setItem('soundforge_user_presets_canonical', serialized);
-    // Keep the legacy key during migration so older window builds still work.
     localStorage.setItem('soundforge_user_presets', serialized);
 
     for (const [name, preset] of Object.entries(normalized)) {
@@ -85,6 +98,10 @@ export function saveUserPresets(presets) {
     console.warn('[Storage] Не удалось сохранить пользовательские пресеты:', error);
   }
 }
+
+// ============================================
+//  СОХРАНЕНИЕ ВСЕХ НАСТРОЕК
+// ============================================
 
 export function saveAllSettings() {
   const gains = getSliderGains();
@@ -113,9 +130,6 @@ export function saveAllSettings() {
   _lastSettingsSnapshot = JSON.parse(JSON.stringify(settings));
   if (Object.keys(patch).length === 0) return;
 
-  // Background service worker is the single writer for extension settings.
-  // Send only fields that actually changed so popup/window concurrent edits
-  // merge instead of overwriting each other with stale full snapshots.
   storage.updateCache(patch);
 
   const fallback = () => {
@@ -125,8 +139,8 @@ export function saveAllSettings() {
   };
 
   try {
-    chrome.runtime.sendMessage({ action: 'settingsSnapshot', settings: patch }, (response) => {
-      if (chrome.runtime.lastError || !response || response.status !== 'ok') {
+    edgeAPI.runtime.sendMessage({ action: 'settingsSnapshot', settings: patch }, (response) => {
+      if (edgeAPI.runtime.lastError || !response || response.status !== 'ok') {
         fallback();
       }
     });
@@ -134,6 +148,10 @@ export function saveAllSettings() {
     fallback();
   }
 }
+
+// ============================================
+//  ПОЛУЧЕНИЕ НАСТРОЕК СЛАЙДЕРОВ
+// ============================================
 
 export function getSliderGains() {
   const gains = {};
@@ -145,15 +163,19 @@ export function getSliderGains() {
   return gains;
 }
 
+// ============================================
+//  ЗАГРУЗКА НАСТРОЕК
+// ============================================
+
 export function loadSettings(callback) {
   const keys = [
     ...Object.values(CANONICAL_KEYS),
     'theme', 'eqSettings', 'selectedPreset', 'volumeBoost', 'bassBoost',
     'language', 'savedVolume', 'savedBass'
   ];
-  chrome.storage.local.get(keys, (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('[Storage] Ошибка загрузки настроек:', chrome.runtime.lastError);
+  edgeAPI.storage.local.get(keys, (result) => {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('[Storage] Ошибка загрузки настроек:', edgeAPI.runtime.lastError);
       callback?.({});
       return;
     }
@@ -182,11 +204,15 @@ export function loadSettings(callback) {
   });
 }
 
+// ============================================
+//  ЭКСПОРТ НАСТРОЕК
+// ============================================
+
 export function exportSettings() {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get(null, (data) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+    edgeAPI.storage.local.get(null, (data) => {
+      if (edgeAPI.runtime.lastError) {
+        reject(new Error(edgeAPI.runtime.lastError.message));
         return;
       }
       const presets = getUserPresets();
@@ -200,6 +226,10 @@ export function exportSettings() {
     });
   });
 }
+
+// ============================================
+//  ИМПОРТ НАСТРОЕК
+// ============================================
 
 export function importSettings(data) {
   return new Promise((resolve, reject) => {
@@ -221,9 +251,9 @@ export function importSettings(data) {
         safeSettings.userPresets = importData.userPresets;
       }
 
-      chrome.runtime.sendMessage({ action: 'settingsSnapshot', settings: safeSettings }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+      edgeAPI.runtime.sendMessage({ action: 'settingsSnapshot', settings: safeSettings }, (response) => {
+        if (edgeAPI.runtime.lastError) {
+          reject(new Error(edgeAPI.runtime.lastError.message));
           return;
         }
         if (!response || response.status !== 'ok') {
@@ -251,4 +281,3 @@ export function importSettings(data) {
     }
   });
 }
-

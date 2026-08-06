@@ -1,13 +1,15 @@
 // ============================================
-//  PRESETS.JS - Работа с пресетами (v3.22.8)
-//  ИСПРАВЛЕНО: выбор пресетов из списка
-//  ИСПРАВЛЕНО: определение пользовательских пресетов
-//  ИСПРАВЛЕНО: обработка ошибок и очистка A/B состояния
+//  PRESETS.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Работа с пресетами
+//  EDGE OPTIMIZED: выбор пресетов из списка
+//  EDGE OPTIMIZED: определение пользовательских пресетов
+//  EDGE OPTIMIZED: обработка ошибок и очистка A/B состояния
 // ============================================
 
 import { state, dom } from './state.js';
 import { t } from './i18n.js';
-import { PRESETS, PRESET_CATEGORIES, PRESET_INFO } from './config.js';
+import { PRESETS, PRESET_CATEGORIES, PRESET_INFO, PRESET_ORDER } from './config.js';
 import { getUserPresets, saveUserPresets, getSliderGains, saveAllSettings } from './storage.js';
 import { applyPresetEQOnly, applyPresetWithAnimation } from './audio.js';
 import { 
@@ -17,6 +19,9 @@ import {
   getPresetDesc,
   updateGainClass 
 } from './ui.js';
+
+const edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
 
 // ============================================
 //  ЗАПОЛНЕНИЕ СПИСКА ПРЕСЕТОВ
@@ -29,10 +34,9 @@ export function populatePresetSelect() {
   select.innerHTML = '';
 
   const categories = {};
-  const presetNames = Object.keys(PRESETS);
+  const presetNames = PRESET_ORDER.slice(); // Используем канонический порядок
   let userPresets = {};
   
-  // Безопасная загрузка пользовательских пресетов
   try {
     userPresets = getUserPresets();
   } catch (e) {
@@ -86,7 +90,7 @@ export function populatePresetSelect() {
 
     userKeys.forEach((name) => {
       const option = document.createElement('option');
-      option.value = 'user_' + name; // Префикс для пользовательских пресетов
+      option.value = 'user_' + name;
       option.textContent = '💾 ' + name;
       userOptgroup.appendChild(option);
     });
@@ -169,16 +173,8 @@ export function loadUserPreset(name) {
     return;
   }
 
-  // FIX: Очищаем A/B состояние при загрузке пресета
-  state.abPresetA = null;
-  state.abPresetB = null;
-  state.abMode = false;
-  state.abActive = null;
-  if (dom.abCompareBtn) {
-    dom.abCompareBtn.textContent = t('compare');
-    dom.abCompareBtn.style.background = '';
-    dom.abCompareBtn.style.color = '';
-  }
+  // Очищаем A/B состояние при загрузке пресета
+  resetABCompareState();
 
   // Применяем пользовательский пресет с анимацией
   applyPresetWithAnimation(name, true);
@@ -192,16 +188,8 @@ export function handlePresetSelect(value) {
   if (!value) {
     state.currentPreset = 'custom';
     updatePresetInfo('custom');
-    // FIX: Очищаем A/B состояние при выборе custom
-    state.abPresetA = null;
-    state.abPresetB = null;
-    state.abMode = false;
-  state.abActive = null;
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = t('compare');
-      dom.abCompareBtn.style.background = '';
-      dom.abCompareBtn.style.color = '';
-    }
+    // Очищаем A/B состояние при выборе custom
+    resetABCompareState();
     return;
   }
 
@@ -210,16 +198,8 @@ export function handlePresetSelect(value) {
     loadUserPreset(userPresetName);
   } else {
     if (PRESETS[value]) {
-      // FIX: Очищаем A/B состояние при выборе стандартного пресета
-      state.abPresetA = null;
-      state.abPresetB = null;
-      state.abMode = false;
-  state.abActive = null;
-      if (dom.abCompareBtn) {
-        dom.abCompareBtn.textContent = t('compare');
-        dom.abCompareBtn.style.background = '';
-        dom.abCompareBtn.style.color = '';
-      }
+      // Очищаем A/B состояние при выборе стандартного пресета
+      resetABCompareState();
       applyPresetWithAnimation(value, false);
     } else {
       console.warn(`⚠️ Пресет "${value}" не найден в PRESETS`);
@@ -289,15 +269,15 @@ function applyABSnapshot(snapshot, side) {
   updatePresetInfo('custom');
 
   const gains = getSliderGains();
-  chrome.runtime.sendMessage({ action: 'updateEQ', gains, instant: true, source: `ab-${side}` });
-  chrome.runtime.sendMessage({ action: 'setVolume', value: volumePercent / 100, instant: true, source: `ab-${side}` });
-  chrome.runtime.sendMessage({ action: 'setBass', value: bass, instant: true, source: `ab-${side}` });
+  edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains, instant: true, source: `ab-${side}` });
+  edgeAPI.runtime.sendMessage({ action: 'setVolume', value: volumePercent / 100, instant: true, source: `ab-${side}` });
+  edgeAPI.runtime.sendMessage({ action: 'setBass', value: bass, instant: true, source: `ab-${side}` });
 
   setStatus('ready', `🔀 A/B: ${side}`);
 }
 
 export function toggleABCompare() {
-  // First click: capture A.
+  // Первый клик: сохраняем состояние A
   if (!state.abPresetA) {
     state.abPresetA = {
       gains: getSliderGains(),
@@ -312,7 +292,7 @@ export function toggleABCompare() {
     return;
   }
 
-  // Second click: capture B and immediately return to A.
+  // Второй клик: сохраняем состояние B и переключаемся на A
   if (!state.abPresetB) {
     state.abPresetB = {
       gains: getSliderGains(),
@@ -327,7 +307,7 @@ export function toggleABCompare() {
     return;
   }
 
-  // Subsequent clicks: real A/B toggle.
+  // Последующие клики: реальное переключение A ↔ B
   state.abActive = state.abActive === 'A' ? 'B' : 'A';
   state.abMode = true;
   updateABCompareButton();
@@ -340,7 +320,7 @@ export function toggleABCompare() {
 
 export function getPresetList() {
   const list = [];
-  const presetNames = Object.keys(PRESETS);
+  const presetNames = PRESET_ORDER.slice();
   
   presetNames.forEach((name) => {
     const info = PRESET_INFO[name];
@@ -381,5 +361,6 @@ export default {
   loadUserPreset,
   handlePresetSelect,
   toggleABCompare,
-  getPresetList
+  getPresetList,
+  resetABCompareState
 };

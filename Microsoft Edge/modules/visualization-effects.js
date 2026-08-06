@@ -1,15 +1,17 @@
 // ============================================
-//  VISUALIZATION-EFFECTS.JS - Эффекты визуализации (v3.22.8)
+//  VISUALIZATION-EFFECTS.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
 //  Звуковые волны | Огонь | Неон
 //  Поддержка 3 языков: RU, UA, EN
-//  ИСПРАВЛЕНО: очистка ресурсов при переключении эффектов
-//  ИСПРАВЛЕНО: проверка canvas перед рисованием
+//  EDGE OPTIMIZED: очистка ресурсов при переключении эффектов
+//  EDGE OPTIMIZED: проверка canvas перед рисованием
+//  ИСПРАВЛЕНО: конфликт имен state
 // ============================================
 
-import { state } from './state.js';
+import { state as appState } from './state.js';
 import { t, getCurrentLang, getEffectName as getI18nEffectName } from './i18n.js';
 
-console.log('🎨 SoundForge Visualization Effects v3.22.8');
+console.log('🎨 SoundForge Visualization Effects v3.22.8 Edge 151');
 
 // ============================================
 //  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ
@@ -80,9 +82,11 @@ export function setCurrentEffect(effect) {
   if (Object.values(EFFECTS).includes(effect)) {
     _currentEffect = effect;
     _lastEffectSwitch = Date.now();
-    localStorage.setItem('soundforge_effect', effect);
+    try {
+      localStorage.setItem('soundforge_effect', effect);
+    } catch (e) {}
     console.log(`🎨 Эффект изменен: ${effect}`);
-    // FIX: Очищаем частицы при смене эффекта
+    // Очищаем частицы при смене эффекта
     _particles = [];
     return true;
   }
@@ -194,8 +198,8 @@ export function renderEffect(spectrumData) {
   const ctx = _effectCtx;
   const width = _effectCanvas.width;
   const height = _effectCanvas.height;
-  const isDark = state.currentTheme === 'dark' || 
-                 (state.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const isDark = appState.currentTheme === 'dark' || 
+                 (appState.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   
   ctx.clearRect(0, 0, width, height);
   
@@ -606,7 +610,6 @@ function renderNeon(ctx, width, height, isDark) {
   }
   
   const numParticles = 40 + Math.floor(_neonGlow * 20);
-  // FIX: Проверяем наличие частиц, если их нет — инициализируем
   if (_particles.length === 0) {
     initParticles();
   }

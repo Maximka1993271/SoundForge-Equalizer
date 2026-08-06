@@ -1,14 +1,22 @@
 // ============================================
-//  CONFIG.JS - Пресеты и категории (v3.22.8)
+//  CONFIG.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
 //  50 ПРОФЕССИОНАЛЬНЫХ ПРЕСЕТОВ
 //  ИДЕАЛЬНАЯ НАСТРОЙКА ГРОМКОСТИ 100% (по умолчанию)
 //  ИДЕАЛЬНАЯ НАСТРОЙКА BASS BOOST
-//  ИСПРАВЛЕНО: согласованность категорий и описаний
+//  EDGE OPTIMIZED: канонический порядок пресетов
 // ============================================
 
 export const VERSION = '3.22.8';
 export const MODULE_NAME = 'config';
-export const MODULE_VERSION = '3.22.8';
+export const MODULE_VERSION = '3.22.8-edge151';
+export const EDGE_TARGET = Object.freeze({ 
+  browser: 'Microsoft Edge', 
+  version: '151.0.4129.59', 
+  os: 'Windows 11 Pro 25H2', 
+  build: '26200.8973', 
+  presetProfile: 'Bass Boosted 2026' 
+});
 
 // ============================================
 //  50 ПРЕСЕТОВ ЭКВАЛАЙЗЕРА (ИДЕАЛЬНО ОТПОЛИРОВАНЫ)
@@ -388,9 +396,26 @@ export const PRESETS = {
   }
 };
 
-// Canonical built-in preset order used by all interfaces.
+// ============================================
+//  КАНОНИЧЕСКИЙ ПОРЯДОК ПРЕСЕТОВ
+//  Используется Popup, Window и всеми модулями
+// ============================================
+
 export const PRESET_ORDER = Object.freeze([
-  'flat', 'natural', 'universal', 'balanced', 'club', 'dance', 'edm', 'synthwave', 'deephouse', 'festival', 'rock', 'metal', 'hardrock', 'grunge', 'vocal', 'podcast', 'speech', 'rap', 'acoustic', 'piano', 'orchestra', 'classical', 'jazz', 'headphones', 'car', 'night', 'bassboost', 'pop', 'kpop', 'world', 'ambient', 'wave', 'phonk', 'hiphop', 'soul', 'blues', 'reggae', 'chill', 'lofi', 'sunset', 'logitech', 'maxboost', 'gaming', 'movie', 'fps', 'hifi', 'studio', 'premium', 'master', 'clarity'
+  'flat', 'natural', 'universal', 'balanced', 
+  'club', 'dance', 'edm', 'synthwave', 'deephouse', 'festival', 
+  'rock', 'metal', 'hardrock', 'grunge', 
+  'vocal', 'podcast', 'speech', 'rap', 
+  'acoustic', 'piano', 'orchestra', 'classical', 'jazz', 
+  'headphones', 'car', 'night', 'bassboost', 
+  'pop', 'kpop', 'world', 'ambient', 
+  'wave', 'phonk', 
+  'hiphop', 'soul', 'blues', 'reggae', 
+  'chill', 'lofi', 'sunset', 
+  'logitech', 'maxboost', 
+  'gaming', 'movie', 'fps', 
+  'hifi', 'studio', 'premium', 'master', 
+  'clarity'
 ]);
 
 // ============================================
@@ -579,10 +604,46 @@ export default {
   VERSION,
   MODULE_NAME,
   MODULE_VERSION,
+  EDGE_TARGET,
   PRESETS,
   PRESET_CATEGORIES,
   PRESET_INFO,
+  PRESET_ORDER,
   FREQUENCIES,
   FREQUENCY_LABELS,
   PRESET_STATS
 };
+
+// ============================================
+//  ВАЛИДАЦИЯ ДЛЯ EDGE 151
+// ============================================
+
+export function validateEdge151Presets() {
+  const ids = Object.keys(PRESETS);
+  const errors = [];
+  if (ids.length !== 50) errors.push(`Expected 50 presets, got ${ids.length}`);
+  if (PRESET_ORDER.length !== 50 || new Set(PRESET_ORDER).size !== 50) {
+    errors.push('PRESET_ORDER must contain 50 unique ids');
+  }
+  for (const id of PRESET_ORDER) {
+    const preset = PRESETS[id];
+    if (!preset) { 
+      errors.push(`Missing preset: ${id}`); 
+      continue; 
+    }
+    if (preset.volume !== 100) errors.push(`${id}: volume must be 100`);
+    if (!Number.isFinite(preset.bass) || preset.bass < -12 || preset.bass > 12) {
+      errors.push(`${id}: invalid bass`);
+    }
+    if (!preset.gains || Object.keys(preset.gains).length !== 10) {
+      errors.push(`${id}: expected 10 EQ bands`);
+    }
+  }
+  return Object.freeze({ 
+    valid: errors.length === 0, 
+    errors: Object.freeze(errors), 
+    profile: EDGE_TARGET.presetProfile,
+    totalPresets: ids.length,
+    totalOrder: PRESET_ORDER.length
+  });
+}

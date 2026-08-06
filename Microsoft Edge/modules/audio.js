@@ -1,9 +1,12 @@
 // ============================================
-//  AUDIO.JS - Аудио операции (v3.22.8)
+//  AUDIO.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Аудио операции
 //  ИСПРАВЛЕНО: дублирующийся экспорт initAudioContext
 //  ИСПРАВЛЕНО: все экспорты уникальны
 //  ИСПРАВЛЕНО: applyPresetWithAnimation правильно обрабатывает isUserPreset
 //  ИСПРАВЛЕНО: добавлен импорт PRESET_INFO
+//  EDGE OPTIMIZED: без chrome.* прямых вызовов
 // ============================================
 
 import { state, dom } from './state.js';
@@ -11,6 +14,9 @@ import { setStatus, showLoading, updatePresetInfo, updateGainClass, updateConnec
 import { getSliderGains, saveAllSettings } from './storage.js';
 import { PRESETS, PRESET_INFO } from './config.js';
 import { t } from './i18n.js';
+
+const edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
 
 // ============================================
 //  НАСТРОЙКИ АНИМАЦИИ
@@ -142,7 +148,7 @@ function animateVolume(targetValue, duration = ANIMATION.duration) {
             dom.volumeDisplay.textContent = Math.round(currentValue) + '%';
             
             try {
-                chrome.runtime.sendMessage({ 
+                edgeAPI.runtime.sendMessage({ 
                     action: 'setVolume', 
                     value: currentValue / 100,
                     instant: true 
@@ -155,7 +161,7 @@ function animateVolume(targetValue, duration = ANIMATION.duration) {
                 dom.volumeSlider.value = targetValue;
                 dom.volumeDisplay.textContent = Math.round(targetValue) + '%';
                 try {
-                    chrome.runtime.sendMessage({ 
+                    edgeAPI.runtime.sendMessage({ 
                         action: 'setVolume', 
                         value: targetValue / 100 
                     });
@@ -201,7 +207,7 @@ function animateBass(targetValue, duration = ANIMATION.duration) {
             dom.bassDisplay.textContent = currentValue.toFixed(1) + ' dB';
             
             try {
-                chrome.runtime.sendMessage({ 
+                edgeAPI.runtime.sendMessage({ 
                     action: 'setBass', 
                     value: currentValue,
                     instant: true 
@@ -214,7 +220,7 @@ function animateBass(targetValue, duration = ANIMATION.duration) {
                 dom.bassSlider.value = targetValue;
                 dom.bassDisplay.textContent = targetValue.toFixed(1) + ' dB';
                 try {
-                    chrome.runtime.sendMessage({ 
+                    edgeAPI.runtime.sendMessage({ 
                         action: 'setBass', 
                         value: targetValue 
                     });
@@ -241,7 +247,6 @@ export function initAudioContext() {
             return false;
         }
         
-        // FIX: Закрываем старый контекст, если он существует
         if (_audioContext && _audioContext.state !== 'closed') {
             try {
                 _audioContext.close();
@@ -277,7 +282,6 @@ export function initAudioContext() {
 // ============================================
 
 function startSpectrumPolling() {
-    // FIX: Очищаем старый интервал
     if (_spectrumUpdateInterval) {
         clearInterval(_spectrumUpdateInterval);
         _spectrumUpdateInterval = null;
@@ -350,7 +354,7 @@ export function stopSpectrumPolling() {
 }
 
 // ============================================
-//  ПРИМЕНЕНИЕ ПРЕСЕТА С АНИМАЦИЕЙ - ИСПРАВЛЕНО
+//  ПРИМЕНЕНИЕ ПРЕСЕТА С АНИМАЦИЕЙ
 // ============================================
 
 export async function applyPresetWithAnimation(name, isUserPreset = false) {
@@ -420,9 +424,9 @@ export async function applyPresetWithAnimation(name, isUserPreset = false) {
     
     const gains = getSliderGains();
     try {
-        chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
-        chrome.runtime.sendMessage({ action: 'setVolume', value: targetVolume / 100, instant: true });
-        chrome.runtime.sendMessage({ action: 'setBass', value: targetBass, instant: true });
+        edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
+        edgeAPI.runtime.sendMessage({ action: 'setVolume', value: targetVolume / 100, instant: true });
+        edgeAPI.runtime.sendMessage({ action: 'setBass', value: targetBass, instant: true });
     } catch (e) {}
     saveAllSettings();
     
@@ -480,7 +484,7 @@ export async function applyPresetEQOnly(name) {
     
     const gains = getSliderGains();
     try {
-        chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
+        edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
     } catch (e) {}
     saveAllSettings();
     
@@ -501,9 +505,9 @@ export function toggleConnection() {
     if (state.currentStatus === 'connected') {
         showLoading(true);
         setStatus('disconnected', t('status_disconnected'));
-        chrome.runtime.sendMessage({ action: 'disconnect' }, () => {
+        edgeAPI.runtime.sendMessage({ action: 'disconnect' }, () => {
             showLoading(false);
-            if (chrome.runtime.lastError) {
+            if (edgeAPI.runtime.lastError) {
                 setStatus('disconnected', '⚠️ Ошибка');
                 return;
             }
@@ -515,21 +519,21 @@ export function toggleConnection() {
         showLoading(true);
         setStatus('connecting', t('status_connecting'));
         
-        chrome.runtime.sendMessage({ action: 'connect' }, () => {
+        edgeAPI.runtime.sendMessage({ action: 'connect' }, () => {
             showLoading(false);
-            if (chrome.runtime.lastError) {
-                setStatus('disconnected', '⚠️ Ошибка: ' + chrome.runtime.lastError.message);
+            if (edgeAPI.runtime.lastError) {
+                setStatus('disconnected', '⚠️ Ошибка: ' + edgeAPI.runtime.lastError.message);
                 return;
             }
             
             setTimeout(() => {
-                chrome.runtime.sendMessage({ action: 'getStatus' }, (resp) => {
+                edgeAPI.runtime.sendMessage({ action: 'getStatus' }, (resp) => {
                     if (resp && resp.status === 'connected') {
                         setStatus('connected', t('status_connected'));
                         applySavedSettings(false);
                     } else {
                         setTimeout(() => {
-                            chrome.runtime.sendMessage({ action: 'getStatus' }, (resp2) => {
+                            edgeAPI.runtime.sendMessage({ action: 'getStatus' }, (resp2) => {
                                 if (resp2 && resp2.status === 'connected') {
                                     setStatus('connected', t('status_connected'));
                                     applySavedSettings(false);
@@ -576,9 +580,9 @@ export async function handleReset(onVolumeReset = null) {
         
         const gains = getSliderGains();
         try {
-            chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
-            chrome.runtime.sendMessage({ action: 'setVolume', value: 1.0, instant: true });
-            chrome.runtime.sendMessage({ action: 'setBass', value: 0, instant: true });
+            edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
+            edgeAPI.runtime.sendMessage({ action: 'setVolume', value: 1.0, instant: true });
+            edgeAPI.runtime.sendMessage({ action: 'setBass', value: 0, instant: true });
         } catch (e) {}
         
         state.currentPreset = 'flat';
@@ -618,7 +622,7 @@ export function applyPreset(name) {
 // ============================================
 
 export function applySavedSettings(applyPresetToo = true) {
-    chrome.storage.local.get([
+    edgeAPI.storage.local.get([
         'sf_eqSettings', 'eqSettings',
         'sf_volumeBoost', 'volumeBoost',
         'sf_bassBoost', 'bassBoost',
@@ -637,24 +641,24 @@ export function applySavedSettings(applyPresetToo = true) {
             const vol = Math.min(800, Math.max(0, Number(savedVolume) || 0));
             dom.volumeSlider.value = vol;
             dom.volumeDisplay.textContent = vol + '%';
-            chrome.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
+            edgeAPI.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
         } else if (volumeBoost !== undefined && dom.volumeSlider && dom.volumeDisplay) {
             const vol = Math.min(800, Math.max(0, Math.round((Number(volumeBoost) || 0) * 100)));
             dom.volumeSlider.value = vol;
             dom.volumeDisplay.textContent = vol + '%';
-            chrome.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
+            edgeAPI.runtime.sendMessage({ action: 'setVolume', value: vol / 100 });
         }
 
         if (savedBass !== undefined && dom.bassSlider && dom.bassDisplay) {
             const bass = Math.min(12, Math.max(-12, Number(savedBass) || 0));
             dom.bassSlider.value = bass;
             dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
-            chrome.runtime.sendMessage({ action: 'setBass', value: bass });
+            edgeAPI.runtime.sendMessage({ action: 'setBass', value: bass });
         } else if (bassBoost !== undefined && dom.bassSlider && dom.bassDisplay) {
             const bass = Math.min(12, Math.max(-12, Number(bassBoost) || 0));
             dom.bassSlider.value = bass;
             dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
-            chrome.runtime.sendMessage({ action: 'setBass', value: bass });
+            edgeAPI.runtime.sendMessage({ action: 'setBass', value: bass });
         }
 
         if (eqSettings) {
@@ -672,7 +676,7 @@ export function applySavedSettings(applyPresetToo = true) {
                 }
             });
             const gains = getSliderGains();
-            chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains });
+            edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains });
         }
 
         if (applyPresetToo && selectedPreset && PRESETS[selectedPreset]) {

@@ -1,8 +1,10 @@
 // ============================================
-//  MEMORY.JS - Управление памятью
+//  MEMORY.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Управление памятью
 //  Версия: 1.0.0
-//  ИСПРАВЛЕНО: очистка мониторинга при уничтожении
-//  ИСПРАВЛЕНО: обработка ошибок storage
+//  EDGE OPTIMIZED: очистка мониторинга при уничтожении
+//  EDGE OPTIMIZED: обработка ошибок storage
 // ============================================
 
 /**
@@ -21,6 +23,23 @@ export class MemoryManager {
     };
     this._monitoringInterval = null;
     this._isDestroyed = false;
+    this._edgeMemoryAPI = null;
+    
+    // Проверка поддержки memory API в Edge
+    this._checkMemoryAPI();
+  }
+
+  /**
+   * Проверка поддержки performance.memory в Edge
+   */
+  _checkMemoryAPI() {
+    try {
+      if (typeof performance !== 'undefined' && performance.memory) {
+        this._edgeMemoryAPI = performance.memory;
+      }
+    } catch (e) {
+      // Игнорируем
+    }
   }
 
   /**
@@ -192,10 +211,11 @@ export class MemoryManager {
   }
 
   /**
-   * Безопасный запрос сборки мусора
+   * Безопасный запрос сборки мусора (Edge/Chromium)
    */
   _requestGC() {
     try {
+      // Edge/Chromium: window.gc() может быть доступен с флагом
       if (typeof window !== 'undefined' && window.gc && typeof window.gc === 'function') {
         try {
           window.gc();
@@ -206,6 +226,7 @@ export class MemoryManager {
         }
       }
 
+      // Альтернативный способ: создание и очистка большого массива
       try {
         let tempArray = new Array(100000);
         tempArray.fill(0);
@@ -231,7 +252,13 @@ export class MemoryManager {
       memoryInfo: null
     };
 
-    if (typeof performance !== 'undefined' && performance.memory) {
+    if (this._edgeMemoryAPI) {
+      stats.memoryInfo = {
+        totalJSHeapSize: this._edgeMemoryAPI.totalJSHeapSize,
+        usedJSHeapSize: this._edgeMemoryAPI.usedJSHeapSize,
+        jsHeapSizeLimit: this._edgeMemoryAPI.jsHeapSizeLimit
+      };
+    } else if (typeof performance !== 'undefined' && performance.memory) {
       stats.memoryInfo = {
         totalJSHeapSize: performance.memory.totalJSHeapSize,
         usedJSHeapSize: performance.memory.usedJSHeapSize,

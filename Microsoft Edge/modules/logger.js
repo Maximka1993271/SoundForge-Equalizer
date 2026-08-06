@@ -1,8 +1,10 @@
 // ============================================
-//  LOGGER.JS - Система структурированного логирования
+//  LOGGER.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Система структурированного логирования
 //  Модуль для использования во всех компонентах
 //  Версия: 1.0.0
-//  ИСПРАВЛЕНО: обработка ошибок localStorage
+//  EDGE OPTIMIZED: обработка ошибок localStorage
 // ============================================
 
 /**
@@ -30,7 +32,7 @@ const LEVEL_NAMES = {
 };
 
 /**
- * Цвета для консоли
+ * Цвета для консоли (Edge/Chromium совместимые)
  */
 const COLORS = {
   ERROR: '#ff6b6b',
@@ -165,7 +167,7 @@ class Logger {
   }
 
   /**
-   * Вывод в консоль с форматированием
+   * Вывод в консоль с форматированием (Edge/Chromium совместимый)
    */
   _printToConsole(entry) {
     const { timestamp, levelName, module, message, data } = entry;
