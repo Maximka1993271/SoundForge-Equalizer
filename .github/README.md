@@ -312,11 +312,11 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ### 📦 Direct Download Links
 
-| Version | Download | Size |
-|---------|----------|------|
-| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip) | ~2 MB |
-| 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip.zip) | ~2 MB |
-| 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi) | ~2 MB |
+| Версия | Ссылка |
+|--------|--------|
+| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
+| 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Firefox.zip) |
+| 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi) |
 
 ---
 
@@ -324,7 +324,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ### 🔹 Microsoft Edge (Chromium)
 
-1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip)
+1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip)
 2. Extract to any folder
 3. Open Edge → `edge://extensions/`
 4. Enable **"Developer mode"**
@@ -338,7 +338,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 #### Option 1 — Quick Install (XPI file)
 
-1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi)
 2. **Drag and drop** the `.xpi` file into an open Firefox window
 3. Click **"Add"**
 
@@ -348,7 +348,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 #### Option 2 — Manual Install (ZIP file)
 
-1. Download [**SoundForge-Equalizer-v3.22.8-Firefox.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip.zip)
+1. Download [**SoundForge-Equalizer-v3.22.8-Firefox.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Firefox.zip)
 2. Extract to any folder
 3. Open Firefox → `about:debugging#/runtime/this-firefox`
 4. Click **"Load Temporary Add-on"**
@@ -389,7 +389,7 @@ Firefox blocks unsigned extensions by default. To install this extension permane
 
 If you're using **Firefox ESR** (Extended Support Release), signature verification is more flexible:
 
-1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi)
 2. Drag and drop the `.xpi` file into Firefox ESR
 3. Click **"Add"**
 
