@@ -322,7 +322,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ## 🔧 Installation
 
-### 🔹 Microsoft Edge (Chromium)
+### 🔹 Microsoft Edge
 
 1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip)
 2. Extract to any folder
