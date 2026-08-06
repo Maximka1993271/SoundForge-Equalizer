@@ -314,7 +314,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 | Версия | Ссылка |
 |--------|--------|
-| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
+| 🟦 **Microsoft Edge** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
 | 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Firefox.zip) |
 | 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi) |
 
