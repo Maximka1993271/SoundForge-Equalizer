@@ -1,10 +1,17 @@
-// ============================================
-//  HISTORY.JS - История изменений (v3.22.8)
+//  HISTORY.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  История изменений
 //  Хранение до 1000 записей
-//  ИСПРАВЛЕНО: обработка ошибок storage
+//  EDGE OPTIMIZED: обработка ошибок storage
 // ============================================
 
-const CONFIG = {
+var edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
+
+var _historyMutationQueue = Promise.resolve();
+var _historyTrackingInitialized = false;
+
+var CONFIG = {
   maxHistoryEntries: 1000,
   storageKey: 'settingsHistory',
   preserveForDays: 30
@@ -14,29 +21,37 @@ const CONFIG = {
 //  ДОБАВЛЕНИЕ ЗАПИСИ В ИСТОРИЮ
 // ============================================
 
-export function addHistoryEntry(action, data, metadata = {}) {
-  const entry = {
+export function addHistoryEntry(action, data, metadata) {
+  _historyMutationQueue = _historyMutationQueue
+    .catch(function() {})
+    .then(function() { return addHistoryEntryInternal(action, data, metadata); });
+  return _historyMutationQueue;
+}
+
+function addHistoryEntryInternal(action, data, metadata) {
+  metadata = metadata || {};
+  var entry = {
     id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: Date.now(),
     action: action,
-    data: data,
+    data: data || {},
     metadata: metadata,
     url: metadata.url || '',
     site: metadata.site || ''
   };
   
-  getHistory().then((history) => {
+  return getHistory().then(function(history) {
     history.push(entry);
     
     if (history.length > CONFIG.maxHistoryEntries) {
       history = history.slice(-CONFIG.maxHistoryEntries);
     }
     
-    const cutoff = Date.now() - (CONFIG.preserveForDays * 24 * 60 * 60 * 1000);
-    history = history.filter((h) => h.timestamp > cutoff);
+    var cutoff = Date.now() - (CONFIG.preserveForDays * 24 * 60 * 60 * 1000);
+    history = history.filter(function(h) { return h.timestamp > cutoff; });
     
-    saveHistory(history);
-  }).catch((e) => {
+    return saveHistory(history);
+  }).catch(function(e) {
     console.warn('⚠️ Ошибка добавления в историю:', e);
   });
 }
@@ -46,10 +61,10 @@ export function addHistoryEntry(action, data, metadata = {}) {
 // ============================================
 
 export function getHistory() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([CONFIG.storageKey], (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка получения истории:', chrome.runtime.lastError);
+  return new Promise(function(resolve) {
+    edgeAPI.storage.local.get([CONFIG.storageKey], function(result) {
+      if (edgeAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения истории:', edgeAPI.runtime.lastError);
         resolve([]);
         return;
       }
@@ -63,10 +78,13 @@ export function getHistory() {
 // ============================================
 
 function saveHistory(history) {
-  chrome.storage.local.set({ [CONFIG.storageKey]: history }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка сохранения истории:', chrome.runtime.lastError);
+  return new Promise(function(resolve) {
+  edgeAPI.storage.local.set({ [CONFIG.storageKey]: history }, function() {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка сохранения истории:', edgeAPI.runtime.lastError);
     }
+    resolve();
+  });
   });
 }
 
@@ -74,26 +92,25 @@ function saveHistory(history) {
 //  ПОЛУЧЕНИЕ ИСТОРИИ С ФИЛЬТРАМИ
 // ============================================
 
-export async function getHistoryWithFilters(filters = {}) {
-  try {
-    const history = await getHistory();
-    
-    let filtered = history;
+export function getHistoryWithFilters(filters) {
+  filters = filters || {};
+  return getHistory().then(function(history) {
+    var filtered = history;
     
     if (filters.action) {
-      filtered = filtered.filter((h) => h.action === filters.action);
+      filtered = filtered.filter(function(h) { return h.action === filters.action; });
     }
     
     if (filters.site) {
-      filtered = filtered.filter((h) => h.site === filters.site);
+      filtered = filtered.filter(function(h) { return h.site === filters.site; });
     }
     
     if (filters.fromDate) {
-      filtered = filtered.filter((h) => h.timestamp >= filters.fromDate);
+      filtered = filtered.filter(function(h) { return h.timestamp >= filters.fromDate; });
     }
     
     if (filters.toDate) {
-      filtered = filtered.filter((h) => h.timestamp <= filters.toDate);
+      filtered = filtered.filter(function(h) { return h.timestamp <= filters.toDate; });
     }
     
     if (filters.limit) {
@@ -101,21 +118,19 @@ export async function getHistoryWithFilters(filters = {}) {
     }
     
     return filtered;
-  } catch (e) {
+  }).catch(function(e) {
     console.warn('⚠️ Ошибка фильтрации истории:', e);
     return [];
-  }
+  });
 }
 
 // ============================================
 //  ПОЛУЧЕНИЕ СТАТИСТИКИ ИСТОРИИ
 // ============================================
 
-export async function getHistoryStats() {
-  try {
-    const history = await getHistory();
-    
-    const stats = {
+export function getHistoryStats() {
+  return getHistory().then(function(history) {
+    var stats = {
       total: history.length,
       byAction: {},
       bySite: {},
@@ -125,11 +140,11 @@ export async function getHistoryStats() {
       mostCommonSite: null
     };
     
-    const now = Date.now();
-    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-    const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+    var now = Date.now();
+    var weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    var monthAgo = now - 30 * 24 * 60 * 60 * 1000;
     
-    history.forEach((h) => {
+    history.forEach(function(h) {
       stats.byAction[h.action] = (stats.byAction[h.action] || 0) + 1;
       
       if (h.site) {
@@ -140,24 +155,24 @@ export async function getHistoryStats() {
       if (h.timestamp >= monthAgo) stats.lastMonth++;
     });
     
-    let maxAction = 0;
-    for (const [action, count] of Object.entries(stats.byAction)) {
-      if (count > maxAction) {
-        maxAction = count;
+    var maxAction = 0;
+    for (var action in stats.byAction) {
+      if (stats.byAction[action] > maxAction) {
+        maxAction = stats.byAction[action];
         stats.mostCommonAction = action;
       }
     }
     
-    let maxSite = 0;
-    for (const [site, count] of Object.entries(stats.bySite)) {
-      if (count > maxSite) {
-        maxSite = count;
+    var maxSite = 0;
+    for (var site in stats.bySite) {
+      if (stats.bySite[site] > maxSite) {
+        maxSite = stats.bySite[site];
         stats.mostCommonSite = site;
       }
     }
     
     return stats;
-  } catch (e) {
+  }).catch(function(e) {
     console.warn('⚠️ Ошибка получения статистики истории:', e);
     return {
       total: 0,
@@ -168,7 +183,7 @@ export async function getHistoryStats() {
       mostCommonAction: null,
       mostCommonSite: null
     };
-  }
+  });
 }
 
 // ============================================
@@ -176,9 +191,9 @@ export async function getHistoryStats() {
 // ============================================
 
 export function clearHistory() {
-  chrome.storage.local.set({ [CONFIG.storageKey]: [] }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка очистки истории:', chrome.runtime.lastError);
+  edgeAPI.storage.local.set({ [CONFIG.storageKey]: [] }, function() {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка очистки истории:', edgeAPI.runtime.lastError);
     } else {
       console.log('🗑️ История очищена');
     }
@@ -189,44 +204,44 @@ export function clearHistory() {
 //  ЭКСПОРТ ИСТОРИИ В JSON
 // ============================================
 
-export async function exportHistory() {
-  try {
-    const history = await getHistory();
+export function exportHistory() {
+  return getHistory().then(function(history) {
     return {
       version: '1.0',
       exported: Date.now(),
       total: history.length,
       history: history
     };
-  } catch (e) {
+  }).catch(function(e) {
     console.warn('⚠️ Ошибка экспорта истории:', e);
     throw e;
-  }
+  });
 }
 
 // ============================================
 //  ИМПОРТ ИСТОРИИ ИЗ JSON
 // ============================================
 
-export async function importHistory(jsonData) {
+export function importHistory(jsonData) {
   try {
-    const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+    var data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
     
     if (!data.history || !Array.isArray(data.history)) {
       throw new Error('Неверный формат данных');
     }
     
-    const current = await getHistory();
-    const merged = [...current, ...data.history];
-    
-    merged.sort((a, b) => a.timestamp - b.timestamp);
-    
-    const limited = merged.slice(-CONFIG.maxHistoryEntries);
-    
-    saveHistory(limited);
-    console.log(`📥 Импортировано ${data.history.length} записей`);
-    
-    return true;
+    return getHistory().then(function(current) {
+      var merged = current.concat(data.history);
+      
+      merged.sort(function(a, b) { return a.timestamp - b.timestamp; });
+      
+      var limited = merged.slice(-CONFIG.maxHistoryEntries);
+      
+      saveHistory(limited);
+      console.log('📥 Импортировано ' + data.history.length + ' записей');
+      
+      return true;
+    });
   } catch (e) {
     console.error('❌ Ошибка импорта истории:', e);
     throw e;
@@ -238,20 +253,23 @@ export async function importHistory(jsonData) {
 // ============================================
 
 export function initHistoryTracking() {
+  if (_historyTrackingInitialized) return;
+  _historyTrackingInitialized = true;
   console.log('📜 Инициализация отслеживания истории...');
   
-  chrome.storage.onChanged.addListener((changes, namespace) => {
+  edgeAPI.storage.onChanged.addListener(function(changes, namespace) {
     if (namespace !== 'local') return;
     
-    const settingsKeys = [
+    var settingsKeys = [
       'eqSettings', 'volumeBoost', 'bassBoost', 
       'selectedPreset', 'isConnected'
     ];
     
-    for (const key of settingsKeys) {
+    for (var i = 0; i < settingsKeys.length; i++) {
+      var key = settingsKeys[i];
       if (changes[key]) {
-        const oldValue = changes[key].oldValue;
-        const newValue = changes[key].newValue;
+        var oldValue = changes[key].oldValue;
+        var newValue = changes[key].newValue;
         
         if (oldValue !== newValue) {
           addHistoryEntry('settings_change', {
@@ -266,9 +284,9 @@ export function initHistoryTracking() {
     }
   });
   
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  edgeAPI.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.action === 'applyPreset' && request.preset) {
-      getCurrentSite().then((site) => {
+      getCurrentSite().then(function(site) {
         addHistoryEntry('preset_applied', {
           preset: request.preset
         }, {
@@ -281,7 +299,7 @@ export function initHistoryTracking() {
     }
     
     if (request.action === 'connect') {
-      getCurrentSite().then((site) => {
+      getCurrentSite().then(function(site) {
         addHistoryEntry('eq_enabled', {}, {
           source: request.source || 'ui',
           site: site
@@ -290,7 +308,7 @@ export function initHistoryTracking() {
     }
     
     if (request.action === 'disconnect') {
-      getCurrentSite().then((site) => {
+      getCurrentSite().then(function(site) {
         addHistoryEntry('eq_disabled', {}, {
           source: request.source || 'ui',
           site: site
@@ -305,16 +323,16 @@ export function initHistoryTracking() {
 }
 
 function getCurrentSite() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
+  return new Promise(function(resolve) {
+    edgeAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (edgeAPI.runtime.lastError || !tabs || tabs.length === 0) {
         resolve('unknown');
         return;
       }
       
       if (tabs[0].url) {
         try {
-          const url = new URL(tabs[0].url);
+          var url = new URL(tabs[0].url);
           resolve(url.hostname.replace('www.', ''));
         } catch {
           resolve('unknown');
@@ -331,13 +349,13 @@ function getCurrentSite() {
 // ============================================
 
 export default {
-  addHistoryEntry,
-  getHistory,
-  getHistoryWithFilters,
-  getHistoryStats,
-  clearHistory,
-  exportHistory,
-  importHistory,
-  initHistoryTracking,
-  CONFIG
+  addHistoryEntry: addHistoryEntry,
+  getHistory: getHistory,
+  getHistoryWithFilters: getHistoryWithFilters,
+  getHistoryStats: getHistoryStats,
+  clearHistory: clearHistory,
+  exportHistory: exportHistory,
+  importHistory: importHistory,
+  initHistoryTracking: initHistoryTracking,
+  CONFIG: CONFIG
 };

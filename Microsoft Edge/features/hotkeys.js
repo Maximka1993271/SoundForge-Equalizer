@@ -1,10 +1,16 @@
-// ============================================
-//  HOTKEYS.JS - Горячие клавиши (v3.22.8)
+//  HOTKEYS.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Горячие клавиши
 //  Поддержка 3 языков: RU, UA, EN
-//  ИСПРАВЛЕНО: обработка ошибок commands.update
+//  EDGE OPTIMIZED: обработка ошибок commands.update
 // ============================================
 
-const HOTKEY_LABELS = {
+var edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
+
+var _hotkeysInitialized = false;
+
+var HOTKEY_LABELS = {
   ru: {
     toggle_eq: 'Включить/выключить эквалайзер (Ctrl+Shift+E)',
     next_preset: 'Следующий пресет (Ctrl+Shift+Y)',
@@ -30,12 +36,14 @@ const HOTKEY_LABELS = {
 // ============================================
 
 export function initHotkeys() {
+  if (_hotkeysInitialized) return;
+  _hotkeysInitialized = true;
   console.log('⌨️ Инициализация горячих клавиш...');
   
   updateCommandDescriptions();
   
-  chrome.commands.onCommand.addListener((command) => {
-    console.log(`⌨️ Горячая клавиша: ${command}`);
+  edgeAPI.commands.onCommand.addListener(function(command) {
+    console.log('⌨️ Горячая клавиша:', command);
     handleHotkeyCommand(command);
   });
   
@@ -47,9 +55,9 @@ export function initHotkeys() {
 // ============================================
 
 function handleHotkeyCommand(command) {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
-    const tabId = tabs[0].id;
+  edgeAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (edgeAPI.runtime.lastError || !tabs || tabs.length === 0) return;
+    var tabId = tabs[0].id;
     
     switch (command) {
       case 'toggle_eq':
@@ -69,7 +77,7 @@ function handleHotkeyCommand(command) {
         break;
         
       default:
-        console.log(`⚠️ Неизвестная команда: ${command}`);
+        console.log('⚠️ Неизвестная команда:', command);
     }
   });
 }
@@ -79,41 +87,22 @@ function handleHotkeyCommand(command) {
 // ============================================
 
 function toggleEqualizer(tabId) {
-  chrome.storage.local.get(['isConnected'], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка получения состояния:', chrome.runtime.lastError);
+  edgeAPI.runtime.sendMessage({ action: 'getStatus', targetTabId: tabId }, function(statusResponse) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения состояния:', edgeAPI.runtime.lastError);
       return;
     }
-    
-    const isConnected = result.isConnected === true;
-    
-    if (isConnected) {
-      chrome.runtime.sendMessage({ action: 'disconnect' }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn('⚠️ Ошибка отключения:', chrome.runtime.lastError);
-          return;
-        }
-        showNotification(
-          '🔊 SoundForge',
-          getTranslation('eq_disabled'),
-          'info'
-        );
-        updateIcon(false);
-      });
-    } else {
-      chrome.runtime.sendMessage({ action: 'connect' }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn('⚠️ Ошибка подключения:', chrome.runtime.lastError);
-          return;
-        }
-        showNotification(
-          '🔊 SoundForge',
-          getTranslation('eq_enabled'),
-          'success'
-        );
-        updateIcon(true);
-      });
-    }
+    var isConnected = statusResponse && statusResponse.status === 'connected';
+    var action = isConnected ? 'disconnect' : 'connect';
+    edgeAPI.runtime.sendMessage({ action: action, targetTabId: tabId, source: 'hotkey' }, function(response) {
+      if (edgeAPI.runtime.lastError || !response || response.status === 'error') {
+        console.warn('⚠️ Ошибка команды ' + action + ':', edgeAPI.runtime.lastError || response);
+        return;
+      }
+      var connected = action === 'connect';
+      showNotification('🔊 SoundForge', getTranslationSync(connected ? 'eq_enabled' : 'eq_disabled'), connected ? 'success' : 'info');
+      updateIcon(connected);
+    });
   });
 }
 
@@ -122,16 +111,16 @@ function toggleEqualizer(tabId) {
 // ============================================
 
 function nextPreset(tabId) {
-  chrome.storage.local.get(['selectedPreset', 'presetHistory'], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка получения пресета:', chrome.runtime.lastError);
+  edgeAPI.storage.local.get(['selectedPreset', 'presetHistory'], function(result) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения пресета:', edgeAPI.runtime.lastError);
       return;
     }
     
-    const currentPreset = result.selectedPreset || 'flat';
-    const history = result.presetHistory || [];
+    var currentPreset = result.selectedPreset || 'flat';
+    var history = result.presetHistory || [];
     
-    const allPresets = [
+    var allPresets = [
       'flat', 'natural', 'universal', 'balanced',
       'club', 'dance', 'edm', 'synthwave', 'deephouse',
       'rock', 'metal', 'hardrock', 'grunge',
@@ -146,33 +135,35 @@ function nextPreset(tabId) {
       'hifi', 'studio', 'premium', 'master'
     ];
     
-    let currentIndex = allPresets.indexOf(currentPreset);
+    var currentIndex = allPresets.indexOf(currentPreset);
     if (currentIndex === -1) currentIndex = 0;
     
-    const nextIndex = (currentIndex + 1) % allPresets.length;
-    const nextPresetName = allPresets[nextIndex];
+    var nextIndex = (currentIndex + 1) % allPresets.length;
+    var nextPresetName = allPresets[nextIndex];
     
-    chrome.runtime.sendMessage({ 
+    edgeAPI.runtime.sendMessage({ 
       action: 'applyPreset', 
-      preset: nextPresetName 
+      preset: nextPresetName,
+      targetTabId: tabId,
+      source: 'hotkey' 
     });
     
-    const newHistory = [...history, {
+    var newHistory = history.concat([{
       preset: nextPresetName,
       timestamp: Date.now(),
       action: 'hotkey'
-    }];
+    }]);
     if (newHistory.length > 100) newHistory.shift();
     
-    chrome.storage.local.set({
+    edgeAPI.storage.local.set({
       selectedPreset: nextPresetName,
       presetHistory: newHistory
     });
     
-    const presetNames = getPresetNames();
+    var presetNames = getPresetNames();
     showNotification(
       '🎵 SoundForge',
-      `${getTranslation('preset_changed')}: ${presetNames[nextPresetName] || nextPresetName}`,
+      getTranslationSync('preset_changed') + ': ' + (presetNames[nextPresetName] || nextPresetName),
       'info'
     );
   });
@@ -183,20 +174,12 @@ function nextPreset(tabId) {
 // ============================================
 
 function resetAllSettings(tabId) {
-  chrome.runtime.sendMessage({ 
-    action: 'reset', 
-    fullReset: true 
-  });
-  
-  chrome.storage.local.clear(() => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка очистки storage:', chrome.runtime.lastError);
+  edgeAPI.runtime.sendMessage({ action: 'reset', fullReset: true, targetTabId: tabId, source: 'hotkey' }, function(response) {
+    if (edgeAPI.runtime.lastError || !response || response.status === 'error') {
+      console.warn('⚠️ Ошибка сброса:', edgeAPI.runtime.lastError || response);
+      return;
     }
-    showNotification(
-      '🔄 SoundForge',
-      getTranslation('settings_reset'),
-      'warning'
-    );
+    showNotification('🔄 SoundForge', getTranslationSync('settings_reset'), 'warning');
     updateIcon(false);
   });
 }
@@ -206,16 +189,16 @@ function resetAllSettings(tabId) {
 // ============================================
 
 function openEqualizerWindow() {
-  chrome.windows.create({
-    url: chrome.runtime.getURL('window.html'),
+  edgeAPI.windows.create({
+    url: edgeAPI.runtime.getURL('window.html'),
     type: 'popup',
-    width: 500,
-    height: 750,
+    width: 560,
+    height: 820,
     top: 100,
     left: 100
-  }, (window) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка открытия окна:', chrome.runtime.lastError);
+  }, function(window) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка открытия окна:', edgeAPI.runtime.lastError);
     } else {
       console.log('🪟 Окно эквалайзера открыто');
     }
@@ -227,28 +210,28 @@ function openEqualizerWindow() {
 // ============================================
 
 export function updateIcon(isActive) {
-  const iconPath = isActive 
-    ? 'icons/SoundForge.png'
-    : 'icons/SoundForge-off.png';
+  var iconPath = isActive 
+    ? 'icons/SoundForge_128x128.png'
+    : 'icons/SoundForge-off_128x128.png';
   
-  chrome.action.setIcon({
+  edgeAPI.action.setIcon({
     path: {
       16: iconPath,
       48: iconPath,
       128: iconPath
     }
-  }, () => {
-    if (chrome.runtime.lastError) {
+  }, function() {
+    if (edgeAPI.runtime.lastError) {
       // Игнорируем ошибку
     }
   });
   
-  chrome.action.setBadgeText({
+  edgeAPI.action.setBadgeText({
     text: isActive ? '🔊' : ''
   });
   
   if (isActive) {
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    edgeAPI.action.setBadgeBackgroundColor({ color: '#4CAF50' });
   }
 }
 
@@ -257,30 +240,30 @@ export function updateIcon(isActive) {
 // ============================================
 
 function updateCommandDescriptions() {
-  chrome.storage.local.get(['language'], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка получения языка:', chrome.runtime.lastError);
+  edgeAPI.storage.local.get(['language'], function(result) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения языка:', edgeAPI.runtime.lastError);
       return;
     }
     
-    const lang = result.language || 'ru';
-    const labels = HOTKEY_LABELS[lang] || HOTKEY_LABELS.en;
+    var lang = result.language || 'ru';
+    var labels = HOTKEY_LABELS[lang] || HOTKEY_LABELS.en;
     
-    const commands = [
+    var commands = [
       'toggle_eq',
       'next_preset',
       'reset_settings',
       'open_window'
     ];
     
-    commands.forEach((cmd) => {
+    commands.forEach(function(cmd) {
       try {
-        chrome.commands.update({
+        edgeAPI.commands.update({
           name: cmd,
           description: labels[cmd] || cmd
         });
       } catch (e) {
-        console.warn(`⚠️ Ошибка обновления команды ${cmd}:`, e);
+        console.warn('⚠️ Ошибка обновления команды', cmd, ':', e);
       }
     });
   });
@@ -346,10 +329,10 @@ function getPresetNames() {
 }
 
 // ============================================
-//  ПЕРЕВОДЫ ДЛЯ УВЕДОМЛЕНИЙ
+//  ПЕРЕВОДЫ ДЛЯ УВЕДОМЛЕНИЙ (СИНХРОННЫЙ ВАРИАНТ)
 // ============================================
 
-const TRANSLATIONS = {
+var TRANSLATIONS = {
   ru: {
     eq_enabled: '🔊 Эквалайзер включен',
     eq_disabled: '🔇 Эквалайзер выключен',
@@ -370,53 +353,49 @@ const TRANSLATIONS = {
   }
 };
 
-function getTranslation(key) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['language'], (result) => {
-      if (chrome.runtime.lastError) {
-        resolve(key);
-        return;
-      }
-      const lang = result.language || 'ru';
-      const dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
-      resolve(dict[key] || key);
-    });
-  });
+function getTranslationSync(key) {
+  try {
+    var lang = localStorage.getItem('soundforge_language') || 'ru';
+    var dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
+    return dict[key] || key;
+  } catch (e) {
+    return key;
+  }
 }
 
 // ============================================
 //  УВЕДОМЛЕНИЯ
 // ============================================
 
-function showNotification(title, message, type = 'info') {
-  const types = {
+function showNotification(title, message, type) {
+  type = type || 'info';
+  var types = {
     success: { icon: '✅', color: '#4CAF50' },
     info: { icon: 'ℹ️', color: '#2196F3' },
     warning: { icon: '⚠️', color: '#FF9800' },
     error: { icon: '❌', color: '#f44336' }
   };
   
-  const info = types[type] || types.info;
+  var info = types[type] || types.info;
   
   try {
-    // Проверяем доступность notifications API
-    if (typeof chrome !== 'undefined' && chrome.notifications) {
-      chrome.notifications.create({
+    if (typeof edgeAPI !== 'undefined' && edgeAPI.notifications) {
+      edgeAPI.notifications.create({
         type: 'basic',
-        iconUrl: 'icons/SoundForge.png',
+        iconUrl: 'icons/SoundForge_128x128.png',
         title: title,
         message: message,
         priority: 1
-      }, (notificationId) => {
-        if (chrome.runtime.lastError) {
-          console.log(`${info.icon} ${title}: ${message}`);
+      }, function(notificationId) {
+        if (edgeAPI.runtime.lastError) {
+          console.log(info.icon + ' ' + title + ': ' + message);
         }
       });
     } else {
-      console.log(`${info.icon} ${title}: ${message}`);
+      console.log(info.icon + ' ' + title + ': ' + message);
     }
   } catch (e) {
-    console.log(`${info.icon} ${title}: ${message}`);
+    console.log(info.icon + ' ' + title + ': ' + message);
   }
 }
 
@@ -425,8 +404,8 @@ function showNotification(title, message, type = 'info') {
 // ============================================
 
 export default {
-  initHotkeys,
-  updateIcon,
-  handleHotkeyCommand,
-  showNotification
+  initHotkeys: initHotkeys,
+  updateIcon: updateIcon,
+  handleHotkeyCommand: handleHotkeyCommand,
+  showNotification: showNotification
 };

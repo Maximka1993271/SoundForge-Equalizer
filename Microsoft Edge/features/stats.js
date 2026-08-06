@@ -1,27 +1,32 @@
-// ============================================
-//  STATS.JS - Статистика использования (v3.22.8)
+//  STATS.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Статистика использования
 //  Энергосбережение: снижение частоты обновлений
-//  ИСПРАВЛЕНО: очистка интервалов и обработка ошибок
+//  EDGE OPTIMIZED: очистка интервалов и обработка ошибок
 // ============================================
 
-const CONFIG = {
+var edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
+
+var CONFIG = {
   storageKey: 'usageStats',
   maxDays: 30,
   powerSaveInterval: 5000,
   normalInterval: 50
 };
 
-let _powerSaveMode = false;
-let _stats = null;
-let _trackingInterval = null;
-let _isTracking = false;
+var _powerSaveMode = false;
+var _stats = null;
+var _trackingInterval = null;
+var _isTracking = false;
 
 // ============================================
 //  ИНИЦИАЛИЗАЦИЯ СТАТИСТИКИ
 // ============================================
 
-export function initStats() {
-  loadStats();
+export async function initStats() {
+  if (_isTracking) return;
+  await loadStats();
   startTracking();
   console.log('📊 Статистика использования активирована');
 }
@@ -31,16 +36,32 @@ export function initStats() {
 // ============================================
 
 function loadStats() {
-  chrome.storage.local.get([CONFIG.storageKey], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка загрузки статистики:', chrome.runtime.lastError);
+  return new Promise(function(resolve) {
+    edgeAPI.storage.local.get([CONFIG.storageKey], function(result) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка загрузки статистики:', edgeAPI.runtime.lastError);
       _stats = getDefaultStats();
+      resolve(_stats);
       return;
     }
     
-    _stats = result[CONFIG.storageKey] || getDefaultStats();
+    _stats = normalizeStats(result[CONFIG.storageKey]);
     saveStats();
+    resolve(_stats);
+    });
   });
+}
+
+function normalizeStats(value) {
+  var defaults = getDefaultStats();
+  if (!value || typeof value !== 'object') return defaults;
+  return {
+    ...defaults,
+    ...value,
+    presetsUsed: value.presetsUsed && typeof value.presetsUsed === 'object' ? value.presetsUsed : {},
+    sitesUsed: value.sitesUsed && typeof value.sitesUsed === 'object' ? value.sitesUsed : {},
+    dailyStats: value.dailyStats && typeof value.dailyStats === 'object' ? value.dailyStats : {}
+  };
 }
 
 function getDefaultStats() {
@@ -62,9 +83,9 @@ function getDefaultStats() {
 function saveStats() {
   if (!_stats) return;
   
-  chrome.storage.local.set({ [CONFIG.storageKey]: _stats }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка сохранения статистики:', chrome.runtime.lastError);
+  edgeAPI.storage.local.set({ [CONFIG.storageKey]: _stats }, function() {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка сохранения статистики:', edgeAPI.runtime.lastError);
     }
   });
 }
@@ -77,7 +98,8 @@ function startTracking() {
   if (_isTracking) return;
   _isTracking = true;
   
-  const day = getDayKey();
+  if (!_stats) _stats = getDefaultStats();
+  var day = getDayKey();
   
   if (!_stats.dailyStats[day]) {
     _stats.dailyStats[day] = {
@@ -94,20 +116,20 @@ function startTracking() {
   _stats.totalSessions++;
   _stats.dailyStats[day].sessions++;
   
-  const startTime = Date.now();
+  var startTime = Date.now();
   
   if (_trackingInterval) {
     clearInterval(_trackingInterval);
     _trackingInterval = null;
   }
   
-  _trackingInterval = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    const dayKey = getDayKey();
-    
-    if (_stats.dailyStats[dayKey]) {
-      _stats.dailyStats[dayKey].time += 1000;
+  _trackingInterval = setInterval(function() {
+    if (!_stats) return;
+    var dayKey = getDayKey();
+    if (!_stats.dailyStats[dayKey]) {
+      _stats.dailyStats[dayKey] = { date: dayKey, sessions: 0, time: 0, presetsUsed: {}, eqChanges: 0, volumeChanges: 0, maxVolume: 0 };
     }
+    _stats.dailyStats[dayKey].time += 1000;
     
     _stats.totalTime += 1000;
     _stats.lastUpdate = Date.now();
@@ -136,7 +158,7 @@ export function stopTracking() {
 export function trackPresetUsage(preset) {
   if (!_stats) return;
   
-  const day = getDayKey();
+  var day = getDayKey();
   
   _stats.presetsUsed[preset] = (_stats.presetsUsed[preset] || 0) + 1;
   
@@ -156,7 +178,7 @@ export function trackSiteUsage(url) {
   if (!_stats) return;
   
   try {
-    const domain = new URL(url).hostname.replace('www.', '');
+    var domain = new URL(url).hostname.replace('www.', '');
     _stats.sitesUsed[domain] = (_stats.sitesUsed[domain] || 0) + 1;
     saveStats();
   } catch (e) {
@@ -171,7 +193,7 @@ export function trackSiteUsage(url) {
 export function trackChange(type, value) {
   if (!_stats) return;
   
-  const day = getDayKey();
+  var day = getDayKey();
   
   if (_stats.dailyStats[day]) {
     if (type === 'eq') {
@@ -202,29 +224,35 @@ export function getStats() {
   return _stats;
 }
 
-export function getDailyStats(day = null) {
-  if (!day) day = getDayKey();
+export function getDailyStats(day) {
+  day = day || getDayKey();
   return _stats?.dailyStats[day] || null;
 }
 
-export function getTopPresets(limit = 10) {
+export function getTopPresets(limit) {
+  limit = limit || 10;
   if (!_stats) return [];
   
-  const presets = Object.entries(_stats.presetsUsed || {})
-    .sort((a, b) => b[1] - a[1])
+  var presets = Object.entries(_stats.presetsUsed || {})
+    .sort(function(a, b) { return b[1] - a[1]; })
     .slice(0, limit);
   
-  return presets.map(([name, count]) => ({ name, count }));
+  return presets.map(function(item) {
+    return { name: item[0], count: item[1] };
+  });
 }
 
-export function getTopSites(limit = 10) {
+export function getTopSites(limit) {
+  limit = limit || 10;
   if (!_stats) return [];
   
-  const sites = Object.entries(_stats.sitesUsed || {})
-    .sort((a, b) => b[1] - a[1])
+  var sites = Object.entries(_stats.sitesUsed || {})
+    .sort(function(a, b) { return b[1] - a[1]; })
     .slice(0, limit);
   
-  return sites.map(([domain, count]) => ({ domain, count }));
+  return sites.map(function(item) {
+    return { domain: item[0], count: item[1] };
+  });
 }
 
 // ============================================
@@ -234,19 +262,19 @@ export function getTopSites(limit = 10) {
 export function setPowerSaveMode(enabled) {
   _powerSaveMode = enabled;
   
-  chrome.storage.local.set({ powerSaveMode: enabled }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка сохранения powerSaveMode:', chrome.runtime.lastError);
+  edgeAPI.storage.local.set({ powerSaveMode: enabled }, function() {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка сохранения powerSaveMode:', edgeAPI.runtime.lastError);
     }
   });
   
-  chrome.runtime.sendMessage({
+  edgeAPI.runtime.sendMessage({
     action: 'powerSaveModeChanged',
     enabled: enabled,
     interval: enabled ? CONFIG.powerSaveInterval : CONFIG.normalInterval
   });
   
-  console.log(`⚡ Режим энергосбережения: ${enabled ? 'ВКЛ' : 'ВЫКЛ'}`);
+  console.log('⚡ Режим энергосбережения:', enabled ? 'ВКЛ' : 'ВЫКЛ');
 }
 
 export function getPowerSaveMode() {
@@ -278,18 +306,18 @@ export function destroyStats() {
 // ============================================
 
 export default {
-  initStats,
-  stopTracking,
-  destroyStats,
-  getStats,
-  getDailyStats,
-  getTopPresets,
-  getTopSites,
-  trackPresetUsage,
-  trackSiteUsage,
-  trackChange,
-  setPowerSaveMode,
-  getPowerSaveMode,
-  clearStats,
-  CONFIG
+  initStats: initStats,
+  stopTracking: stopTracking,
+  destroyStats: destroyStats,
+  getStats: getStats,
+  getDailyStats: getDailyStats,
+  getTopPresets: getTopPresets,
+  getTopSites: getTopSites,
+  trackPresetUsage: trackPresetUsage,
+  trackSiteUsage: trackSiteUsage,
+  trackChange: trackChange,
+  setPowerSaveMode: setPowerSaveMode,
+  getPowerSaveMode: getPowerSaveMode,
+  clearStats: clearStats,
+  CONFIG: CONFIG
 };

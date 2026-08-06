@@ -1,27 +1,33 @@
 // ============================================
-//  NOTIFICATIONS.JS - Уведомления об обновлениях (v3.22.8)
+//  NOTIFICATIONS.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  Уведомления об обновлениях
 //  3 языка: RU, UA, EN
-//  ИСПРАВЛЕНО: обработка ошибок notifications API
+//  EDGE OPTIMIZED: обработка ошибок notifications API
 // ============================================
 
-const VERSION = '3.22.8';
-const STORAGE_KEY = 'lastUpdateNotification';
-const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // Раз в день
+var edgeAPI = globalThis.browser || globalThis.chrome;
+if (!edgeAPI?.runtime) throw new Error('Microsoft Edge extension API unavailable');
 
-const UPDATE_MESSAGES = {
+var VERSION = '3.22.8';
+var _notificationHandlersInitialized = false;
+var STORAGE_KEY = 'lastUpdateNotification';
+var CHECK_INTERVAL = 24 * 60 * 60 * 1000; // Раз в день
+
+var UPDATE_MESSAGES = {
   ru: {
     title: '🎵 SoundForge обновлен!',
-    message: `Версия ${VERSION} доступна. Новые пресеты и улучшения!`,
+    message: 'Версия ' + VERSION + ' доступна. Новые пресеты и улучшения!',
     button: 'Подробнее'
   },
   uk: {
     title: '🎵 SoundForge оновлено!',
-    message: `Версія ${VERSION} доступна. Нові пресети та покращення!`,
+    message: 'Версія ' + VERSION + ' доступна. Нові пресети та покращення!',
     button: 'Детальніше'
   },
   en: {
     title: '🎵 SoundForge updated!',
-    message: `Version ${VERSION} available. New presets and improvements!`,
+    message: 'Version ' + VERSION + ' available. New presets and improvements!',
     button: 'Learn more'
   }
 };
@@ -31,23 +37,23 @@ const UPDATE_MESSAGES = {
 // ============================================
 
 export function checkForUpdates() {
-  chrome.storage.local.get([STORAGE_KEY], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка проверки обновлений:', chrome.runtime.lastError);
+  edgeAPI.storage.local.get([STORAGE_KEY], function(result) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка проверки обновлений:', edgeAPI.runtime.lastError);
       return;
     }
     
-    const lastCheck = result[STORAGE_KEY] || 0;
-    const now = Date.now();
+    var lastCheck = result[STORAGE_KEY] || 0;
+    var now = Date.now();
     
     if (now - lastCheck < CHECK_INTERVAL) {
       console.log('ℹ️ Проверка обновлений: ожидание');
       return;
     }
     
-    chrome.storage.local.set({ [STORAGE_KEY]: now }, () => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка сохранения времени проверки:', chrome.runtime.lastError);
+    edgeAPI.storage.local.set({ [STORAGE_KEY]: now }, function() {
+      if (edgeAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка сохранения времени проверки:', edgeAPI.runtime.lastError);
         return;
       }
       showUpdateNotification();
@@ -60,35 +66,34 @@ export function checkForUpdates() {
 // ============================================
 
 function showUpdateNotification() {
-  chrome.storage.local.get(['language'], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка получения языка:', chrome.runtime.lastError);
+  edgeAPI.storage.local.get(['language'], function(result) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения языка:', edgeAPI.runtime.lastError);
       return;
     }
     
-    const lang = result.language || 'ru';
-    const messages = UPDATE_MESSAGES[lang] || UPDATE_MESSAGES.en;
+    var lang = result.language || 'ru';
+    var messages = UPDATE_MESSAGES[lang] || UPDATE_MESSAGES.en;
     
-    // Проверяем доступность notifications API
-    if (typeof chrome === 'undefined' || !chrome.notifications) {
-      console.log(`📢 ${messages.title}: ${messages.message}`);
+    if (typeof edgeAPI === 'undefined' || !edgeAPI.notifications) {
+      console.log('📢 ' + messages.title + ': ' + messages.message);
       return;
     }
     
     try {
-      chrome.notifications.create({
+      edgeAPI.notifications.create({
         type: 'basic',
-        iconUrl: 'icons/SoundForge.png',
+        iconUrl: 'icons/SoundForge_128x128.png',
         title: messages.title,
         message: messages.message,
         buttons: [{ title: messages.button }],
         priority: 2,
         requireInteraction: true
-      }, (notificationId) => {
-        if (chrome.runtime.lastError) {
-          console.warn('⚠️ Ошибка создания уведомления:', chrome.runtime.lastError);
+      }, function(notificationId) {
+        if (edgeAPI.runtime.lastError) {
+          console.warn('⚠️ Ошибка создания уведомления:', edgeAPI.runtime.lastError);
         } else {
-          console.log(`📢 Показано уведомление об обновлении (${lang})`);
+          console.log('📢 Показано уведомление об обновлении (' + lang + ')');
         }
       });
     } catch (e) {
@@ -101,17 +106,16 @@ function showUpdateNotification() {
 //  ОБРАБОТЧИК КЛИКА ПО УВЕДОМЛЕНИЮ
 // ============================================
 
-if (typeof chrome !== 'undefined' && chrome.notifications) {
-  chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-    if (notificationId && buttonIndex === 0) {
-      chrome.tabs.create({
-        url: 'https://github.com/yourusername/soundforge/releases'
-      });
-    }
+if (!_notificationHandlersInitialized && typeof edgeAPI !== 'undefined' && edgeAPI.notifications) {
+  _notificationHandlersInitialized = true;
+  var openChangelog = function() {
+    edgeAPI.tabs.create({ url: edgeAPI.runtime.getURL('Readme/%D0%A7%D1%82%D0%BE%20%D0%BD%D0%BE%D0%B2%D0%BE%D0%B3%D0%BE.txt') });
+  };
+  edgeAPI.notifications.onButtonClicked.addListener(function(notificationId, buttonIndex) {
+    if (notificationId && buttonIndex === 0) openChangelog();
   });
-
-  chrome.notifications.onClicked.addListener((notificationId) => {
-    chrome.runtime.openOptionsPage();
+  edgeAPI.notifications.onClicked.addListener(function(notificationId) {
+    if (notificationId) openChangelog();
   });
 }
 
@@ -128,7 +132,7 @@ export function forceShowUpdateNotification() {
 // ============================================
 
 export default {
-  checkForUpdates,
-  forceShowUpdateNotification,
-  VERSION
+  checkForUpdates: checkForUpdates,
+  forceShowUpdateNotification: forceShowUpdateNotification,
+  VERSION: VERSION
 };
