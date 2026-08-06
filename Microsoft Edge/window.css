@@ -1,5 +1,8 @@
 /* ============================================
-   WINDOW.CSS - Standalone Window Styles
+   WINDOW.CSS - SoundForge v3.22.8 Edge 151
+   Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+   Standalone Window Styles
+   EDGE OPTIMIZED: Segoe UI Variable, адаптивные размеры
    ============================================ */
 
 body {
@@ -9,6 +12,7 @@ body {
   border-radius: 0;
   overflow-y: auto;
   min-height: 100vh;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', Arial, sans-serif;
 }
 
 body:not(.expanded) {
@@ -16,7 +20,10 @@ body:not(.expanded) {
   max-height: 100vh;
 }
 
-/* Close button */
+/* ============================================
+   КНОПКА ЗАКРЫТИЯ ОКНА
+   ============================================ */
+
 .close-window {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -31,6 +38,7 @@ body:not(.expanded) {
   transition: all 0.3s;
   color: #ff6b6b;
   flex-shrink: 0;
+  min-height: 32px;
 }
 
 .close-window:hover {
@@ -48,7 +56,10 @@ body:not(.expanded) {
   background: rgba(233, 69, 96, 0.15);
 }
 
-/* Expand button */
+/* ============================================
+   КНОПКА РАЗВЕРНУТЬ (EDGE OPTIMIZED)
+   ============================================ */
+
 .expand-toggle {
   font-size: 16px;
   background: rgba(255, 255, 255, 0.04);
@@ -63,6 +74,7 @@ body:not(.expanded) {
   transition: all 0.3s;
   color: #fff;
   flex-shrink: 0;
+  min-height: 32px;
 }
 
 .expand-toggle:hover {
@@ -80,7 +92,10 @@ body:not(.expanded) {
   background: rgba(0, 0, 0, 0.08);
 }
 
-/* Fullscreen mode */
+/* ============================================
+   ПОЛНОЭКРАННЫЙ РЕЖИМ (F11)
+   ============================================ */
+
 body.fullscreen-expanded {
   width: 100% !important;
   max-height: 100vh !important;
@@ -281,7 +296,11 @@ body.fullscreen-expanded .freq-labels span {
   font-size: 9px !important;
 }
 
-/* Adaptive for small screens */
+/* ============================================
+   АДАПТИВ ДЛЯ МАЛЫХ ЭКРАНОВ (до 600px)
+   EDGE OPTIMIZED: читаемые размеры
+   ============================================ */
+
 @media (max-width: 600px) {
   body {
     padding: 12px;
@@ -369,7 +388,10 @@ body.fullscreen-expanded .freq-labels span {
   }
 }
 
-/* Clip indicator */
+/* ============================================
+   ИНДИКАТОР КЛИППИНГА
+   ============================================ */
+
 #clipIndicator {
   position: fixed;
   top: 20px;
@@ -388,7 +410,7 @@ body.fullscreen-expanded .freq-labels span {
   text-align: center;
   max-width: 90%;
   backdrop-filter: blur(8px);
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', Arial, sans-serif;
   letter-spacing: 0.5px;
   border: 2px solid rgba(255, 255, 255, 0.3);
   animation: clipPulse 0.5s ease-in-out;
@@ -399,7 +421,10 @@ body.fullscreen-expanded .freq-labels span {
   50% { transform: translateX(-50%) scale(1.05); opacity: 0.85; }
 }
 
-/* Extra buttons */
+/* ============================================
+   ДОПОЛНИТЕЛЬНЫЕ КНОПКИ (EDGE OPTIMIZED)
+   ============================================ */
+
 .btn-night-mode,
 .btn-power-save,
 .btn-history,
@@ -413,6 +438,11 @@ body.fullscreen-expanded .freq-labels span {
   color: #8899bb;
   cursor: pointer;
   transition: all 0.3s;
+  min-height: 28px;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', Arial, sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.18;
 }
 
 .btn-night-mode:hover,
@@ -443,7 +473,10 @@ body.fullscreen-expanded .freq-labels span {
   color: #1a1a2e;
 }
 
-/* Volume status indicator */
+/* ============================================
+   ИНДИКАТОР СОСТОЯНИЯ ГРОМКОСТИ
+   ============================================ */
+
 .volume-status {
   font-size: 8px;
   font-weight: 700;
@@ -458,3 +491,174 @@ body.fullscreen-expanded .freq-labels span {
   min-width: 20px;
   text-align: center;
 }
+
+/* ============================================
+   EDGE 151 UI HARDENING
+   ============================================ */
+
+:root {
+  --sf-edge-font: "Segoe UI Variable Text", "Segoe UI", Arial, sans-serif;
+  --sf-edge-ui-scale: 1;
+}
+
+html, body {
+  font-family: var(--sf-edge-font) !important;
+  text-rendering: optimizeLegibility;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+body {
+  overflow-x: hidden !important;
+}
+
+button, select, input, textarea {
+  font: inherit;
+}
+
+button, .btn, .control-btn, .mode-btn {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.18 !important;
+  min-height: 32px;
+}
+
+select {
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.status, .status-text, .preset-message, .volume-status {
+  overflow-wrap: anywhere;
+}
+
+.controls, .button-row, .mode-buttons, .quick-actions {
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.eq-row, .slider-row {
+  width: 100%;
+  max-width: 100%;
+}
+
+canvas {
+  display: block;
+  width: 100% !important;
+  max-width: 100%;
+}
+
+/* ============================================
+   FORCED COLORS MODE (Edge/Windows)
+   ============================================ */
+
+@media (forced-colors: active) {
+  button, select, input {
+    forced-color-adjust: auto;
+  }
+}
+
+/* ============================================
+   REDUCED MOTION (Edge/Windows)
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   АДАПТИВНЫЙ РАЗМЕР ШРИФТА
+   ============================================ */
+
+body {
+  font-size: clamp(12px, 1.6vw, 14px) !important;
+}
+
+.equalizer-container, .container {
+  width: 100% !important;
+  max-width: 760px !important;
+  margin-inline: auto !important;
+}
+
+@media (max-width: 560px) {
+  body {
+    font-size: 12px !important;
+  }
+}
+
+/* ============================================
+   СТИЛИ ДЛЯ КНОПКИ ЭФФЕКТОВ В ОКНЕ
+   ============================================ */
+
+.btn-effect {
+  padding: 3px 10px;
+  font-size: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #8899bb;
+  cursor: pointer;
+  transition: all 0.3s;
+  min-height: 28px;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', Arial, sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.18;
+}
+
+.btn-effect:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transform: scale(1.04);
+}
+
+[data-theme="light"] .btn-effect {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+  color: #667799;
+}
+
+[data-theme="light"] .btn-effect:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1a1a2e;
+}
+
+.btn-effect[data-effect="spectrum"] { border-color: rgba(76, 175, 80, 0.3); }
+.btn-effect[data-effect="waves"] { border-color: rgba(33, 150, 243, 0.3); }
+.btn-effect[data-effect="fire"] { border-color: rgba(255, 152, 0, 0.3); }
+.btn-effect[data-effect="neon"] { border-color: rgba(156, 39, 176, 0.3); }
+
+/* ============================================
+   КНОПКИ НОЧНОГО РЕЖИМА И ЭНЕРГОСБЕРЕЖЕНИЯ (АКТИВНЫЕ)
+   ============================================ */
+
+.btn-night-mode[data-active="true"] {
+  border-color: #4CAF50;
+  color: #4CAF50;
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.btn-power-save[data-active="true"] {
+  border-color: #FF9800;
+  color: #FF9800;
+  background: rgba(255, 152, 0, 0.1);
+}
+
+/* ============================================
+   ВЕРСИЯ (Комментарий)
+   ============================================ */
+
+/* 
+   SoundForge Equalizer v3.22.8 Edge 151
+   Стили отдельного окна
+   (c) 2026 Maxim Melnikov
+   Microsoft Edge 151.0.4129.59
+   Windows 11 Pro 25H2
+*/

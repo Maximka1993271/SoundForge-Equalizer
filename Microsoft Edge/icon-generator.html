@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundForge Icon Generator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #151a24 0%, #0a0c10 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+      padding: 20px;
+      color: #fff;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.025);
+      border-radius: 28px;
+      padding: 40px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      max-width: 620px;
+      width: 100%;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(20px);
+    }
+
+    h1 {
+      color: #fff;
+      text-align: center;
+      font-size: 30px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #FFFFFF 0%, #4CAF50 60%, #2E7D32 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      color: #7888a8;
+      text-align: center;
+      font-size: 14px;
+      margin-bottom: 28px;
+    }
+
+    /* Селектор режима (Активный / Отключен) */
+    .state-selector {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .state-btn {
+      flex: 1;
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #8899bb;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: inherit;
+    }
+
+    .state-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .state-btn.active-state {
+      background: rgba(76, 175, 80, 0.18);
+      border-color: #4CAF50;
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(76, 175, 80, 0.2);
+    }
+
+    .state-btn.off-state {
+      background: rgba(136, 153, 187, 0.15);
+      border-color: #8899bb;
+      color: #d8e2f0;
+      box-shadow: 0 4px 15px rgba(136, 153, 187, 0.15);
+    }
+
+    .preview-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, rgba(35, 45, 60, 0.3) 0%, rgba(10, 12, 18, 0.7) 100%);
+      border-radius: 22px;
+      padding: 38px;
+      margin-bottom: 26px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      min-height: 230px;
+      box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.6);
+    }
+
+    #previewCanvas {
+      border-radius: 24px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      image-rendering: auto;
+      background: transparent;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #previewCanvas:hover {
+      transform: scale(1.04);
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .control-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .control-row label {
+      color: #99aada;
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 100px;
+    }
+
+    .size-selector {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+
+    .size-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: #8899bb;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: inherit;
+    }
+
+    .size-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .size-btn.active {
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.18);
+      color: #4CAF50;
+      box-shadow: 0 0 16px rgba(76, 175, 80, 0.25);
+    }
+
+    .size-btn.custom {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .size-input-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .size-input-group input[type="number"] {
+      width: 70px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.4);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      font-family: inherit;
+    }
+
+    .size-input-group input[type="number"]:focus {
+      outline: none;
+      border-color: #4CAF50;
+      box-shadow: 0 0 10px rgba(76, 175, 80, 0.25);
+    }
+
+    .size-input-group span {
+      color: #667799;
+      font-size: 13px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .btn {
+      padding: 13px 28px;
+      border-radius: 12px;
+      border: none;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      flex: 1;
+      min-width: 130px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4CAF50, #2E7D32);
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(76, 175, 80, 0.45);
+      background: linear-gradient(135deg, #53bd57, #338a38);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: #99aada;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #2196F3, #1565C0);
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-success:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(33, 150, 243, 0.45);
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 10px;
+      color: #667799;
+      font-size: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .info-row span {
+      color: #8899bb;
+    }
+
+    .info-row .value {
+      color: #4CAF50;
+      font-weight: 700;
+    }
+
+    .status {
+      color: #8899bb;
+      font-size: 12px;
+      text-align: center;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.35);
+      transition: all 0.3s ease;
+    }
+
+    .status.success {
+      color: #4CAF50;
+      border: 1px solid rgba(76, 175, 80, 0.2);
+      background: rgba(76, 175, 80, 0.06);
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 20px;
+      }
+      .control-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .control-row label {
+        min-width: auto;
+      }
+      .size-selector {
+        justify-content: center;
+      }
+      .btn-group {
+        flex-direction: column;
+      }
+      .btn {
+        min-width: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>🔊 SoundForge</h1>
+  <p class="subtitle">Генератор иконок для расширения</p>
+
+  <!-- Переключатель активная / отключенная -->
+  <div class="state-selector">
+    <button class="state-btn active-state" id="modeActiveBtn">🟢 SoundForge.png (Активная)</button>
+    <button class="state-btn" id="modeOffBtn">⚪ SoundForge-off.png (Отключена)</button>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-container">
+    <canvas id="previewCanvas" width="128" height="128"></canvas>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <!-- Размер -->
+    <div class="control-row">
+      <label>📐 Размер:</label>
+      <div class="size-selector">
+        <button class="size-btn" data-size="16">16×16</button>
+        <button class="size-btn" data-size="48">48×48</button>
+        <button class="size-btn active" data-size="128">128×128</button>
+        <button class="size-btn" data-size="256">256×256</button>
+        <button class="size-btn" data-size="512">512×512</button>
+        <button class="size-btn custom" data-size="custom">✏️ Свой</button>
+      </div>
+    </div>
+
+    <!-- Пользовательский размер -->
+    <div class="control-row" id="customSizeRow" style="display: none;">
+      <label style="min-width: 100px;">✏️ Размер:</label>
+      <div class="size-input-group">
+        <input type="number" id="customWidth" value="128" min="16" max="1024">
+        <span>×</span>
+        <input type="number" id="customHeight" value="128" min="16" max="1024">
+        <span>px</span>
+      </div>
+      <button class="btn btn-secondary" id="applyCustomSize" style="flex: 0; padding: 6px 16px; font-size: 12px;">Применить</button>
+    </div>
+
+    <!-- Кнопки -->
+    <div class="btn-group">
+      <button class="btn btn-primary" id="downloadBtn">💾 Скачать PNG</button>
+      <button class="btn btn-success" id="downloadAllBtn">📦 Скачать все размеры (10 иконок)</button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-secondary" id="copyBase64Btn">📋 Копировать Base64</button>
+      <button class="btn btn-secondary" id="resetBtn">🔄 Сбросить</button>
+    </div>
+
+    <!-- Информация -->
+    <div class="info-row">
+      <span>📊 Текущий размер:</span>
+      <span class="value" id="currentSizeLabel">128×128</span>
+    </div>
+
+    <div class="status" id="status">✅ Готово к скачиванию</div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    'use strict';
+
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let currentSize = 128;
+    let currentWidth = 128;
+    let currentHeight = 128;
+    let isOffMode = false; // Режим: false = SoundForge.png, true = SoundForge-off.png
+
+    // Элементы управления
+    const sizeBtns = document.querySelectorAll('.size-btn');
+    const customSizeRow = document.getElementById('customSizeRow');
+    const customWidth = document.getElementById('customWidth');
+    const customHeight = document.getElementById('customHeight');
+    const applyCustomBtn = document.getElementById('applyCustomSize');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const copyBase64Btn = document.getElementById('copyBase64Btn');
+    const resetBtn = document.getElementById('resetBtn');
+    const currentSizeLabel = document.getElementById('currentSizeLabel');
+    const statusEl = document.getElementById('status');
+    const modeActiveBtn = document.getElementById('modeActiveBtn');
+    const modeOffBtn = document.getElementById('modeOffBtn');
+
+    // ============================================
+    //  РИСОВАНИЕ ИКОНКИ (PREMIUM DESIGN: GREEN + WHITE)
+    // ============================================
+
+    function drawIcon(width, height, targetCtx = ctx, isPreview = true, renderOffState = isOffMode) {
+      const w = width || currentWidth;
+      const h = height || currentHeight;
+      const size = Math.min(w, h);
+      const scale = size / 128;
+
+      const targetCanvas = targetCtx.canvas;
+
+      // Для Retina-дисплеев в превью рендерим в 2x/3x разрешении для безупречной четкости
+      if (isPreview && targetCanvas === canvas) {
+        const dpr = window.devicePixelRatio || 1;
+        targetCanvas.width = w * dpr;
+        targetCanvas.height = h * dpr;
+        targetCanvas.style.width = `${w}px`;
+        targetCanvas.style.height = `${h}px`;
+        targetCtx.save();
+        targetCtx.scale(dpr, dpr);
+      } else {
+        targetCanvas.width = w;
+        targetCanvas.height = h;
+      }
+
+      targetCtx.clearRect(0, 0, w, h);
+
+      // --- ЦВЕТОВАЯ ПАЛИТРА (Активный vs Отключенный) ---
+      const colors = {
+        bgTop: renderOffState ? '#1a1f26' : '#141821',
+        bgBottom: renderOffState ? '#0c0e12' : '#07090d',
+        accentTop: renderOffState ? '#788898' : '#FFFFFF',
+        accentMid: renderOffState ? '#586678' : '#66BB6A',
+        accentMain: renderOffState ? '#485464' : '#4CAF50',
+        accentDark: renderOffState ? '#2c3540' : '#2E7D32',
+        borderGlow: renderOffState ? 'rgba(120, 136, 152, 0.25)' : 'rgba(76, 175, 80, 0.4)',
+        shadowColor: renderOffState ? 'rgba(0, 0, 0, 0.5)' : 'rgba(76, 175, 80, 0.28)'
+      };
+
+      const radius = size * 0.22;
+      const margin = size * 0.03;
+      const iconW = w - margin * 2;
+      const iconH = h - margin * 2;
+
+      // --- 1. ТЕНЬ И ФОН ИКОНКИ ---
+      targetCtx.save();
+      if (size >= 32) {
+        targetCtx.shadowColor = colors.shadowColor;
+        targetCtx.shadowBlur = 18 * scale;
+        targetCtx.shadowOffsetY = 6 * scale;
+      }
+
+      const bgGradient = targetCtx.createLinearGradient(margin, margin, w - margin, h - margin);
+      bgGradient.addColorStop(0, colors.bgTop);
+      bgGradient.addColorStop(1, colors.bgBottom);
+
+      targetCtx.beginPath();
+      targetCtx.roundRect(margin, margin, iconW, iconH, radius);
+      targetCtx.fillStyle = bgGradient;
+      targetCtx.fill();
+      targetCtx.restore();
+
+      // --- 2. ВНУТРЕННЕЕ СВЕЧЕНИЕ И СТЕКЛЯННЫЙ БЛИК ---
+      targetCtx.save();
+      targetCtx.beginPath();
+      targetCtx.roundRect(margin, margin, iconW, iconH, radius);
+      targetCtx.clip();
+
+      const ambient = targetCtx.createRadialGradient(w * 0.5, h * 0.35, 0, w * 0.5, h * 0.5, size * 0.65);
+      ambient.addColorStop(0, renderOffState ? 'rgba(120, 136, 152, 0.1)' : 'rgba(76, 175, 80, 0.22)');
+      ambient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      targetCtx.fillStyle = ambient;
+      targetCtx.fillRect(0, 0, w, h);
+
+      // Верхний зеркальный блик (Luxury Metal Finish)
+      const topSpec = targetCtx.createLinearGradient(0, margin, 0, margin + iconH * 0.45);
+      topSpec.addColorStop(0, 'rgba(255, 255, 255, 0.16)');
+      topSpec.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+      targetCtx.fillStyle = topSpec;
+      targetCtx.fillRect(margin, margin, iconW, iconH * 0.45);
+      targetCtx.restore();
+
+      // --- 3. ОКАНТОВКА (ФРЕЗЕРОВАННЫЙ КРАЙ) ---
+      targetCtx.save();
+      const borderGrad = targetCtx.createLinearGradient(margin, margin, w - margin, h - margin);
+      borderGrad.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
+      borderGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.06)');
+      borderGrad.addColorStop(1, colors.borderGlow);
+
+      targetCtx.lineWidth = Math.max(1, 1.5 * scale);
+      targetCtx.strokeStyle = borderGrad;
+      targetCtx.beginPath();
+      targetCtx.roundRect(margin, margin, iconW, iconH, radius);
+      targetCtx.stroke();
+      targetCtx.restore();
+
+      // --- 4. ЗВУКОВАЯ ВОЛНА / ЭКВАЛАЙЗЕР НА ЗАДНЕМ ПЛАНЕ ---
+      const bars = 11;
+      const barWidth = Math.max(1.5, 5.5 * scale);
+      const spacing = Math.max(1, 3.5 * scale);
+      const totalWidth = bars * barWidth + (bars - 1) * spacing;
+      const startX = (w - totalWidth) / 2;
+      const centerY = h * 0.52;
+
+      for (let i = 0; i < bars; i++) {
+        const x = startX + i * (barWidth + spacing);
+        // Симметричная акустическая волна по Гауссу
+        const dist = Math.abs(i - (bars - 1) / 2) / ((bars - 1) / 2);
+        const wave = Math.max(0.2, Math.cos(dist * Math.PI * 0.5) * (0.85 - Math.sin(i * 1.5) * 0.15));
+        const barHeight = Math.max(4 * scale, wave * size * 0.52);
+        const y = centerY - barHeight / 2;
+
+        const barGrad = targetCtx.createLinearGradient(0, y, 0, y + barHeight);
+        barGrad.addColorStop(0, colors.accentMid);
+        barGrad.addColorStop(0.5, colors.accentMain);
+        barGrad.addColorStop(1, colors.accentDark);
+
+        targetCtx.save();
+        if (size >= 32 && !renderOffState) {
+          targetCtx.shadowColor = 'rgba(76, 175, 80, 0.45)';
+          targetCtx.shadowBlur = 6 * scale;
+        }
+
+        targetCtx.fillStyle = barGrad;
+        targetCtx.beginPath();
+        targetCtx.roundRect(x, y, barWidth, barHeight, Math.max(1, 2.5 * scale));
+        targetCtx.fill();
+        targetCtx.restore();
+      }
+
+      // --- 5. ЭЛЕГАНТНАЯ МУЗЫКАЛЬНАЯ НОТА + ДИНАМИК (ЦЕНТРАЛЬНАЯ ЭМБЛЕМА) ---
+      targetCtx.save();
+      const noteScale = scale * 0.96;
+      targetCtx.translate(w * 0.28, h * 0.22);
+
+      if (size >= 32) {
+        targetCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        targetCtx.shadowBlur = 12 * scale;
+        targetCtx.shadowOffsetY = 4 * scale;
+      }
+
+      // Градиент ноты (Чистый белый + изумрудный отблеск)
+      const noteGrad = targetCtx.createLinearGradient(0, 0, 48 * noteScale, 45 * noteScale);
+      noteGrad.addColorStop(0, '#FFFFFF');
+      noteGrad.addColorStop(0.4, renderOffState ? '#cccccc' : '#FFFFFF');
+      noteGrad.addColorStop(1, renderOffState ? '#8899aa' : '#C8E6C9');
+
+      targetCtx.fillStyle = noteGrad;
+      targetCtx.beginPath();
+
+      // Дизайн сдвоенной ноты, парящей над волнами
+      targetCtx.arc(10 * noteScale, 36 * noteScale, 8 * noteScale, 0, Math.PI * 2);
+      targetCtx.arc(40 * noteScale, 30 * noteScale, 8 * noteScale, 0, Math.PI * 2);
+      targetCtx.fill();
+
+      // Штили и верхняя балка
+      targetCtx.beginPath();
+      targetCtx.moveTo(16 * noteScale, 36 * noteScale);
+      targetCtx.lineTo(16 * noteScale, 9 * noteScale);
+      targetCtx.lineTo(46 * noteScale, 3 * noteScale);
+      targetCtx.lineTo(46 * noteScale, 30 * noteScale);
+      targetCtx.lineTo(41 * noteScale, 30 * noteScale);
+      targetCtx.lineTo(41 * noteScale, 7 * noteScale);
+      targetCtx.lineTo(16 * noteScale, 12 * noteScale);
+      targetCtx.closePath();
+      targetCtx.fill();
+
+      // Неоновый блик по контуру ноты
+      targetCtx.strokeStyle = renderOffState ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.95)';
+      targetCtx.lineWidth = Math.max(0.5, 0.9 * scale);
+      targetCtx.stroke();
+      targetCtx.restore();
+
+      // --- 6. НАЗВАНИЕ БРЕНДА (Для размеров от 64px) ---
+      if (size >= 64) {
+        targetCtx.save();
+        const fontSize = Math.max(7.5, Math.min(10.5, 10.5 * scale));
+        targetCtx.font = `800 ${fontSize}px "Segoe UI", -apple-system, sans-serif`;
+        targetCtx.textAlign = 'center';
+        targetCtx.textBaseline = 'bottom';
+        targetCtx.letterSpacing = '2px';
+
+        targetCtx.fillStyle = renderOffState ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)';
+        targetCtx.fillText('SOUNDFORGE', w / 2, h - size * 0.05);
+        targetCtx.restore();
+      }
+
+      if (isPreview && targetCanvas === canvas) {
+        targetCtx.restore();
+      }
+    }
+
+    // ============================================
+    //  ПОЛИФИЛЛ ДЛЯ ROUNDRECT
+    // ============================================
+
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (r > w/2) r = w/2;
+        if (r > h/2) r = h/2;
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - r, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r);
+        this.lineTo(x + w, y + h - r);
+        this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        this.lineTo(x + r, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r);
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        return this;
+      };
+    }
+
+    // ============================================
+    //  УПРАВЛЕНИЕ РАЗМЕРОМ И СОСТОЯНИЕМ
+    // ============================================
+
+    function setSize(size) {
+      currentSize = size;
+      currentWidth = size;
+      currentHeight = size;
+      currentSizeLabel.textContent = `${size}×${size}`;
+
+      sizeBtns.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.size === String(size)) {
+          btn.classList.add('active');
+        }
+      });
+
+      customSizeRow.style.display = 'none';
+      drawIcon(size, size);
+      const modeText = isOffMode ? 'Отключена (SoundForge-off.png)' : 'Активная (SoundForge.png)';
+      updateStatus(`✅ Размер: ${size}×${size} | Режим: ${modeText}`);
+    }
+
+    function setCustomSize() {
+      const w = parseInt(customWidth.value) || 128;
+      const h = parseInt(customHeight.value) || 128;
+
+      if (w < 16 || h < 16 || w > 1024 || h > 1024) {
+        updateStatus('⚠️ Размер должен быть от 16 до 1024 пикселей', 'error');
+        return;
+      }
+
+      currentWidth = w;
+      currentHeight = h;
+      currentSize = Math.min(w, h);
+      currentSizeLabel.textContent = `${w}×${h}`;
+
+      sizeBtns.forEach(btn => btn.classList.remove('active'));
+      drawIcon(w, h);
+      updateStatus(`✅ Пользовательский размер: ${w}×${h}`);
+    }
+
+    // Переключение режимов Active / Off
+    modeActiveBtn.addEventListener('click', function() {
+      isOffMode = false;
+      modeActiveBtn.classList.add('active-state');
+      modeActiveBtn.classList.remove('off-state');
+      modeOffBtn.classList.remove('off-state', 'active-state');
+      drawIcon(currentWidth, currentHeight);
+      updateStatus('🟢 Режим: Активная иконка (SoundForge.png)');
+    });
+
+    modeOffBtn.addEventListener('click', function() {
+      isOffMode = true;
+      modeOffBtn.classList.add('off-state');
+      modeActiveBtn.classList.remove('active-state', 'off-state');
+      drawIcon(currentWidth, currentHeight);
+      updateStatus('⚪ Режим: Отключенная иконка (SoundForge-off.png)');
+    });
+
+    // ============================================
+    //  СКАЧИВАНИЕ
+    // ============================================
+
+    function downloadPNG() {
+      const exportCanvas = document.createElement('canvas');
+      const exportCtx = exportCanvas.getContext('2d');
+      drawIcon(currentWidth, currentHeight, exportCtx, false, isOffMode);
+
+      const prefix = isOffMode ? 'SoundForge-off' : 'SoundForge';
+      const link = document.createElement('a');
+      link.download = `${prefix}_${currentWidth}x${currentHeight}.png`;
+      link.href = exportCanvas.toDataURL('image/png');
+      link.click();
+      updateStatus(`✅ Скачано: ${prefix}_${currentWidth}x${currentHeight}.png`);
+    }
+
+    function downloadAllSizes() {
+      const sizes = [16, 48, 128, 256, 512];
+      const links = [];
+
+      // Генерируем комплект из 10 иконок: все размеры для Активного И Отключенного состояния
+      sizes.forEach(size => {
+        // 1. Активная иконка
+        const activeCanvas = document.createElement('canvas');
+        drawIcon(size, size, activeCanvas.getContext('2d'), false, false);
+        const linkActive = document.createElement('a');
+        linkActive.download = `SoundForge_${size}x${size}.png`;
+        linkActive.href = activeCanvas.toDataURL('image/png');
+        links.push(linkActive);
+
+        // 2. Отключенная иконка (-off)
+        const offCanvas = document.createElement('canvas');
+        drawIcon(size, size, offCanvas.getContext('2d'), false, true);
+        const linkOff = document.createElement('a');
+        linkOff.download = `SoundForge-off_${size}x${size}.png`;
+        linkOff.href = offCanvas.toDataURL('image/png');
+        links.push(linkOff);
+      });
+
+      let index = 0;
+      function downloadNext() {
+        if (index >= links.length) {
+          updateStatus('✅ Все 10 иконок (SoundForge + SoundForge-off) успешно скачаны!');
+          return;
+        }
+        links[index].click();
+        index++;
+        setTimeout(downloadNext, 320);
+      }
+
+      updateStatus('📦 Скачивание полного комплекта иконок (10 файлов)...');
+      downloadNext();
+    }
+
+    // ============================================
+    //  КОПИРОВАНИЕ BASE64
+    // ============================================
+
+    function copyBase64() {
+      const exportCanvas = document.createElement('canvas');
+      const exportCtx = exportCanvas.getContext('2d');
+      drawIcon(currentWidth, currentHeight, exportCtx, false, isOffMode);
+
+      const dataUrl = exportCanvas.toDataURL('image/png');
+      navigator.clipboard.writeText(dataUrl).then(() => {
+        updateStatus('📋 Base64 скопирован в буфер обмена!');
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = dataUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        updateStatus('📋 Base64 скопирован в буфер обмена!');
+      });
+    }
+
+    // ============================================
+    //  СТАТУС
+    // ============================================
+
+    function updateStatus(message, type) {
+      statusEl.textContent = message;
+      statusEl.className = 'status';
+      if (type === 'error') {
+        statusEl.style.color = '#ff6b6b';
+        statusEl.style.borderColor = 'rgba(255, 107, 107, 0.3)';
+      } else {
+        statusEl.style.color = '#4CAF50';
+        statusEl.style.borderColor = 'rgba(76, 175, 80, 0.2)';
+      }
+    }
+
+    // ============================================
+    //  СОБЫТИЯ
+    // ============================================
+
+    sizeBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        const size = this.dataset.size;
+        if (size === 'custom') {
+          customSizeRow.style.display = 'flex';
+          customWidth.value = currentWidth;
+          customHeight.value = currentHeight;
+          sizeBtns.forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          return;
+        }
+        setSize(parseInt(size));
+      });
+    });
+
+    applyCustomBtn.addEventListener('click', setCustomSize);
+    customWidth.addEventListener('keydown', (e) => { if (e.key === 'Enter') setCustomSize(); });
+    customHeight.addEventListener('keydown', (e) => { if (e.key === 'Enter') setCustomSize(); });
+
+    downloadBtn.addEventListener('click', downloadPNG);
+    downloadAllBtn.addEventListener('click', downloadAllSizes);
+    copyBase64Btn.addEventListener('click', copyBase64);
+
+    resetBtn.addEventListener('click', function() {
+      isOffMode = false;
+      modeActiveBtn.classList.add('active-state');
+      modeActiveBtn.classList.remove('off-state');
+      modeOffBtn.classList.remove('off-state', 'active-state');
+      setSize(128);
+      customSizeRow.style.display = 'none';
+      sizeBtns.forEach(b => b.classList.remove('active'));
+      document.querySelector('.size-btn[data-size="128"]').classList.add('active');
+      updateStatus('🔄 Сброшено к размеру 128×128 (Активный режим)');
+    });
+
+    // ============================================
+    //  ИНИЦИАЛИЗАЦИЯ
+    // ============================================
+
+    setSize(128);
+    console.log('🎨 SoundForge Icon Generator готов!');
+    console.log('💡 Выберите режим и размер для скачивания SoundForge.png или SoundForge-off.png');
+  })();
+</script>
+</body>
+</html>

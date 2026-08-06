@@ -14,7 +14,9 @@
     <div id="loadingText" style="color: #fff; margin-top: 12px; font-size: 14px;">Loading...</div>
   </div>
 
-  <!-- HEADER -->
+  <!-- ============================================
+       ШАПКА
+       ============================================ -->
   <div class="header">
     <h1 id="windowTitle">🔊 SoundForge — Standalone Window</h1>
     <div class="header-controls">
@@ -24,11 +26,14 @@
         <button class="theme-option" data-theme="dark">🌙</button>
         <button class="theme-option" data-theme="light">🌞</button>
       </div>
+      <button class="expand-toggle" id="expandToggle">⬜</button>
       <button class="close-window" id="closeWindow">✕</button>
     </div>
   </div>
 
-  <!-- STATUS BAR -->
+  <!-- ============================================
+       СТАТУС-БАР
+       ============================================ -->
   <div class="status-bar">
     <div class="status-indicator">
       <div class="status-dot" id="statusDot"></div>
@@ -41,14 +46,23 @@
     </div>
   </div>
 
-  <!-- VISUALIZATION -->
+  <!-- ============================================
+       ВИЗУАЛИЗАЦИЯ (Спектр + VU-метр)
+       ============================================ -->
   <div class="visualization-container">
     <div class="spectrum-wrapper">
-      <canvas id="spectrumCanvas" width="500" height="80"></canvas>
+      <canvas id="spectrumCanvas" width="450" height="70"></canvas>
       <div class="spectrum-labels">
-        <span>31Hz</span><span>62Hz</span><span>125Hz</span>
-        <span>250Hz</span><span>500Hz</span><span>1kHz</span>
-        <span>2kHz</span><span>4kHz</span><span>8kHz</span><span>16kHz</span>
+        <span>31Hz</span>
+        <span>62Hz</span>
+        <span>125Hz</span>
+        <span>250Hz</span>
+        <span>500Hz</span>
+        <span>1kHz</span>
+        <span>2kHz</span>
+        <span>4kHz</span>
+        <span>8kHz</span>
+        <span>16kHz</span>
       </div>
     </div>
     
@@ -60,36 +74,59 @@
         <div class="vu-peak" id="vuPeak" style="left: 0%"></div>
       </div>
       <div class="vu-labels">
-        <span>-60</span><span>-40</span><span>-20</span><span>-10</span><span>0 dB</span>
+        <span>-60</span>
+        <span>-40</span>
+        <span>-20</span>
+        <span>-10</span>
+        <span>0 dB</span>
       </div>
       <span class="vu-value" id="vuValue">-∞ dB</span>
     </div>
   </div>
 
-  <!-- EQ GRAPH -->
+  <!-- ============================================
+       ГРАФИК АЧХ С ТОЧКАМИ
+       ============================================ -->
   <div class="eq-graph-container">
     <div class="eq-graph-left-values">
-      <span>12</span><span>12</span>
+      <span>12</span>
+      <span>12</span>
     </div>
+    
     <canvas id="eqGraphCanvas" width="500" height="90"></canvas>
+    
     <div class="eq-graph-labels">
-      <span>31</span><span>62</span><span>125</span><span>250</span>
-      <span>500</span><span>1k</span><span>2k</span><span>4k</span><span>8k</span><span>16k</span>
+      <span>31</span>
+      <span>62</span>
+      <span>125</span>
+      <span>250</span>
+      <span>500</span>
+      <span>1k</span>
+      <span>2k</span>
+      <span>4k</span>
+      <span>8k</span>
+      <span>16k</span>
     </div>
+    
     <div class="eq-graph-right-values">
-      <span>+12</span><span>0</span><span>-12</span>
+      <span>+12</span>
+      <span>0</span>
+      <span>-12</span>
     </div>
   </div>
 
-  <!-- PRESET INFO -->
+  <!-- ============================================
+       ПРЕСЕТЫ
+       ============================================ -->
   <div class="preset-info" id="presetInfo">🎯 Reference</div>
 
-  <!-- PRESET SELECTOR -->
   <div class="preset-selector">
     <select id="presetSelect"></select>
   </div>
 
-  <!-- EXTRA BUTTONS -->
+  <!-- ============================================
+       ДОПОЛНИТЕЛЬНЫЕ КНОПКИ
+       ============================================ -->
   <div class="extra-buttons">
     <button class="btn btn-effect" id="effectBtn">🎨 Spectrum</button>
     <button class="btn btn-export" id="exportBtn">💾 Export</button>
@@ -102,53 +139,65 @@
     <button class="btn btn-stats" id="statsBtn">📊 Stats</button>
   </div>
 
-  <!-- EQ SLIDERS -->
+  <!-- ============================================
+       СЛАЙДЕРЫ ЭКВАЛАЙЗЕРА
+       ============================================ -->
   <div class="eq-container" id="eqContainer">
+    <!-- 31 Hz -->
     <div class="slider-row">
       <span class="freq-label">31<span class="unit">Hz</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="31">
       <span class="gain-value zero" data-freq="31">0.0</span>
     </div>
+    <!-- 62 Hz -->
     <div class="slider-row">
       <span class="freq-label">62<span class="unit">Hz</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="62">
       <span class="gain-value zero" data-freq="62">0.0</span>
     </div>
+    <!-- 125 Hz -->
     <div class="slider-row">
       <span class="freq-label">125</span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="125">
       <span class="gain-value zero" data-freq="125">0.0</span>
     </div>
+    <!-- 250 Hz -->
     <div class="slider-row">
       <span class="freq-label">250</span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="250">
       <span class="gain-value zero" data-freq="250">0.0</span>
     </div>
+    <!-- 500 Hz -->
     <div class="slider-row">
       <span class="freq-label">500</span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="500">
       <span class="gain-value zero" data-freq="500">0.0</span>
     </div>
+    <!-- 1k Hz -->
     <div class="slider-row">
       <span class="freq-label">1<span class="unit">k</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="1000">
       <span class="gain-value zero" data-freq="1000">0.0</span>
     </div>
+    <!-- 2k Hz -->
     <div class="slider-row">
       <span class="freq-label">2<span class="unit">k</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="2000">
       <span class="gain-value zero" data-freq="2000">0.0</span>
     </div>
+    <!-- 4k Hz -->
     <div class="slider-row">
       <span class="freq-label">4<span class="unit">k</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="4000">
       <span class="gain-value zero" data-freq="4000">0.0</span>
     </div>
+    <!-- 8k Hz -->
     <div class="slider-row">
       <span class="freq-label">8<span class="unit">k</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="8000">
       <span class="gain-value zero" data-freq="8000">0.0</span>
     </div>
+    <!-- 16k Hz -->
     <div class="slider-row">
       <span class="freq-label">16<span class="unit">k</span></span>
       <input type="range" min="-12" max="12" value="0" step="0.5" data-freq="16000">
@@ -156,13 +205,25 @@
     </div>
   </div>
 
-  <!-- FREQUENCY LABELS -->
+  <!-- ============================================
+       МЕТКИ ЧАСТОТ ПОД СЛАЙДЕРАМИ
+       ============================================ -->
   <div class="freq-labels">
-    <span>31</span><span>62</span><span>125</span><span>250</span>
-    <span>500</span><span>1k</span><span>2k</span><span>4k</span><span>8k</span><span>16k</span>
+    <span>31</span>
+    <span>62</span>
+    <span>125</span>
+    <span>250</span>
+    <span>500</span>
+    <span>1k</span>
+    <span>2k</span>
+    <span>4k</span>
+    <span>8k</span>
+    <span>16k</span>
   </div>
 
-  <!-- EXTRA CONTROLS -->
+  <!-- ============================================
+       ДОПОЛНИТЕЛЬНЫЕ КОНТРОЛЫ (Громкость и Bass Boost)
+       ============================================ -->
   <div class="extra-controls">
     <div class="extra-control">
       <div class="volume-header">
@@ -179,7 +240,9 @@
     </div>
   </div>
 
-  <!-- FOOTER -->
+  <!-- ============================================
+       ФУТЕР (Подвал)
+       ============================================ -->
   <div class="footer">
     <span class="author">✍️ <span>Maxim Melnikov</span></span>
     <span class="version">v3.22.8</span>
@@ -187,7 +250,11 @@
     <span class="visualization-status" id="visStatus">📊 Visualization active</span>
   </div>
 
+  <!-- ============================================
+       СКРИПТЫ (ПРАВИЛЬНЫЙ ПОРЯДОК)
+       ============================================ -->
+  <script src="js/edge-ui-controller.js"></script>
   <script src="js/window-fullscreen.js"></script>
-  <script src="window.js"></script>
+  <script type="module" src="window.js"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SoundForge EQ v3.22.8</title>
+  <title>SoundForge EQ v3.22.8 Edge 151</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -84,9 +84,6 @@
 
   <!-- ============================================
        ГРАФИК АЧХ С ТОЧКАМИ
-       Слева: 12 и 12 (сверху и снизу)
-       Справа: +12, 0, -12
-       Снизу: 31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k
        ============================================ -->
   <div class="eq-graph-container">
     <div class="eq-graph-left-values">
@@ -142,7 +139,7 @@
   </div>
 
   <!-- ============================================
-       СЛАЙДЕРЫ ЭКВАЛАЙЗЕРА (ГОРИЗОНТАЛЬНЫЕ)
+       СЛАЙДЕРЫ ЭКВАЛАЙЗЕРА
        ============================================ -->
   <div class="eq-container" id="eqContainer">
     <!-- 31 Hz -->
@@ -252,6 +249,10 @@
     <span class="visualization-status" id="visStatus">📊 Визуализация активна</span>
   </div>
 
+  <!-- ============================================
+       СКРИПТЫ (ПРАВИЛЬНЫЙ ПОРЯДОК)
+       ============================================ -->
+  <script src="js/edge-ui-controller.js"></script>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

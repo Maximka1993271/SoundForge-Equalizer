@@ -1,19 +1,31 @@
+import {
+  initEffects as initSharedEffects,
+  renderEffect as renderSharedEffect,
+  setCurrentEffect as setSharedEffect,
+  getCurrentEffect as getSharedEffect,
+  loadSavedEffect as loadSharedEffect,
+  getEffectName as getSharedEffectName
+} from './modules/visualization-effects.js';
+import { state as sharedAppState } from './modules/state.js';
+
 // ============================================
-//  WINDOW.JS - v3.22.8 (Edge/Chromium)
+//  WINDOW.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
 //  Standalone Window
 //  FULL LOCALIZATION: RU, UA, EN
 //  HOTKEYS: Ctrl+Shift+E, Ctrl+Shift+Y, Ctrl+Shift+X
 //  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ: СПЕКТР | ВОЛНЫ | ОГОНЬ | НЕОН
-//  ИСПРАВЛЕНО: безопасная отправка сообщений
-//  ИСПРАВЛЕНО: обработка ошибок
-//  ИСПРАВЛЕНО: подключение к аудио (доверяем background)
-//  ИСПРАВЛЕНО: кнопка эффектов
+//  EDGE OPTIMIZED: безопасная отправка сообщений
+//  EDGE OPTIMIZED: подключение к аудио (доверяем background)
+//  EDGE OPTIMIZED: кнопка эффектов
+//  ИСПРАВЛЕНО: защита connection state
+//  ИСПРАВЛЕНО: панель не дергается при смене эффекта/пресета
 // ============================================
 
 (function() {
   'use strict';
 
-  console.log('🪟 SoundForge Window v3.22.8 (Edge/Chromium)');
+  console.log('🪟 SoundForge Window v3.22.8 Edge 151');
 
   // ============================================
   //  ПОЛИФИЛЛЫ
@@ -50,7 +62,7 @@
   }
 
   // ============================================
-  //  API DETECTION И БЕЗОПАСНАЯ ОТПРАВКА
+  //  API DETECTION (EDGE OPTIMIZED)
   // ============================================
 
   var api = (typeof chrome !== 'undefined' && chrome.runtime) ? chrome : 
@@ -59,6 +71,20 @@
   if (!api) {
     console.warn('⚠️ Extension API not available');
   }
+
+  // ============================================
+  //  CONNECTION STATE GUARD (ЗАЩИТА)
+  // ============================================
+
+  var CONNECTION_STATES = ['connected', 'connecting', 'disconnected', 'error'];
+
+  function isConnectionState(status) {
+    return CONNECTION_STATES.indexOf(status) !== -1;
+  }
+
+  // ============================================
+  //  БЕЗОПАСНАЯ ОТПРАВКА СООБЩЕНИЙ
+  // ============================================
 
   function safeSendMessage(message, callback) {
     try {
@@ -175,7 +201,7 @@
   }
 
   // ============================================
-  //  50 PRESETS
+  //  50 PRESETS (CANONICAL ORDER)
   // ============================================
 
   var PRESETS = {
@@ -231,7 +257,6 @@
     clarity: { gains: { 31: -1.5, 62: -0.5, 125: 0, 250: 0.5, 500: 1.0, 1000: 2.5, 2000: 4.0, 4000: 4.5, 8000: 3.5, 16000: 2.5 }, volume: 100, bass: -0.5 }
   };
 
-  // Canonical built-in preset order shared with Popup/config.js.
   var PRESET_ORDER = [
     'flat', 'natural', 'universal', 'balanced', 'club', 'dance', 'edm', 'synthwave', 'deephouse', 'festival', 'rock', 'metal', 'hardrock', 'grunge', 'vocal', 'podcast', 'speech', 'rap', 'acoustic', 'piano', 'orchestra', 'classical', 'jazz', 'headphones', 'car', 'night', 'bassboost', 'pop', 'kpop', 'world', 'ambient', 'wave', 'phonk', 'hiphop', 'soul', 'blues', 'reggae', 'chill', 'lofi', 'sunset', 'logitech', 'maxboost', 'gaming', 'movie', 'fps', 'hifi', 'studio', 'premium', 'master', 'clarity'
   ];
@@ -604,13 +629,11 @@
   var _neonGlow = 0;
 
   function getEffectNameLocal(effectId) {
-    var names = {
-      spectrum: t('spectrum') || '📊 Спектр',
-      waves: t('waves') || '🌊 Волны',
-      fire: t('fire') || '🔥 Огонь',
-      neon: t('neon') || '💜 Неон'
-    };
-    return names[effectId] || effectId;
+    try {
+      return getSharedEffectName(effectId);
+    } catch (e) {
+      return effectId;
+    }
   }
 
   function initEffectParticles() {
@@ -914,22 +937,14 @@
 
   function cycleEffectInWindow() {
     var effects = ['spectrum', 'waves', 'fire', 'neon'];
-    var currentIndex = effects.indexOf(_currentEffect);
-    var nextIndex = (currentIndex + 1) % effects.length;
-    var nextEffect = effects[nextIndex];
+    var current = getSharedEffect() || _currentEffect || 'spectrum';
+    var currentIndex = effects.indexOf(current);
+    var nextEffect = effects[(currentIndex + 1) % effects.length];
 
+    setSharedEffect(nextEffect);
     _currentEffect = nextEffect;
 
-    try {
-      localStorage.setItem('soundforge_window_effect', nextEffect);
-    } catch (e) {}
-
     updateEffectButtonLabelInWindow();
-    if (dom.effectBtn) {
-      dom.effectBtn.dataset.effect = nextEffect;
-      dom.effectBtn.setAttribute('aria-label', 'Visualization effect: ' + getEffectNameLocal(nextEffect));
-    }
-
     try { updateSpectrumWindow(); } catch (e) { console.warn('⚠️ Effect redraw failed:', e); }
 
     safeSendMessage({
@@ -946,6 +961,7 @@
   function updateEffectButtonLabelInWindow() {
     var btn = document.getElementById('effectBtn');
     if (!btn) return;
+    _currentEffect = getSharedEffect() || _currentEffect || 'spectrum';
     var name = getEffectNameLocal(_currentEffect);
     btn.textContent = '🎨 ' + name;
     btn.dataset.effect = _currentEffect;
@@ -954,12 +970,14 @@
 
   function loadWindowEffect() {
     try {
-      var saved = localStorage.getItem('soundforge_window_effect');
-      if (saved && ['spectrum', 'waves', 'fire', 'neon'].indexOf(saved) !== -1) {
-        _currentEffect = saved;
-      }
-    } catch (e) {}
+      loadSharedEffect();
+      _currentEffect = getSharedEffect() || 'spectrum';
+    } catch (e) {
+      _currentEffect = 'spectrum';
+      setSharedEffect(_currentEffect);
+    }
   }
+
 
   // ============================================
   //  STATE
@@ -1048,31 +1066,55 @@
   }
 
   // ============================================
-  //  UI FUNCTIONS
+  //  UI FUNCTIONS (С ЗАЩИТОЙ CONNECTION STATE)
   // ============================================
 
   function setStatus(status, text) {
-    windowState.currentStatus = status;
+    // Защита: информационные сообщения (ready) не должны менять состояние подключения
+    var isCurrentConnection = isConnectionState(windowState.currentStatus);
+    
+    // Если пришло информационное сообщение (ready) и текущий статус - состояние подключения
+    // - НЕ МЕНЯЕМ состояние, только текст
+    if (status === 'ready' && isCurrentConnection) {
+      var txt = dom.statusText;
+      if (txt) {
+        txt.textContent = text || '✅ ' + windowState.currentStatus;
+      }
+      return;
+    }
+    
+    // Для реальных состояний - обновляем
+    if (isConnectionState(status)) {
+      windowState.currentStatus = status;
+    } else {
+      windowState.currentStatus = status;
+    }
+    
     var dot = dom.statusDot;
     var txt = dom.statusText;
 
     if (dot) {
       dot.className = 'status-dot';
-      if (status === 'connected') dot.classList.add('active');
-      else if (status === 'connecting') dot.classList.add('connecting');
-      else if (status === 'disconnected') dot.classList.add('inactive');
-      else if (status === 'reset') dot.classList.add('reset');
+      if (windowState.currentStatus === 'connected') dot.classList.add('active');
+      else if (windowState.currentStatus === 'connecting') dot.classList.add('connecting');
+      else if (windowState.currentStatus === 'disconnected') dot.classList.add('inactive');
+      else if (windowState.currentStatus === 'reset') dot.classList.add('reset');
     }
     if (txt) {
       txt.className = 'status-text';
       txt.textContent = text || t('status_ready');
     }
-    updateConnectButton(status);
+    updateConnectButton(windowState.currentStatus);
   }
 
   function updateConnectButton(status) {
     var btn = dom.connectBtn;
     if (!btn) return;
+    
+    // НЕ МЕНЯЕМ КНОПКУ ДЛЯ ИНФОРМАЦИОННЫХ СООБЩЕНИЙ
+    if (!isConnectionState(status)) {
+      return;
+    }
     
     if (status === 'connected') {
       btn.textContent = t('disconnect');
@@ -1270,7 +1312,6 @@
     if (hasData && !isDummy) {
       processedData = windowState.spectrumData;
     } else {
-      // Silence — render real silence, never invent activity.
       processedData = new Float32Array(64);
       windowState.hasAudio = false;
       windowState.rmsValue = 0;
@@ -1278,7 +1319,8 @@
       windowState.isClipping = false;
     }
     
-    renderEffectInWindow(ctx, width, height, isDark, processedData);
+    sharedAppState.currentTheme = windowState.currentTheme;
+    renderSharedEffect(processedData);
     
     var maxVal = 0;
     for (var m = 0; m < Math.min(processedData.length, 32); m++) {
@@ -1695,7 +1737,7 @@
   }
 
   // ============================================
-  //  CONNECT/DISCONNECT — ИСПРАВЛЕНО (ДОВЕРЯЕМ BACKGROUND)
+  //  CONNECT/DISCONNECT (EDGE OPTIMIZED)
   // ============================================
 
   function handleConnectDisconnect() {
@@ -1705,7 +1747,6 @@
       return;
     }
 
-    // If the window is connected, disconnect the same target tab.
     if (windowState.currentStatus === 'connected' || windowState.isConnected) {
       showLoading(true);
       windowState.isConnecting = true;
@@ -1730,7 +1771,6 @@
       return;
     }
 
-    // Otherwise connect to the active/audible tab selected by background.
     showLoading(true);
     setStatus('connecting', t('status_connecting'));
     windowState.isConnecting = true;
@@ -1740,9 +1780,6 @@
       action: 'connect',
       targetTabId: windowState.targetTabId
     }, function(response) {
-      // The background can legitimately answer "connected" immediately
-      // when the target tab is already connected. This is the case that
-      // previously caused the window's 3-second timeout.
       if (response && response.tabId != null) {
         windowState.targetTabId = response.tabId;
         console.log('🎯 Окно привязано к вкладке:', response.tabId);
@@ -1770,10 +1807,8 @@
         return;
       }
 
-      // For a new connection, statusUpdate will complete the handshake.
       console.log('⏳ Окно: connect отправлен, ждём statusUpdate');
 
-      // Fallback check: only if background did not report a final state.
       setTimeout(function() {
         if (!windowState.isConnecting) return;
 
@@ -2150,14 +2185,13 @@
   }
 
   // ============================================
-  //  MESSAGE HANDLER — ИСПРАВЛЕНО (ДОВЕРЯЕМ BACKGROUND)
+  //  MESSAGE HANDLER (EDGE OPTIMIZED)
   // ============================================
 
   function setupMessageListener() {
     if (!api) return;
     try {
       api.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        // Игнорируем свои же сообщения
         if (sender && sender.url && sender.url.includes('window.html')) {
           sendResponse({ status: 'ignored' });
           return true;
@@ -2185,9 +2219,6 @@
           return true;
         }
         
-        // ============================================
-        //  СТАТУС — ДОВЕРЯЕМ BACKGROUND
-        // ============================================
         if (request.action === 'statusUpdate') {
           console.log('📨 Окно получило statusUpdate:', request.status, 'tabId:', request.tabId);
 
@@ -2260,7 +2291,8 @@
         }
 
         if (request.action === 'effectChanged' && request.effect) {
-          _currentEffect = request.effect;
+          setSharedEffect(request.effect);
+          _currentEffect = getSharedEffect();
           updateEffectButtonLabelInWindow();
           if (dom.effectBtn) {
             dom.effectBtn.dataset.effect = _currentEffect;
@@ -2309,7 +2341,7 @@
   }
 
   // ============================================
-  //  A/B COMPARE — РЕАЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ A ↔ B
+  //  A/B COMPARE
   // ============================================
 
   function resetABCompareInWindow() {
@@ -2562,9 +2594,6 @@
       });
     }
 
-    // ============================================
-    //  КНОПКА ЭФФЕКТОВ — ИСПРАВЛЕНО
-    // ============================================
     if (dom.effectBtn) {
       dom.effectBtn.onclick = function(e) {
         if (e) e.preventDefault();
@@ -2656,22 +2685,15 @@
     console.log('📄 DOM loaded');
     initDom();
     
-    // ============================================
-    //  ПРОВЕРКА СТАТУСА ПРИ ЗАГРУЗКЕ — УПРОЩЕНА
-    // ============================================
-    // Просто устанавливаем статус "disconnected" по умолчанию
-    // Реальный статус придёт через statusUpdate
     windowState.isConnected = false;
     windowState.currentStatus = 'disconnected';
     setStatus('disconnected', t('status_disconnected'));
     console.log('🔴 Окно: начальный статус ОТКЛЮЧЕН');
     
-    // ============================================
-    //  ИНИЦИАЛИЗАЦИЯ ЭФФЕКТОВ
-    // ============================================
+    initSharedEffects();
     loadWindowEffect();
+    sharedAppState.currentTheme = windowState.currentTheme;
     updateEffectButtonLabelInWindow();
-    initEffectParticles();
     
     applySavedSettings(true);
     loadUserPresets().then(function() { populatePresetSelect(); });
@@ -2816,7 +2838,7 @@
     }, 250);
     setInterval(updateSiteInfo, 3000);
     
-    console.log('✅ SoundForge Window ready (Edge/Chromium)');
+    console.log('✅ SoundForge Window Edge 151 ready');
     console.log('📊 Loaded ' + PRESET_ORDER.length + ' presets');
     console.log('🎨 Effects: Spectrum | Waves | Fire | Neon');
     console.log('⌨️ Hotkeys in window:');

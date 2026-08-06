@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SoundForge Equalizer",
   "version": "3.22.8",
-  "description": "Премиальный 10-полосный эквалайзер для всех сайтов. Точная настройка частот, глубокий бас и чистые верха - звук, который вы заслужили.",
+  "description": "🎛️ SoundForge Equalizer - профессиональный 10-полосный аудиоэквалайзер для Microsoft Edge. 50 пресетов, Bass Boost, Volume 0–800%, 4 эффекта визуализации, отдельное окно и полная синхронизация интерфейсов.",
   "permissions": [
     "storage",
     "tabs",
@@ -23,8 +23,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "icons/SoundForge.png",
-        "icons/SoundForge-off.png"
+        "icons/SoundForge_128x128.png",
+        "icons/SoundForge-off_128x128.png"
       ],
       "matches": [
         "<all_urls>"
@@ -65,18 +65,21 @@
     "default_popup": "popup.html",
     "default_title": "SoundForge EQ",
     "default_icon": {
-      "16": "icons/SoundForge.png",
-      "48": "icons/SoundForge.png",
-      "128": "icons/SoundForge.png"
+      "16": "icons/SoundForge_16x16.png",
+      "48": "icons/SoundForge_48x48.png",
+      "128": "icons/SoundForge_128x128.png"
     }
   },
   "icons": {
-    "16": "icons/SoundForge.png",
-    "48": "icons/SoundForge.png",
-    "128": "icons/SoundForge.png"
+    "16": "icons/SoundForge_16x16.png",
+    "48": "icons/SoundForge_48x48.png",
+    "128": "icons/SoundForge_128x128.png",
+    "256": "icons/SoundForge_256x256.png",
+    "512": "icons/SoundForge_512x512.png"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
-  "minimum_chrome_version": "88"
+  "minimum_chrome_version": "151",
+  "version_name": "3.22.8 Edge 151"
 }

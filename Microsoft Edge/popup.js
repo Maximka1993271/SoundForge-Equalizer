@@ -1,16 +1,30 @@
 // ============================================
-//  POPUP.JS - v3.22.8 (РАБОЧАЯ ВЕРСИЯ)
-//  РУЧНОЕ ПОДКЛЮЧЕНИЕ | ВСЕ НАСТРОЙКИ СОХРАНЯЮТСЯ
-//  50 ПРОФЕССИОНАЛЬНЫХ ПРЕСЕТОВ
-//  МОДУЛЬНАЯ АРХИТЕКТУРА
-//  ГРОМКОСТЬ: 0% - 800%
-//  СОХРАНЕНИЕ СОСТОЯНИЯ ПОДКЛЮЧЕНИЯ
-//  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ: СПЕКТР | ВОЛНЫ | ОГОНЬ | НЕОН
-//  3 ЯЗЫКА: RU, UA, EN
-//  ПОЛНЫЙ НАБОР ПЕРЕВОДОВ ДЛЯ ВСЕХ СООБЩЕНИЙ
+//  POPUP.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
+//  ИСПРАВЛЕНО: защита connection state
+//  ИСПРАВЛЕНО: дублирующие экспорты
 // ============================================
 
-console.log('🎛️ SoundForge Popup v3.22.8 - Единое хранилище (с эффектами)');
+console.log('🎛️ SoundForge Popup v3.22.8 Edge 151');
+
+// Per-popup binding prevents status updates from unrelated tabs.
+var popupTargetTabId = null;
+var spectrumClientId = 'popup_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+var popupStatusInterval = null;
+var popupConnectWatchdog = null;
+
+function clearPopupConnectWatchdog() {
+  if (popupConnectWatchdog) {
+    clearTimeout(popupConnectWatchdog);
+    popupConnectWatchdog = null;
+  }
+}
+
+function finishPopupConnectionLoading() {
+  clearPopupConnectWatchdog();
+  showLoading(false);
+}
+
 
 // ============================================
 //  ИМПОРТЫ МОДУЛЕЙ
@@ -36,13 +50,13 @@ import {
   formatStatsTotal,
   formatSettingsReset,
   formatConnectionError,
-  formatPresetAppliedReference,
-  formatPresetApplied
+  formatPresetApplied,
+  formatPresetAppliedReference
 } from './modules/i18n.js';
 import { PRESETS, PRESET_INFO, PRESET_ORDER } from './modules/config.js';
 import { 
-  setStatus, 
-  updateConnectButton, 
+  setStatus as originalSetStatus,
+  updateConnectButton as originalUpdateConnectButton,
   updatePresetInfo, 
   updateGainClass, 
   showLoading, 
@@ -69,7 +83,8 @@ import {
   resetVisualization,
   initVisualizationEffects,
   updateEffectButtonLabel,
-  syncEffect
+  syncEffect,
+  stopVisualization
 } from './modules/visualization.js';
 import { 
   getUserPresets, 
@@ -89,13 +104,13 @@ import {
 } from './modules/presets.js';
 import { storage, initializeStorage, onSettingChange } from './modules/storage-sync.js';
 
-console.log('🎛️ SoundForge Popup v3.22.8 - Единое хранилище (с эффектами)');
+console.log('🎛️ SoundForge Popup v3.22.8 Edge 151 - Единое хранилище (с эффектами)');
 
 // ============================================
 //  ПЕРЕВОДЫ ДЛЯ НОВЫХ КНОПОК
 // ============================================
 
-const BUTTON_LABELS = {
+var BUTTON_LABELS = {
   ru: {
     night: '🌙 Ночной',
     night_on: '🌙 Ночной ON',
@@ -132,7 +147,7 @@ const BUTTON_LABELS = {
 //  ПЕРЕВОДЫ ДЛЯ ДЕЙСТВИЙ В СТАТИСТИКЕ И ИСТОРИИ
 // ============================================
 
-const ACTION_TRANSLATIONS = {
+var ACTION_TRANSLATIONS = {
   ru: {
     'night_mode_toggle': 'Ночной режим',
     'eq_enabled': 'Вкл. EQ',
@@ -163,9 +178,51 @@ const ACTION_TRANSLATIONS = {
 };
 
 function getActionTranslation(action) {
-  const lang = getCurrentLang();
-  const dict = ACTION_TRANSLATIONS[lang] || ACTION_TRANSLATIONS.en;
+  var lang = getCurrentLang();
+  var dict = ACTION_TRANSLATIONS[lang] || ACTION_TRANSLATIONS.en;
   return dict[action] || action;
+}
+
+// ============================================
+//  CONNECTION STATE GUARD (ЗАЩИТА)
+// ============================================
+
+var CONNECTION_STATES = ['connected', 'connecting', 'disconnected', 'error'];
+
+function isConnectionState(status) {
+  return CONNECTION_STATES.indexOf(status) !== -1;
+}
+
+// ============================================
+//  ПЕРЕОПРЕДЕЛЕНИЕ setStatus С ЗАЩИТОЙ
+// ============================================
+
+// Переопределяем setStatus с защитой
+function setStatus(status, text) {
+  var currentStatus = state.currentStatus;
+  var isCurrentConnection = isConnectionState(currentStatus);
+  
+  // ИНФОРМАЦИОННЫЕ СООБЩЕНИЯ НЕ МЕНЯЮТ СОСТОЯНИЕ ПОДКЛЮЧЕНИЯ
+  if (status === 'ready' && isCurrentConnection) {
+    // Меняем только текст, НЕ меняем состояние
+    var txt = dom.statusText;
+    if (txt) {
+      txt.textContent = text || t('status_ready');
+    }
+    return;
+  }
+  
+  // Для реальных состояний - вызываем оригинальную функцию
+  originalSetStatus(status, text);
+}
+
+// Переопределяем updateConnectButton с защитой
+function updateConnectButton(status) {
+  // НЕ МЕНЯЕМ КНОПКУ ДЛЯ ИНФОРМАЦИОННЫХ СООБЩЕНИЙ
+  if (!isConnectionState(status)) {
+    return;
+  }
+  originalUpdateConnectButton(status);
 }
 
 // ============================================
@@ -173,19 +230,19 @@ function getActionTranslation(action) {
 // ============================================
 
 function initThemeSelector() {
-  const themeSelector = document.getElementById('themeSelector');
+  var themeSelector = document.getElementById('themeSelector');
   if (!themeSelector) return;
 
-  const themeOptions = themeSelector.querySelectorAll('.theme-option');
+  var themeOptions = themeSelector.querySelectorAll('.theme-option');
 
-  const savedTheme = storage.get('theme', 'system');
+  var savedTheme = storage.get('theme', 'system');
   setTheme(savedTheme);
   updateThemeButtons(savedTheme);
   state.currentTheme = savedTheme;
 
-  themeOptions.forEach((btn) => {
+  themeOptions.forEach(function(btn) {
     btn.addEventListener('click', function() {
-      const theme = this.dataset.theme;
+      var theme = this.dataset.theme;
       setTheme(theme);
       updateThemeButtons(theme);
       state.currentTheme = theme;
@@ -196,8 +253,8 @@ function initThemeSelector() {
   });
 
   if (window.matchMedia) {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    mediaQuery.addEventListener('change', () => {
+    var mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    mediaQuery.addEventListener('change', function() {
       if (state.currentTheme === 'system') {
         setTheme('system');
       }
@@ -210,7 +267,7 @@ function setTheme(theme) {
   state.currentTheme = theme;
 
   if (theme === 'system') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.style.colorScheme = prefersDark ? 'dark' : 'light';
   } else {
     document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
@@ -218,11 +275,11 @@ function setTheme(theme) {
 }
 
 function updateThemeButtons(activeTheme) {
-  const themeSelector = document.getElementById('themeSelector');
+  var themeSelector = document.getElementById('themeSelector');
   if (!themeSelector) return;
 
-  const themeOptions = themeSelector.querySelectorAll('.theme-option');
-  themeOptions.forEach((btn) => {
+  var themeOptions = themeSelector.querySelectorAll('.theme-option');
+  themeOptions.forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.theme === activeTheme);
   });
 }
@@ -232,12 +289,12 @@ function updateThemeButtons(activeTheme) {
 // ============================================
 
 function initLanguage() {
-  const savedLang = storage.get('language', null);
+  var savedLang = storage.get('language', null);
   
   if (savedLang && LANGUAGES[savedLang]) {
     setCurrentLang(savedLang);
   } else {
-    const detectedLang = detectLanguage();
+    var detectedLang = detectLanguage();
     setCurrentLang(detectedLang);
     storage.set('language', detectedLang);
   }
@@ -248,15 +305,15 @@ function initLanguage() {
   populatePresetSelect();
   
   if (dom.volumeSlider) {
-    const currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
     updateVolumeStatus(currentVolume);
   }
 }
 
 function toggleLanguage() {
-  const languages = ['ru', 'uk', 'en'];
-  const currentIndex = languages.indexOf(getCurrentLang());
-  const newLang = languages[(currentIndex + 1) % languages.length];
+  var languages = ['ru', 'uk', 'en'];
+  var currentIndex = languages.indexOf(getCurrentLang());
+  var newLang = languages[(currentIndex + 1) % languages.length];
   setCurrentLang(newLang);
   storage.set('language', newLang);
   saveAllSettings();
@@ -271,14 +328,14 @@ function toggleLanguage() {
   updateEffectButtonLabel();
   
   if (dom.volumeSlider) {
-    const currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
     updateVolumeStatus(currentVolume);
   }
 }
 
 function updateLanguage() {
-  const lang = getCurrentLang();
-  const labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
+  var lang = getCurrentLang();
+  var labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
   
   if (dom.langToggle) {
     dom.langToggle.textContent = LANGUAGES[lang].flag;
@@ -325,41 +382,41 @@ function updateLanguage() {
   
   updateEffectButtonLabel();
   
-  const nightBtn = document.getElementById('nightModeBtn');
+  var nightBtn = document.getElementById('nightModeBtn');
   if (nightBtn) {
-    const isNightOn = nightBtn.dataset.active === 'true';
+    var isNightOn = nightBtn.dataset.active === 'true';
     nightBtn.textContent = isNightOn ? labels.night_on : labels.night;
   }
   
-  const powerBtn = document.getElementById('powerSaveBtn');
+  var powerBtn = document.getElementById('powerSaveBtn');
   if (powerBtn) {
-    const isPowerOn = powerBtn.dataset.active === 'true';
+    var isPowerOn = powerBtn.dataset.active === 'true';
     powerBtn.textContent = isPowerOn ? labels.power_on : labels.power;
   }
   
-  const windowBtn = document.getElementById('openWindowBtn');
+  var windowBtn = document.getElementById('openWindowBtn');
   if (windowBtn) {
     windowBtn.textContent = labels.window;
   }
   
-  const historyBtn = document.getElementById('historyBtn');
+  var historyBtn = document.getElementById('historyBtn');
   if (historyBtn) {
     historyBtn.textContent = labels.history;
   }
   
-  const statsBtn = document.getElementById('statsBtn');
+  var statsBtn = document.getElementById('statsBtn');
   if (statsBtn) {
     statsBtn.textContent = labels.stats;
   }
   
-  const statsSpan = document.querySelector('.stats');
+  var statsSpan = document.querySelector('.stats');
   if (statsSpan) {
     statsSpan.innerHTML = '🎛️ <span id="filterCount">10</span>' + t('bands');
   }
   
-  const statusTxt = dom.statusText;
+  var statusTxt = dom.statusText;
   if (statusTxt) {
-    const statusMap = {
+    var statusMap = {
       'ready': 'status_ready',
       'connected': 'status_connected',
       'disconnected': 'status_disconnected',
@@ -374,7 +431,7 @@ function updateLanguage() {
   updatePresetInfo(state.currentPreset);
   
   if (dom.volumeSlider) {
-    const currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
     updateVolumeStatus(currentVolume);
   }
 }
@@ -384,9 +441,9 @@ function updateLanguage() {
 // ============================================
 
 function initWindowState() {
-  const isExpanded = storage.get('popupExpanded', false);
-  const body = document.body;
-  const expandBtn = dom.expandBtn;
+  var isExpanded = storage.get('popupExpanded', false);
+  var body = document.body;
+  var expandBtn = dom.expandBtn;
   
   if (isExpanded) {
     body.classList.add('expanded');
@@ -402,8 +459,8 @@ function initWindowState() {
 }
 
 function handleExpandToggle() {
-  const body = document.body;
-  const expandBtn = dom.expandBtn;
+  var body = document.body;
+  var expandBtn = dom.expandBtn;
   if (!expandBtn) return;
   
   if (body.classList.contains('expanded')) {
@@ -420,7 +477,7 @@ function handleExpandToggle() {
     storage.set('popupExpanded', true);
   }
   
-  setTimeout(() => {
+  setTimeout(function() {
     updateEQGraph();
   }, 50);
 }
@@ -432,12 +489,12 @@ function handleExpandToggle() {
 async function handleExport() {
   showLoading(true);
   try {
-    const exportData = await storage.exportSettings();
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    var exportData = await storage.exportSettings();
+    var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
     a.href = url;
-    a.download = `soundforge_settings_backup_${new Date().toISOString().slice(0,10)}.json`;
+    a.download = 'soundforge_settings_backup_' + new Date().toISOString().slice(0,10) + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -452,17 +509,17 @@ async function handleExport() {
 }
 
 function handleImport() {
-  const input = document.createElement('input');
+  var input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
 
   input.onchange = async function(e) {
-    const file = e.target.files[0];
+    var file = e.target.files[0];
     if (!file) return;
 
     showLoading(true);
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
+    var reader = new FileReader();
+    reader.onload = async function(ev) {
       try {
         await storage.importSettings(ev.target.result);
         showLoading(false);
@@ -487,15 +544,15 @@ function handleImport() {
 // ============================================
 
 function updateVolumeStatus(volume) {
-  const statusEl = document.getElementById('volumeStatus');
+  var statusEl = document.getElementById('volumeStatus');
   if (!statusEl) return;
   
-  const warningText = getVolumeWarning(volume);
+  var warningText = getVolumeWarning(volume);
   
-  let color = '#666';
-  let glow = 'none';
-  let transform = 'scale(1)';
-  let textShadow = 'none';
+  var color = '#666';
+  var glow = 'none';
+  var transform = 'scale(1)';
+  var textShadow = 'none';
   
   if (volume === 0) {
     color = '#666';
@@ -515,22 +572,22 @@ function updateVolumeStatus(volume) {
   } else if (volume <= 450) {
     color = '#FF9800';
     glow = 'glowOrange 0.8s ease-in-out infinite';
-    textShadow = `0 0 20px ${color}40`;
+    textShadow = '0 0 20px ' + color + '40';
     transform = 'scale(1.05)';
   } else if (volume <= 600) {
     color = '#f44336';
     glow = 'glowRed 0.6s ease-in-out infinite';
-    textShadow = `0 0 25px ${color}50`;
+    textShadow = '0 0 25px ' + color + '50';
     transform = 'scale(1.08)';
   } else if (volume <= 750) {
     color = '#d32f2f';
     glow = 'glowRed 0.4s ease-in-out infinite';
-    textShadow = `0 0 30px ${color}60`;
+    textShadow = '0 0 30px ' + color + '60';
     transform = 'scale(1.1)';
   } else {
     color = '#ff1744';
     glow = 'glowRed 0.3s ease-in-out infinite';
-    textShadow = `0 0 35px ${color}70`;
+    textShadow = '0 0 35px ' + color + '70';
     transform = 'scale(1.12)';
   }
   
@@ -548,50 +605,29 @@ function updateVolumeStatus(volume) {
 // ============================================
 
 function restoreConnectionState() {
-  chrome.storage.local.get(['soundforgeConnected'], (result) => {
-    console.log('📥 Восстановление состояния подключения:', result);
-    
-    if (result.soundforgeConnected === true) {
-      console.log('✅ Восстановлено: ПОДКЛЮЧЕН');
-      setStatus('connected', t('status_connected'));
-      state.isConnected = true;
-      
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs.length > 0 && tabs[0].url) {
-          chrome.runtime.sendMessage({ action: 'connect' }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.warn('⚠️ Ошибка подключения:', chrome.runtime.lastError);
-            } else {
-              console.log('✅ Автоподключение выполнено');
-            }
-          });
-        }
-      });
-    } else if (result.soundforgeConnected === false) {
-      console.log('🔴 Восстановлено: ОТКЛЮЧЕН');
-      setStatus('disconnected', t('status_disconnected'));
+  var edgeAPI = globalThis.browser || globalThis.chrome;
+
+  // Runtime per-tab state is the source of truth. A persisted global flag can
+  // belong to another tab or survive a service-worker restart.
+  edgeAPI.runtime.sendMessage({ action: 'getStatus' }, function(response) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения статуса:', edgeAPI.runtime.lastError.message);
       state.isConnected = false;
+      setStatus('disconnected', t('status_disconnected'));
+      return;
+    }
+
+    if (response && response.tabId != null) popupTargetTabId = Number(response.tabId);
+    var status = response && response.status ? response.status : 'disconnected';
+    if (status === 'connected') {
+      state.isConnected = true;
+      setStatus('connected', t('status_connected'));
+    } else if (status === 'connecting') {
+      state.isConnected = false;
+      setStatus('connecting', t('status_connecting'));
     } else {
-      console.log('🔄 Нет сохраненного состояния, проверяем текущий статус');
-      chrome.runtime.sendMessage({ action: 'getStatus' }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn('⚠️ Ошибка получения статуса:', chrome.runtime.lastError);
-          setStatus('ready', t('status_ready'));
-          return;
-        }
-        
-        if (response && response.status === 'connected') {
-          console.log('✅ Текущий статус: ПОДКЛЮЧЕН');
-          setStatus('connected', t('status_connected'));
-          state.isConnected = true;
-          chrome.storage.local.set({ soundforgeConnected: true });
-        } else {
-          console.log('🔴 Текущий статус: ОТКЛЮЧЕН');
-          setStatus('ready', t('status_ready'));
-          state.isConnected = false;
-          chrome.storage.local.set({ soundforgeConnected: false });
-        }
-      });
+      state.isConnected = false;
+      setStatus('disconnected', t('status_disconnected'));
     }
   });
 }
@@ -601,11 +637,11 @@ function restoreConnectionState() {
 // ============================================
 
 function syncPresetUIInPopup(name) {
-  const userPresets = getUserPresets();
-  const isUserPreset = !!userPresets[name];
-  const preset = isUserPreset ? userPresets[name] : PRESETS[name];
+  var userPresets = getUserPresets();
+  var isUserPreset = !!userPresets[name];
+  var preset = isUserPreset ? userPresets[name] : PRESETS[name];
   if (!preset) {
-    console.warn(`⚠️ Пресет "${name}" не найден для синхронизации UI`);
+    console.warn('⚠️ Пресет "' + name + '" не найден для синхронизации UI');
     return false;
   }
 
@@ -613,14 +649,14 @@ function syncPresetUIInPopup(name) {
   updatePresetInfo(name);
   if (dom.presetSelect) dom.presetSelect.value = isUserPreset ? 'user_' + name : name;
 
-  const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
-  const gains = preset.gains || {};
-  sliders.forEach((slider) => {
-    const freq = slider.dataset.freq;
+  var sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+  var gains = preset.gains || {};
+  sliders.forEach(function(slider) {
+    var freq = slider.dataset.freq;
     if (gains[freq] !== undefined) {
-      const value = Number(gains[freq]) || 0;
+      var value = Number(gains[freq]) || 0;
       slider.value = value;
-      const valueSpan = slider.parentElement.querySelector('.gain-value');
+      var valueSpan = slider.parentElement.querySelector('.gain-value');
       if (valueSpan) {
         valueSpan.textContent = value.toFixed(1);
         valueSpan.className = value > 0.1 ? 'gain-value positive' : (value < -0.1 ? 'gain-value negative' : 'gain-value zero');
@@ -629,14 +665,14 @@ function syncPresetUIInPopup(name) {
   });
 
   if (dom.volumeSlider && dom.volumeDisplay) {
-    const vol = Number.isFinite(Number(preset.volume)) ? Math.min(800, Math.max(0, Number(preset.volume))) : 100;
+    var vol = Number.isFinite(Number(preset.volume)) ? Math.min(800, Math.max(0, Number(preset.volume))) : 100;
     dom.volumeSlider.value = vol;
     dom.volumeDisplay.textContent = vol + '%';
     updateVolumeStatus(vol);
   }
 
   if (dom.bassSlider && dom.bassDisplay) {
-    const bass = Number.isFinite(Number(preset.bass)) ? Math.max(-12, Math.min(12, Number(preset.bass))) : 0;
+    var bass = Number.isFinite(Number(preset.bass)) ? Math.max(-12, Math.min(12, Number(preset.bass))) : 0;
     dom.bassSlider.value = bass;
     dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
   }
@@ -646,24 +682,25 @@ function syncPresetUIInPopup(name) {
 }
 
 function applyPresetInPopup(name) {
-  const userPresets = getUserPresets();
-  const isUserPreset = !!userPresets[name];
-  const preset = isUserPreset ? userPresets[name] : PRESETS[name];
+  var userPresets = getUserPresets();
+  var isUserPreset = !!userPresets[name];
+  var preset = isUserPreset ? userPresets[name] : PRESETS[name];
   if (!preset) {
-    console.warn(`⚠️ Пресет "${name}" не найден`);
+    console.warn('⚠️ Пресет "' + name + '" не найден');
     return;
   }
 
-  console.log(`🎵 Применяем пресет в popup: ${name}`);
+  console.log('🎵 Применяем пресет в popup:', name);
   if (!syncPresetUIInPopup(name)) return;
 
-  const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
-  const gainsData = {};
-  sliders.forEach((slider) => {
+  var sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+  var gainsData = {};
+  sliders.forEach(function(slider) {
     gainsData[slider.dataset.freq] = parseFloat(slider.value) || 0;
   });
 
-  chrome.runtime.sendMessage({
+  var edgeAPI = globalThis.browser || globalThis.chrome;
+  edgeAPI.runtime.sendMessage({
     action: 'applyPreset',
     preset: name,
     presetData: {
@@ -672,9 +709,9 @@ function applyPresetInPopup(name) {
       bass: Number.isFinite(Number(preset.bass)) ? Number(preset.bass) : 0
     },
     source: 'popup'
-  }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Не удалось применить пресет:', chrome.runtime.lastError.message);
+  }, function(response) {
+    if (edgeAPI.runtime.lastError) {
+      console.warn('⚠️ Не удалось применить пресет:', edgeAPI.runtime.lastError.message);
       return;
     }
     if (response && response.status === 'disconnected') {
@@ -687,80 +724,82 @@ function applyPresetInPopup(name) {
 }
 
 // ============================================
-//  ПОДКЛЮЧЕНИЕ/ОТКЛЮЧЕНИЕ
+//  ПОДКЛЮЧЕНИЕ/ОТКЛЮЧЕНИЕ (EDGE OPTIMIZED)
 // ============================================
 
 function handleConnectDisconnect() {
-  if (state.isLoading) return;
+  var edgeAPI = globalThis.browser || globalThis.chrome;
+  if (state.isLoading || state.currentStatus === 'connecting') return;
 
-  if (state.currentStatus === 'connected' || state.isConnected) {
-    showLoading(true);
-    setStatus('disconnected', t('status_disconnected'));
-    
-    chrome.runtime.sendMessage({ action: 'disconnect' }, () => {
-      showLoading(false);
-      if (chrome.runtime.lastError) {
-        setStatus('disconnected', formatConnectionError());
+  var disconnecting = state.currentStatus === 'connected' || state.isConnected;
+  showLoading(true);
+
+  if (disconnecting) {
+    edgeAPI.runtime.sendMessage({ action: 'disconnect', targetTabId: popupTargetTabId }, function(response) {
+      finishPopupConnectionLoading();
+      if (response && response.tabId != null) popupTargetTabId = Number(response.tabId);
+      if (edgeAPI.runtime.lastError || !response || response.status !== 'disconnected') {
+        setStatus('error', formatConnectionError());
         return;
       }
-      
       state.isConnected = false;
       setStatus('disconnected', t('status_disconnected'));
-      
-      chrome.storage.local.set({ soundforgeConnected: false });
-      console.log('💾 Состояние сохранено: ОТКЛЮЧЕН');
-      
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ action: 'getStatus' }, (resp) => {
-          if (resp && resp.status === 'connected') {
-            setStatus('connected', t('status_connected'));
+    });
+    return;
+  }
+
+  state.isConnected = false;
+  setStatus('connecting', t('status_connecting'));
+  edgeAPI.runtime.sendMessage({ action: 'connect', targetTabId: popupTargetTabId }, function(response) {
+    if (response && response.tabId != null) popupTargetTabId = Number(response.tabId);
+    if (edgeAPI.runtime.lastError || !response) {
+      finishPopupConnectionLoading();
+      state.isConnected = false;
+      setStatus('error', formatConnectionError());
+      return;
+    }
+
+    if (response.status === 'connected') {
+      finishPopupConnectionLoading();
+      state.isConnected = true;
+      setStatus('connected', t('status_connected'));
+      applySavedSettings(false);
+      return;
+    }
+
+    if (response.status === 'connecting') {
+      // Final state normally arrives through statusUpdate. A watchdog prevents
+      // the modal overlay from trapping the popup if a runtime message is lost.
+      clearPopupConnectWatchdog();
+      popupConnectWatchdog = setTimeout(function() {
+        edgeAPI.runtime.sendMessage({ action: 'getStatus', targetTabId: popupTargetTabId }, function(statusResponse) {
+          finishPopupConnectionLoading();
+          if (edgeAPI.runtime.lastError || !statusResponse) {
+            state.isConnected = false;
+            setStatus('error', formatConnectionError());
+            return;
+          }
+          if (statusResponse.tabId != null) popupTargetTabId = Number(statusResponse.tabId);
+          if (statusResponse.status === 'connected') {
             state.isConnected = true;
+            setStatus('connected', t('status_connected'));
+            applySavedSettings(false);
+          } else if (statusResponse.status === 'connecting') {
+            state.isConnected = false;
+            setStatus('connecting', t('status_connecting'));
           } else {
+            state.isConnected = false;
             setStatus('disconnected', t('status_disconnected'));
           }
         });
-      }, 500);
-    });
-  } else if (state.currentStatus === 'connecting') {
-    // Ничего не делаем
-  } else {
-    showLoading(true);
-    setStatus('connecting', t('status_connecting'));
-    
-    chrome.runtime.sendMessage({ action: 'connect' }, () => {
-      showLoading(false);
-      if (chrome.runtime.lastError) {
-        setStatus('disconnected', formatConnectionError());
-        return;
-      }
-      
-      state.isConnected = true;
-      
-      chrome.storage.local.set({ soundforgeConnected: true });
-      console.log('💾 Состояние сохранено: ПОДКЛЮЧЕН');
-      
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ action: 'getStatus' }, (resp) => {
-          if (resp && resp.status === 'connected') {
-            setStatus('connected', t('status_connected'));
-            applySavedSettings(false);
-          } else {
-            setTimeout(() => {
-              chrome.runtime.sendMessage({ action: 'getStatus' }, (resp2) => {
-                if (resp2 && resp2.status === 'connected') {
-                  setStatus('connected', t('status_connected'));
-                  applySavedSettings(false);
-                } else {
-                  setStatus('disconnected', t('status_disconnected'));
-                  state.isConnected = false;
-                }
-              });
-            }, 1000);
-          }
-        });
-      }, 1500);
-    });
-  }
+      }, 6000);
+      return;
+    }
+
+    finishPopupConnectionLoading();
+    state.isConnected = false;
+    setStatus('disconnected', t('status_disconnected'));
+  });
 }
 
 // ============================================
@@ -769,7 +808,7 @@ function handleConnectDisconnect() {
 
 async function loadSettingsAndApply() {
   try {
-    const settings = storage.getAll();
+    var settings = storage.getAll();
     
     console.log('📥 Загрузка настроек из единого хранилища', settings);
 
@@ -807,39 +846,35 @@ async function loadSettingsAndApply() {
 // ============================================
 
 function addHotkeyInfo() {
-  const footer = document.querySelector('.footer');
+  var footer = document.querySelector('.footer');
   if (footer) {
-    const hotkeyInfo = document.createElement('span');
+    var hotkeyInfo = document.createElement('span');
     hotkeyInfo.className = 'hotkey-info';
     hotkeyInfo.textContent = '⌨️ Ctrl+Shift+E | Ctrl+Shift+Y | Ctrl+Shift+X | Ctrl+Shift+L';
-    hotkeyInfo.style.cssText = `
-      font-size: 8px;
-      color: #667799;
-      opacity: 0.6;
-      margin-left: 10px;
-    `;
+    hotkeyInfo.style.cssText = 'font-size:8px;color:#667799;opacity:0.6;margin-left:10px;';
     footer.appendChild(hotkeyInfo);
   }
 }
 
 function setupNewFeatureButtons() {
-  const lang = getCurrentLang();
-  const labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
+  var edgeAPI = globalThis.browser || globalThis.chrome;
+  var lang = getCurrentLang();
+  var labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
   
   // === НОЧНОЙ РЕЖИМ ===
-  const nightBtn = document.getElementById('nightModeBtn');
+  var nightBtn = document.getElementById('nightModeBtn');
   if (nightBtn) {
-    nightBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'toggleNightMode' }, (response) => {
+    nightBtn.addEventListener('click', function() {
+      edgeAPI.runtime.sendMessage({ action: 'toggleNightMode' }, function(response) {
         if (response && response.enabled !== undefined) {
           nightBtn.dataset.active = response.enabled ? 'true' : 'false';
-          const langNow = getCurrentLang();
-          const labelNow = BUTTON_LABELS[langNow] || BUTTON_LABELS.ru;
+          var langNow = getCurrentLang();
+          var labelNow = BUTTON_LABELS[langNow] || BUTTON_LABELS.ru;
           nightBtn.textContent = response.enabled ? labelNow.night_on : labelNow.night;
-          nightBtn.style.borderColor = response.enabled ? '#4CAF50' : 'rgba(255, 255, 255, 0.06)';
+          nightBtn.style.borderColor = response.enabled ? '#4CAF50' : 'rgba(255,255,255,0.06)';
           nightBtn.style.color = response.enabled ? '#4CAF50' : '#8899bb';
           
-          const message = response.enabled ? formatNightModeOn() : formatNightModeOff();
+          var message = response.enabled ? formatNightModeOn() : formatNightModeOff();
           setStatus('ready', message);
         }
       });
@@ -847,19 +882,19 @@ function setupNewFeatureButtons() {
   }
   
   // === ЭНЕРГОСБЕРЕЖЕНИЕ ===
-  const powerBtn = document.getElementById('powerSaveBtn');
+  var powerBtn = document.getElementById('powerSaveBtn');
   if (powerBtn) {
-    powerBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'togglePowerSave' }, (response) => {
+    powerBtn.addEventListener('click', function() {
+      edgeAPI.runtime.sendMessage({ action: 'togglePowerSave' }, function(response) {
         if (response && response.enabled !== undefined) {
           powerBtn.dataset.active = response.enabled ? 'true' : 'false';
-          const langNow = getCurrentLang();
-          const labelNow = BUTTON_LABELS[langNow] || BUTTON_LABELS.ru;
+          var langNow = getCurrentLang();
+          var labelNow = BUTTON_LABELS[langNow] || BUTTON_LABELS.ru;
           powerBtn.textContent = response.enabled ? labelNow.power_on : labelNow.power;
-          powerBtn.style.borderColor = response.enabled ? '#FF9800' : 'rgba(255, 255, 255, 0.06)';
+          powerBtn.style.borderColor = response.enabled ? '#FF9800' : 'rgba(255,255,255,0.06)';
           powerBtn.style.color = response.enabled ? '#FF9800' : '#8899bb';
           
-          const message = response.enabled ? formatPowerSaveOn() : formatPowerSaveOff();
+          var message = response.enabled ? formatPowerSaveOn() : formatPowerSaveOff();
           setStatus('ready', message);
         }
       });
@@ -867,33 +902,28 @@ function setupNewFeatureButtons() {
   }
   
   // === ОТКРЫТИЕ ОКНА ===
-  const windowBtn = document.getElementById('openWindowBtn');
+  var windowBtn = document.getElementById('openWindowBtn');
   if (windowBtn) {
-    windowBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'open_window' });
+    windowBtn.addEventListener('click', function() {
+      edgeAPI.runtime.sendMessage({ action: 'open_window' });
     });
   }
   
-  // === ИСТОРИЯ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ===
-  const historyBtn = document.getElementById('historyBtn');
+  // === ИСТОРИЯ ===
+  var historyBtn = document.getElementById('historyBtn');
   if (historyBtn) {
-    historyBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'getHistory' }, (response) => {
+    historyBtn.addEventListener('click', function() {
+      edgeAPI.runtime.sendMessage({ action: 'getHistory' }, function(response) {
         if (response && response.history) {
-          const history = response.history;
-          const count = history.length;
+          var history = response.history;
+          var count = history.length;
           
           if (count === 0) {
             setStatus('ready', t('history_empty'));
           } else {
-            // Берем последнее действие
-            const lastAction = history[history.length - 1];
-            const actionName = lastAction.action || 'unknown';
-            
-            // Переводим название действия
-            const translatedAction = getActionTranslation(actionName);
-            
-            // Форматируем сообщение с иконкой и переводом
+            var lastAction = history[history.length - 1];
+            var actionName = lastAction.action || 'unknown';
+            var translatedAction = getActionTranslation(actionName);
             setStatus('ready', formatHistoryRecords(count, translatedAction));
             console.log('📜 История:', history.slice(-10));
           }
@@ -902,44 +932,41 @@ function setupNewFeatureButtons() {
     });
   }
   
-  // === СТАТИСТИКА (ИСПРАВЛЕННАЯ ВЕРСИЯ) ===
-  const statsBtn = document.getElementById('statsBtn');
+  // === СТАТИСТИКА ===
+  var statsBtn = document.getElementById('statsBtn');
   if (statsBtn) {
-    statsBtn.addEventListener('click', () => {
-      chrome.storage.local.get(['settingsHistory'], (result) => {
-        const history = result.settingsHistory || [];
-        const total = history.length;
+    statsBtn.addEventListener('click', function() {
+      edgeAPI.storage.local.get(['settingsHistory'], function(result) {
+        var history = result.settingsHistory || [];
+        var total = history.length;
         
         if (total === 0) {
           setStatus('ready', t('history_empty'));
           return;
         }
         
-        // Собираем статистику по действиям
-        const actions = {};
-        history.forEach((h) => {
-          const actionName = h.action || 'unknown';
+        var actions = {};
+        history.forEach(function(h) {
+          var actionName = h.action || 'unknown';
           actions[actionName] = (actions[actionName] || 0) + 1;
         });
         
-        // Формируем сообщение на текущем языке
-        const totalText = t('stats_total', { count: total });
+        var totalText = t('stats_total', { count: total });
         
-        // Формируем топ действий с переводом
-        const topActions = Object.entries(actions)
-          .sort((a, b) => b[1] - a[1])
+        var topActions = Object.entries(actions)
+          .sort(function(a, b) { return b[1] - a[1]; })
           .slice(0, 3);
         
-        let topText = '';
+        var topText = '';
         if (topActions.length > 0) {
-          const topStr = topActions.map(([a, c]) => {
-            const translatedName = getActionTranslation(a);
-            return `${translatedName}(${c})`;
+          var topStr = topActions.map(function(item) {
+            var translatedName = getActionTranslation(item[0]);
+            return translatedName + '(' + item[1] + ')';
           }).join(', ');
           topText = t('stats_top', { top: topStr });
         }
         
-        const statsText = totalText + topText;
+        var statsText = totalText + topText;
         setStatus('ready', statsText);
       });
     });
@@ -947,16 +974,17 @@ function setupNewFeatureButtons() {
 }
 
 // ============================================
-//  ОБРАБОТЧИК СООБЩЕНИЙ
+//  ОБРАБОТЧИК СООБЩЕНИЙ (EDGE OPTIMIZED)
 // ============================================
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+var edgeAPI = globalThis.browser || globalThis.chrome;
+edgeAPI.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   console.log('📨 Popup получил сообщение:', request.action);
   
   if (request.action === 'spectrumData' && request.spectrum) {
-    const data = request.spectrum;
-    const len = Math.min(data.length, state.spectrumData.length);
-    for (let i = 0; i < len; i++) {
+    var data = request.spectrum;
+    var len = Math.min(data.length, state.spectrumData.length);
+    for (var i = 0; i < len; i++) {
       state.spectrumData[i] = data[i] || 0;
     }
     if (request.rms !== undefined) {
@@ -972,7 +1000,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'presetChanged' && request.preset) {
-    console.log(`🔄 Пресет синхронизирован из background: ${request.preset}`);
+    console.log('🔄 Пресет синхронизирован из background:', request.preset);
     if (syncPresetUIInPopup(request.preset)) {
       setStatus('ready', formatPresetApplied(request.preset));
     }
@@ -982,10 +1010,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'settingsReset') {
     console.log('🔄 Настройки сброшены через горячие клавиши (background)');
-    const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
-    sliders.forEach((slider) => {
+    var sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+    sliders.forEach(function(slider) {
       slider.value = 0;
-      const valueSpan = slider.parentElement.querySelector('.gain-value');
+      var valueSpan = slider.parentElement.querySelector('.gain-value');
       if (valueSpan) {
         valueSpan.textContent = '0.0';
         valueSpan.className = 'gain-value zero';
@@ -1029,31 +1057,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'statusUpdate') {
+    // Ignore broadcasts from other audio tabs once this popup is bound.
+    if (request.tabId != null && popupTargetTabId != null && Number(request.tabId) !== Number(popupTargetTabId)) {
+      sendResponse({ status: 'ignored', reason: 'different_tab' });
+      return true;
+    }
+    if (request.tabId != null) popupTargetTabId = Number(request.tabId);
     if (request.status === 'connected') {
+      finishPopupConnectionLoading();
       setStatus('connected', t('status_connected'));
       state.isConnected = true;
-      chrome.storage.local.set({ soundforgeConnected: true });
+      edgeAPI.storage.local.set({ soundforgeConnected: true });
     } else if (request.status === 'disconnected') {
+      finishPopupConnectionLoading();
       setStatus('disconnected', t('status_disconnected'));
       state.isConnected = false;
-      chrome.storage.local.set({ soundforgeConnected: false });
+      edgeAPI.storage.local.set({ soundforgeConnected: false });
     } else if (request.status === 'error') {
+      finishPopupConnectionLoading();
       setStatus('disconnected', formatConnectionError());
       state.isConnected = false;
-      chrome.storage.local.set({ soundforgeConnected: false });
+      edgeAPI.storage.local.set({ soundforgeConnected: false });
     }
     sendResponse({ status: 'ok' });
     return true;
   }
 
   if (request.action === 'nightModeStatus') {
-    const nightBtn = document.getElementById('nightModeBtn');
+    var nightBtn = document.getElementById('nightModeBtn');
     if (nightBtn) {
-      const lang = getCurrentLang();
-      const labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
+      var lang = getCurrentLang();
+      var labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
       nightBtn.dataset.active = request.enabled ? 'true' : 'false';
       nightBtn.textContent = request.enabled ? labels.night_on : labels.night;
-      nightBtn.style.borderColor = request.enabled ? '#4CAF50' : 'rgba(255, 255, 255, 0.06)';
+      nightBtn.style.borderColor = request.enabled ? '#4CAF50' : 'rgba(255,255,255,0.06)';
       nightBtn.style.color = request.enabled ? '#4CAF50' : '#8899bb';
     }
     sendResponse({ status: 'ok' });
@@ -1061,13 +1098,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'powerSaveStatus') {
-    const powerBtn = document.getElementById('powerSaveBtn');
+    var powerBtn = document.getElementById('powerSaveBtn');
     if (powerBtn) {
-      const lang = getCurrentLang();
-      const labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
+      var lang = getCurrentLang();
+      var labels = BUTTON_LABELS[lang] || BUTTON_LABELS.ru;
       powerBtn.dataset.active = request.enabled ? 'true' : 'false';
       powerBtn.textContent = request.enabled ? labels.power_on : labels.power;
-      powerBtn.style.borderColor = request.enabled ? '#FF9800' : 'rgba(255, 255, 255, 0.06)';
+      powerBtn.style.borderColor = request.enabled ? '#FF9800' : 'rgba(255,255,255,0.06)';
       powerBtn.style.color = request.enabled ? '#FF9800' : '#8899bb';
     }
     sendResponse({ status: 'ok' });
@@ -1086,7 +1123,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 //  ИНИЦИАЛИЗАЦИЯ POPUP
 // ============================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
   console.log('📄 DOM загружен, инициализация...');
   initPopup();
 });
@@ -1110,23 +1147,23 @@ async function initPopup() {
     console.error('❌ Ошибка инициализации хранилища:', e);
   }
 
-  onSettingChange('theme', (value) => {
+  onSettingChange('theme', function(value) {
     setTheme(value);
     updateThemeButtons(value);
     updateEQGraph();
   });
 
-  onSettingChange('language', (value) => {
+  onSettingChange('language', function(value) {
     setCurrentLang(value);
     updateLanguage();
     populatePresetSelect();
     if (dom.volumeSlider) {
-      const currentVolume = parseInt(dom.volumeSlider.value) || 100;
+      var currentVolume = parseInt(dom.volumeSlider.value) || 100;
       updateVolumeStatus(currentVolume);
     }
   });
 
-  onSettingChange('popupExpanded', (value) => {});
+  onSettingChange('popupExpanded', function(value) {});
 
   initWindowState();
   initThemeSelector();
@@ -1135,25 +1172,25 @@ async function initPopup() {
   
   restoreConnectionState();
 
-  dom.connectBtn.addEventListener('click', (e) => {
+  dom.connectBtn.addEventListener('click', function(e) {
     e.preventDefault();
     handleConnectDisconnect();
   });
 
-  dom.resetBtn.addEventListener('click', async (e) => {
+  dom.resetBtn.addEventListener('click', async function(e) {
     e.preventDefault();
-    await handleReset((volume) => {
+    await handleReset(function(volume) {
       updateVolumeStatus(volume);
     });
     if (dom.volumeSlider) {
-      const currentVolume = parseInt(dom.volumeSlider.value) || 100;
+      var currentVolume = parseInt(dom.volumeSlider.value) || 100;
       updateVolumeStatus(currentVolume);
     }
   });
 
   if (dom.presetSelect) {
     dom.presetSelect.addEventListener('change', function() {
-      const value = this.value;
+      var value = this.value;
       console.log('🔄 Выбран пресет в popup:', value);
       
       if (!value) {
@@ -1163,9 +1200,9 @@ async function initPopup() {
       }
       
       if (value.startsWith('user_')) {
-        const userPresetName = value.substring(5);
-        const userPresets = getUserPresets();
-        const preset = userPresets[userPresetName];
+        var userPresetName = value.substring(5);
+        var userPresets = getUserPresets();
+        var preset = userPresets[userPresetName];
         if (preset) {
           applyPresetInPopup(userPresetName);
         }
@@ -1176,18 +1213,18 @@ async function initPopup() {
   }
 
   if (dom.eqSliders) {
-    dom.eqSliders.forEach((slider) => {
-      const valueSpan = slider.parentElement.querySelector('.gain-value');
+    dom.eqSliders.forEach(function(slider) {
+      var valueSpan = slider.parentElement.querySelector('.gain-value');
 
       slider.addEventListener('input', function() {
-        const val = parseFloat(slider.value);
+        var val = parseFloat(slider.value);
         if (valueSpan) {
           valueSpan.textContent = val.toFixed(1);
           updateGainClass(valueSpan, val);
         }
         updateEQGraph();
-        const gains = getSliderGains();
-        chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
+        var gains = getSliderGains();
+        edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains, instant: true });
         saveAllSettings();
         state.currentPreset = 'custom';
         updatePresetInfo('custom');
@@ -1195,8 +1232,8 @@ async function initPopup() {
       });
 
       slider.addEventListener('change', function() {
-        const gains = getSliderGains();
-        chrome.runtime.sendMessage({ action: 'updateEQ', gains: gains });
+        var gains = getSliderGains();
+        edgeAPI.runtime.sendMessage({ action: 'updateEQ', gains: gains });
         saveAllSettings();
         updateEQGraph();
       });
@@ -1204,15 +1241,15 @@ async function initPopup() {
   }
 
   if (dom.volumeSlider && dom.volumeDisplay) {
-    const initialVolume = parseInt(dom.volumeSlider.value) || 100;
+    var initialVolume = parseInt(dom.volumeSlider.value) || 100;
     updateVolumeStatus(initialVolume);
     
     dom.volumeSlider.addEventListener('input', function() {
-      const val = parseInt(this.value);
+      var val = parseInt(this.value);
       dom.volumeDisplay.textContent = val + '%';
       updateVolumeStatus(val);
-      const volumeValue = val / 100;
-      chrome.runtime.sendMessage({ 
+      var volumeValue = val / 100;
+      edgeAPI.runtime.sendMessage({ 
         action: 'setVolume', 
         value: volumeValue, 
         instant: true 
@@ -1220,7 +1257,7 @@ async function initPopup() {
       saveAllSettings();
       
       if (val === 0) {
-        chrome.runtime.sendMessage({ 
+        edgeAPI.runtime.sendMessage({ 
           action: 'setVolume', 
           value: 0, 
           instant: true,
@@ -1230,13 +1267,13 @@ async function initPopup() {
     });
     
     dom.volumeSlider.addEventListener('change', function() {
-      const val = parseInt(this.value);
-      const volumeValue = val / 100;
-      chrome.runtime.sendMessage({ action: 'setVolume', value: volumeValue });
+      var val = parseInt(this.value);
+      var volumeValue = val / 100;
+      edgeAPI.runtime.sendMessage({ action: 'setVolume', value: volumeValue });
       saveAllSettings();
       
       if (val === 0) {
-        chrome.runtime.sendMessage({ 
+        edgeAPI.runtime.sendMessage({ 
           action: 'setVolume', 
           value: 0,
           forceMute: true 
@@ -1248,13 +1285,13 @@ async function initPopup() {
   if (dom.bassSlider && dom.bassDisplay) {
     dom.bassSlider.addEventListener('input', function() {
       dom.bassDisplay.textContent = parseFloat(this.value).toFixed(1) + ' dB';
-      const val = parseFloat(this.value);
-      chrome.runtime.sendMessage({ action: 'setBass', value: val, instant: true });
+      var val = parseFloat(this.value);
+      edgeAPI.runtime.sendMessage({ action: 'setBass', value: val, instant: true });
       saveAllSettings();
     });
     dom.bassSlider.addEventListener('change', function() {
-      const val = parseFloat(this.value);
-      chrome.runtime.sendMessage({ action: 'setBass', value: val });
+      var val = parseFloat(this.value);
+      edgeAPI.runtime.sendMessage({ action: 'setBass', value: val });
       saveAllSettings();
     });
   }
@@ -1274,21 +1311,21 @@ async function initPopup() {
   }
 
   if (dom.savePresetBtn) {
-    dom.savePresetBtn.addEventListener('click', () => {
-      const name = prompt(t('save_preset') + ':', 'My Preset');
+    dom.savePresetBtn.addEventListener('click', function() {
+      var name = prompt(t('save_preset') + ':', 'My Preset');
       if (!name) return;
 
-      const presets = getUserPresets();
+      var presets = getUserPresets();
       
       if (presets[name]) {
-        if (!confirm(`Пресет "${name}" уже существует. Перезаписать?`)) {
+        if (!confirm('Пресет "' + name + '" уже существует. Перезаписать?')) {
           return;
         }
       }
 
-      const gains = getSliderGains();
-      const volume = dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100;
-      const bass = dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0;
+      var gains = getSliderGains();
+      var volume = dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100;
+      var bass = dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0;
 
       presets[name] = {
         gains: gains,
@@ -1304,7 +1341,7 @@ async function initPopup() {
   }
 
   if (dom.abCompareBtn) {
-    dom.abCompareBtn.onclick = () => {
+    dom.abCompareBtn.onclick = function() {
       try {
         toggleABCompare();
       } catch (e) {
@@ -1326,39 +1363,72 @@ async function initPopup() {
   updateEQGraph();
   updateLanguage();
 
-  initVisualizationEffects();
+  // ============================================
+  //  ИНИЦИАЛИЗАЦИЯ ВИЗУАЛИЗАЦИИ
+  // ============================================
   
-  visualizationLoop();
-  console.log('🔄 Визуализация запущена с эффектами');
+  initVisualizationEffects();
+  console.log('🎨 Эффекты визуализации инициализированы');
   
   initVisualization();
-
-  setTimeout(() => {
+  console.log('🟢 Визуализация инициализирована');
+  
+  visualizationLoop();
+  console.log('🔄 Цикл визуализации запущен');
+  
+  setTimeout(function() {
     updateSpectrum();
     console.log('📊 Спектр обновлен');
   }, 100);
 
-  setTimeout(() => {
+  setTimeout(function() {
     updateEQGraph();
     console.log('📈 График АЧХ обновлен');
   }, 200);
 
-  // inject.js pushes spectrum snapshots directly; request one initial sample only.
-  setTimeout(() => chrome.runtime.sendMessage({ action: 'getSpectrum' }), 250);
+  // ============================================
+  //  РЕГИСТРАЦИЯ СЛУШАТЕЛЯ СПЕКТРА
+  // ============================================
+  
+  try {
+    edgeAPI.runtime.sendMessage({ 
+      action: 'registerSpectrumListener', 
+      clientId: spectrumClientId 
+    }, function(response) {
+      if (response && response.status === 'ok') {
+        console.log('✅ Popup зарегистрирован как слушатель спектра');
+      }
+    });
+  } catch (e) {
+    console.warn('⚠️ Не удалось зарегистрировать слушатель спектра:', e);
+  }
 
-  setInterval(() => {
-    chrome.runtime.sendMessage({ action: 'getStatus' }, (response) => {
-      if (chrome.runtime.lastError) return;
-      if (response && response.status === 'connected' && state.currentStatus !== 'connected') {
-        setStatus('connected', t('status_connected'));
+  setTimeout(function() {
+    edgeAPI.runtime.sendMessage({ action: 'getSpectrum' });
+    console.log('📊 Запрошен спектр');
+  }, 250);
+
+  popupStatusInterval = setInterval(function() {
+    edgeAPI.runtime.sendMessage({ action: 'getStatus', targetTabId: popupTargetTabId }, function(response) {
+      if (edgeAPI.runtime.lastError) return;
+      if (!response || !response.status) return;
+      if (response.tabId != null) popupTargetTabId = Number(response.tabId);
+      if (response.status === 'connected' && state.currentStatus !== 'connected') {
         state.isConnected = true;
+        setStatus('connected', t('status_connected'));
+      } else if (response.status === 'connecting' && state.currentStatus !== 'connecting') {
+        state.isConnected = false;
+        setStatus('connecting', t('status_connecting'));
+      } else if (response.status === 'disconnected' && state.currentStatus !== 'disconnected') {
+        state.isConnected = false;
+        setStatus('disconnected', t('status_disconnected'));
       }
     });
   }, 5000);
 
-  chrome.runtime.sendMessage({ action: 'getUserPresets' });
+  edgeAPI.runtime.sendMessage({ action: 'getUserPresets' });
 
-  setTimeout(() => {
+  setTimeout(function() {
     if (!state.hasAudio) {
       state.spectrumData.fill(0);
       state.rmsValue = 0;
@@ -1373,94 +1443,47 @@ async function initPopup() {
 
   if (typeof window !== 'undefined') {
     window.SoundForgePopup = {
-      getSettings: () => storage.getAll(),
-      getSetting: (key) => storage.get(key),
-      setSetting: (key, value) => storage.set(key, value),
-      resetSettings: () => storage.reset(),
-      exportSettings: () => storage.exportSettings(),
-      getStats: () => storage.getStats(),
-      getState: () => state,
-      getDom: () => dom,
-      toggleDebug: () => {
-        const debug = !state._debugMode;
+      getSettings: function() { return storage.getAll(); },
+      getSetting: function(key) { return storage.get(key); },
+      setSetting: function(key, value) { storage.set(key, value); },
+      resetSettings: function() { return storage.reset(); },
+      exportSettings: function() { return storage.exportSettings(); },
+      getStats: function() { return storage.getStats(); },
+      getState: function() { return state; },
+      getDom: function() { return dom; },
+      toggleDebug: function() {
+        var debug = !state._debugMode;
         state._debugMode = debug;
         storage.set('debugMode', debug);
         console.log('🐛 Режим отладки:', debug ? 'ВКЛ' : 'ВЫКЛ');
       },
       exportBackup: handleExport,
       importBackup: handleImport,
-      connect: () => {
-        handleConnectDisconnect();
-      },
-      disconnect: () => {
+      connect: function() { handleConnectDisconnect(); },
+      disconnect: function() {
         if (state.currentStatus === 'connected' || state.isConnected) {
           handleConnectDisconnect();
         }
       },
-      getConnectionState: () => {
+      getConnectionState: function() {
         return {
           isConnected: state.isConnected,
           status: state.currentStatus
         };
       },
       applyPreset: applyPresetInPopup,
-  syncPresetUI: syncPresetUIInPopup,
-      getCurrentPreset: () => state.currentPreset,
-      getEffect: () => {
-        import('./modules/visualization-effects.js').then(({ getCurrentEffect, getEffectName }) => {
-          console.log(`🎨 Текущий эффект: ${getEffectName(getCurrentEffect())}`);
-        });
-      },
-      cycleEffect: () => {
-        import('./modules/visualization-effects.js').then(({ setCurrentEffect, getCurrentEffect, getEffectName }) => {
-          const effects = ['spectrum', 'waves', 'fire', 'neon'];
-          const current = getCurrentEffect();
-          const index = effects.indexOf(current);
-          const next = effects[(index + 1) % effects.length];
-          setCurrentEffect(next);
-          updateEffectButtonLabel();
-          console.log(`🎨 Эффект изменен: ${getEffectName(next)}`);
-        });
-      }
+      syncPresetUI: syncPresetUIInPopup,
+      getCurrentPreset: function() { return state.currentPreset; }
     };
-    console.log('💡 Доступны команды:');
-    console.log('  • SoundForgePopup.getSettings() - получить все настройки');
-    console.log('  • SoundForgePopup.getStats() - статистика хранилища');
-    console.log('  • SoundForgePopup.exportBackup() - экспорт настроек');
-    console.log('  • SoundForgePopup.importBackup() - импорт настроек');
-    console.log('  • SoundForgePopup.toggleDebug() - переключить отладку');
-    console.log('  • SoundForgePopup.connect() - подключить эквалайзер');
-    console.log('  • SoundForgePopup.disconnect() - отключить эквалайзер');
-    console.log('  • SoundForgePopup.getConnectionState() - статус подключения');
-    console.log('  • SoundForgePopup.applyPreset(name) - применить пресет');
-    console.log('  • SoundForgePopup.getCurrentPreset() - текущий пресет');
-    console.log('  🎨 SoundForgePopup.cycleEffect() - переключить эффект визуализации');
-    console.log('  🎨 SoundForgePopup.getEffect() - показать текущий эффект');
-    console.log('⌨️ Горячие клавиши: Ctrl+Shift+E (вкл/выкл), Ctrl+Shift+Y (следующий пресет)');
+    console.log('💡 Доступны команды: SoundForgePopup.*');
   }
 
-  console.log('✅ SoundForge Popup v3.22.8 (Единое хранилище + Эффекты) готов!');
-  console.log('📊 Всего пресетов: ' + PRESET_ORDER.length);
-  console.log('🔘 РУЧНОЕ ПОДКЛЮЧЕНИЕ - нажмите кнопку "Подключить"');
-  console.log('🎨 ЭФФЕКТЫ: Спектр | Волны | Огонь | Неон');
-  console.log('🎨 ТЕМЫ: Светлая 🌞 / Темная 🌙 / Системная 💻');
-  console.log('📌 СОСТОЯНИЕ ОКНА СОХРАНЯЕТСЯ');
-  console.log('🔇 ГРОМКОСТЬ: 0% - 800%');
-  console.log('🔇 ПОЛНОЕ ОТКЛЮЧЕНИЕ ЗВУКА ПРИ 0%');
-  console.log('💾 ЕДИНОЕ ХРАНИЛИЩЕ НАСТРОЕК - АКТИВНО');
-  console.log('🎬 ПЛАВНАЯ АНИМАЦИЯ ПРИ СМЕНЕ ПРЕСЕТА - АКТИВНА ✨');
-  console.log('🟢 ИНДИКАТОР СОСТОЯНИЯ ГРОМКОСТИ - АКТИВЕН 📊');
-  console.log('⌨️ ГОРЯЧИЕ КЛАВИШИ: Ctrl+Shift+E (вкл/выкл), Ctrl+Shift+Y (следующий пресет), Ctrl+Shift+X (сброс), Ctrl+Shift+L (окно)');
-  console.log('🌙 НОЧНОЙ РЕЖИМ: АВТОМАТИЧЕСКИ С 22:00 ДО 07:00');
-  console.log('⚡ РЕЖИМ ЭНЕРГОСБЕРЕЖЕНИЯ: СНИЖАЕТ ЧАСТОТУ ОБНОВЛЕНИЙ');
-  console.log('💾 НАСТРОЙКИ СОХРАНЯЮТСЯ ДЛЯ КАЖДОГО САЙТА');
-  console.log('📜 ВЕДЕТСЯ ИСТОРИЯ ИЗМЕНЕНИЙ');
-  console.log('🪟 ОТДЕЛЬНОЕ ОКНО ЭКВАЛАЙЗЕРА: Ctrl+Shift+L');
-  console.log('🔄 ОБНОВЛЕНИЕ ПРЕСЕТОВ ИЗ BACKGROUND - АКТИВНО (Ctrl+Shift+Y)');
+  console.log('✅ SoundForge Popup v3.22.8 Edge 151 готов!');
+  console.log('📊 Всего пресетов:', PRESET_ORDER.length);
 }
 
 // ============================================
-//  ЭКСПОРТ
+//  ЭКСПОРТ ТОЛЬКО НУЖНЫХ ФУНКЦИЙ
 // ============================================
 
 export {
@@ -1481,5 +1504,24 @@ export {
   applyPresetInPopup,
   BUTTON_LABELS,
   getActionTranslation,
-  ACTION_TRANSLATIONS
+  ACTION_TRANSLATIONS,
+  // Экспортируем наши переопределенные функции
+  setStatus,
+  updateConnectButton
 };
+
+// Release background spectrum demand when the popup is closed.
+function cleanupPopupRuntime() {
+  clearPopupConnectWatchdog();
+  showLoading(false);
+  if (popupStatusInterval) {
+    clearInterval(popupStatusInterval);
+    popupStatusInterval = null;
+  }
+  try {
+    edgeAPI.runtime.sendMessage({ action: 'unregisterSpectrumListener', clientId: spectrumClientId }, function() {
+      void edgeAPI.runtime.lastError;
+    });
+  } catch (_) {}
+}
+window.addEventListener('pagehide', cleanupPopupRuntime, { once: true });

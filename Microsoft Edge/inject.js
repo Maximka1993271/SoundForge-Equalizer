@@ -1,15 +1,17 @@
 // ============================================
-//  INJECT.JS - v3.22.8 (ВСЕ САЙТЫ)
+//  INJECT.JS - SoundForge v3.22.8 Edge 151
+//  Microsoft Edge 151.0.4129.59 | Windows 11 25H2
 //  АВТОМАТИЧЕСКОЕ ПОДКЛЮЧЕНИЕ
 //  ЖЕСТКОЕ ОТКЛЮЧЕНИЕ ЗВУКА ПРИ 0%
 //  ПОДДЕРЖКА ГРОМКОСТИ ДО 800%
-//  ИСПРАВЛЕНО: chrome.storage не используется в inject
-//  ИСПРАВЛЕНО: все ошибки обработаны
-//  ИСПРАВЛЕНО: полная очистка ресурсов
+//  EDGE OPTIMIZED: без chrome.* прямых вызовов
+//  EDGE OPTIMIZED: файловая инъекция через SF_PING
 // ============================================
 
 (function() {
   'use strict';
+
+  const edgeAPI = globalThis.browser || globalThis.chrome;
 
   if (window._soundforge_loaded && window.SoundForgeInject) {
     if (window._soundforge_pending && window._soundforge_pending.length > 0) {
@@ -23,7 +25,7 @@
   }
 
   window._soundforge_loaded = true;
-  console.log('🎵 SoundForge v3.22.8 загружен');
+  console.log('🎵 SoundForge v3.22.8 Edge 151 загружен');
 
   const FREQUENCIES = [
     { key: '31', freq: 31, Q: 1.0 },
@@ -109,7 +111,7 @@
     _isRecreating: false,
     _chainValid: false,
     _registeredObjects: [],
-    _browser: 'chrome',
+    _browser: 'edge151',
     _isFirefox: false,
     _isSafari: false,
     _isChromium: true,
@@ -127,7 +129,9 @@
     _settingsReady: false,
     _settingsReadyPromise: null,
     _pendingConnectUntilSettingsReady: false,
-    _tabHardMuteRequested: false
+    _tabHardMuteRequested: false,
+    _spectrumRequested: false,
+    _edgeResumeArmed: false
   };
 
   FREQUENCIES.forEach((item) => { state.settings.gains[item.key] = 0; });
@@ -144,8 +148,8 @@
 
   function safeSendMessage(message) {
     try {
-      if (chrome && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage(message).catch(() => {});
+      if (edgeAPI && edgeAPI.runtime && edgeAPI.runtime.sendMessage) {
+        edgeAPI.runtime.sendMessage(message).catch(() => {});
       }
     } catch {}
   }
@@ -172,12 +176,12 @@
   function requestRuntimeMessage(message) {
     return new Promise((resolve) => {
       try {
-        if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+        if (typeof edgeAPI === 'undefined' || !edgeAPI.runtime?.sendMessage) {
           resolve(null);
           return;
         }
-        chrome.runtime.sendMessage(message, (response) => {
-          if (chrome.runtime.lastError) {
+        edgeAPI.runtime.sendMessage(message, (response) => {
+          if (edgeAPI.runtime.lastError) {
             resolve(null);
             return;
           }
@@ -219,7 +223,6 @@
     state._settingsReadyPromise = (async () => {
       let loaded = false;
 
-      // Primary path: one canonical extension-storage bridge in background.js.
       try {
         const response = await requestRuntimeMessage({
           action: 'getInjectSettings',
@@ -233,7 +236,6 @@
         log('Ошибка загрузки настроек через background', 'warn', error);
       }
 
-      // Backward-compatible migration from the legacy page-origin storage.
       if (!loaded) {
         try {
           const saved = localStorage.getItem(state._storageKey);
@@ -337,6 +339,31 @@
     }
   }
 
+  // ============================================
+  //  AUDIOCONTEXT ДЛЯ EDGE AUTOPLAY POLICY
+  // ============================================
+
+  function ensureAudioContextRunning() {
+    const context = state.context;
+    if (!context || context.state === 'closed') return Promise.resolve(false);
+    if (context.state === 'running') return Promise.resolve(true);
+
+    return context.resume().then(() => context.state === 'running').catch(() => {
+      if (!state._edgeResumeArmed) {
+        state._edgeResumeArmed = true;
+        const resumeFromGesture = () => {
+          state._edgeResumeArmed = false;
+          const active = state.context;
+          if (active && active.state === 'suspended') active.resume().catch(() => {});
+        };
+        document.addEventListener('pointerdown', resumeFromGesture, { once: true, capture: true });
+        document.addEventListener('keydown', resumeFromGesture, { once: true, capture: true });
+        document.addEventListener('touchstart', resumeFromGesture, { once: true, capture: true, passive: true });
+      }
+      return false;
+    });
+  }
+
   function createAudioContext() {
     try {
       if (state.context) {
@@ -358,11 +385,8 @@
         latencyHint: 'interactive'
       });
       
-      if (context.state === 'suspended') {
-        context.resume().catch(() => {});
-      }
-      
       state.context = context;
+      ensureAudioContextRunning();
       state._chainValid = false;
       return context;
     } catch (e) {
@@ -370,6 +394,11 @@
       return null;
     }
   }
+
+  // ============================================
+  //  НОВАЯ DSP-ЦЕПОЧКА С MASTER GAIN И SAFETY LIMITER
+  //  Media Source → Bass Boost → 10× EQ → Compressor → Master Gain → Hard Mute → Safety Limiter → Fade Gain → Analyser → Output
+  // ============================================
 
   function connectAudio(element) {
     if (state._mutexLock) return false;
@@ -425,7 +454,7 @@
       state.analyser = analyser;
       state._timeDomainData = new Float32Array(analyser.fftSize);
 
-      // DSP chain: Source → Bass → 10-band EQ → Compressor → Master Gain → Hard Mute → True Limiter → Fade → Analyser → Output
+      // DSP chain: Source → Bass → 10-band EQ → Compressor → Master Gain → Hard Mute → Safety Limiter → Fade → Analyser → Output
       const bassNode = context.createBiquadFilter();
       bassNode.type = 'lowshelf';
       bassNode.frequency.value = 100;
@@ -446,7 +475,7 @@
       });
       state.filters = filters;
 
-      // Musical compressor for dynamic control before final volume boost.
+      // Dynamics Compressor for dynamic control
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = -24;
       compressor.knee.value = 30;
@@ -455,7 +484,7 @@
       compressor.release.value = 0.25;
       state.compressor = compressor;
 
-      // Master gain is deliberately AFTER compressor so 0–800% actually changes final loudness.
+      // Master gain is AFTER compressor so 0–800% changes final loudness
       const gainNode = context.createGain();
       let volumeValue = Math.max(0, Math.min(8.0, state.settings.volume));
       if (state._nightMode) {
@@ -468,7 +497,7 @@
       hardMuteNode.gain.value = volumeValue === 0 ? 0 : 1.0;
       state._hardMuteNode = hardMuteNode;
 
-      // True peak safety limiter after master gain.
+      // Safety Limiter after master gain (true peak protection)
       const limiter = context.createDynamicsCompressor();
       limiter.threshold.value = -1;
       limiter.knee.value = 0;
@@ -481,6 +510,7 @@
       fadeGain.gain.value = 1.0;
       state.fadeGain = fadeGain;
 
+      // Connect the full chain
       source.connect(bassNode);
       previousNode.connect(compressor);
       compressor.connect(gainNode);
@@ -508,6 +538,9 @@
       state._chainValid = true;
       state._mutexLock = false;
       observeChanges();
+
+      // Apply master volume settings immediately
+      applySettingsInternal();
 
       if (state.settings.volume === 0) {
         state._hardMute = true;
@@ -564,6 +597,10 @@
       return false;
     }
   }
+
+  // ============================================
+  //  ПРИМЕНЕНИЕ НАСТРОЕК
+  // ============================================
 
   function applySettings(instant) {
     if (!state.isActive) return;
@@ -627,8 +664,7 @@
           state._tabHardMuteRequested = false;
           safeSendMessage({ action: 'setTabVolumeMute', muted: false });
         }
-        // Keep native media muted while the Web Audio graph is active.
-        // Unmuting here would create a second parallel audio path.
+        // Keep native media muted while Web Audio graph is active
         if (state.currentElement) {
           state.currentElement.muted = true;
         }
@@ -636,7 +672,7 @@
           state._audioElement.muted = true;
         }
         
-        log(`🔊 Звук восстановлен: ${(volumeValue * 100).toFixed(0)}%`, 'debug');
+        log('🔊 Звук восстановлен:', (volumeValue * 100).toFixed(0) + '%', 'debug');
       }
       
     } catch (e) {
@@ -644,6 +680,10 @@
       throw e;
     }
   }
+
+  // ============================================
+  //  ВАЛИДАЦИЯ И ВОССТАНОВЛЕНИЕ АУДИО-ЦЕПОЧКИ
+  // ============================================
 
   function validateAudioChain() {
     if (!state.context || state.context.state === 'closed') return false;
@@ -784,7 +824,16 @@
     }
   }
 
+  // ============================================
+  //  СПЕКТР (DEMAND-DRIVEN)
+  // ============================================
+
   function startSpectrumUpdates() {
+    if (!state._spectrumRequested) {
+      if (state._spectrumInterval) clearInterval(state._spectrumInterval);
+      state._spectrumInterval = null;
+      return;
+    }
     if (state._spectrumInterval) {
       clearInterval(state._spectrumInterval);
       state._spectrumInterval = null;
@@ -876,10 +925,13 @@
     } catch { return new Float32Array(64).fill(0); }
   }
 
+  // ============================================
+  //  ПОЛНАЯ ОЧИСТКА РЕСУРСОВ
+  // ============================================
+
   function fullCleanup(keepSettings) {
     log('Полная очистка', 'debug', { keepSettings });
     
-    // FIX: Очищаем все таймеры и интервалы
     if (state._cleanupTimeout) {
       clearTimeout(state._cleanupTimeout);
       state._cleanupTimeout = null;
@@ -928,7 +980,6 @@
       } catch {}
     }
 
-    // FIX: Сброс всех AudioNode
     try {
       if (state.currentElement) {
         try { state.currentElement.muted = state._originalMuted; } catch {}
@@ -1016,6 +1067,10 @@
     saveSettings();
   }
 
+  // ============================================
+  //  ПОДКЛЮЧЕНИЕ / ОТКЛЮЧЕНИЕ
+  // ============================================
+
   function handleConnect() {
     if (!state._settingsReady) {
       state._pendingConnectUntilSettingsReady = true;
@@ -1023,7 +1078,8 @@
       return;
     }
 
-    log('🔗 РУЧНОЕ ПОДКЛЮЧЕНИЕ', 'info');
+    log('🔗 РУЧНОЕ ПОДКЛЮЧЕНИЕ (Microsoft Edge 151)', 'info');
+    if (state.context) ensureAudioContextRunning();
     
     if (state.isActive && state._isConnected) {
       safeSendMessage({ action: 'statusUpdate', status: 'connected' });
@@ -1257,6 +1313,11 @@
 
   function handleMessage(type, data) {
     switch (type) {
+      case 'SF_SET_SPECTRUM_ACTIVE':
+        state._spectrumRequested = data?.enabled === true;
+        if (state._spectrumRequested && state.isActive) startSpectrumUpdates();
+        else if (state._spectrumInterval) { clearInterval(state._spectrumInterval); state._spectrumInterval = null; }
+        break;
       case 'SF_CONNECT': handleConnect(); break;
       case 'SF_DISCONNECT': handleDisconnect(); break;
       case 'SF_RECONNECT':
@@ -1373,10 +1434,13 @@
       case 'SF_TOGGLE_DEBUG':
         state._debugMode = !state._debugMode;
         saveSettings();
-        log('🐛 Режим отладки: ' + (state._debugMode ? 'ВКЛ' : 'ВЫКЛ'), 'info');
+        log('🐛 Режим отладки:', state._debugMode ? 'ВКЛ' : 'ВЫКЛ', 'info');
         break;
       case 'SF_APPLY_PRESET':
         if (data && data.preset) {
+          const wasActive = state.isActive;
+          const wasConnected = state._isConnected;
+          const activeContext = state.context;
           const preset = data.settings || data.presetData;
           if (preset && preset.gains) {
             Object.keys(state.settings.gains).forEach((key) => {
@@ -1389,9 +1453,14 @@
             applySettings(true);
             saveSettings();
           }
+          if (wasActive) state.isActive = true;
+          if (wasConnected) state._isConnected = true;
+          if (activeContext && state.context !== activeContext) {
+            log('⚠️ AudioContext changed unexpectedly during preset apply', 'warn');
+          }
           state._userPresets = data.userPresets || state._userPresets;
           state.currentPreset = data.preset;
-          log(`🎵 Применён пресет: ${data.preset}`, 'info');
+          log('🎵 Применён пресет без отключения:', data.preset, 'info');
           safeSendMessage({ action: 'presetApplied', preset: data.preset });
         }
         break;
@@ -1427,8 +1496,12 @@
     }
   }
 
-  if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ============================================
+  //  RUNTIME MESSAGE LISTENER (EDGE OPTIMIZED)
+  // ============================================
+
+  if (typeof edgeAPI !== 'undefined' && edgeAPI.runtime?.onMessage) {
+    edgeAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         if (!message) return;
         if (message.type === 'SF_PING') {
@@ -1460,6 +1533,10 @@
       return true;
     });
   }
+
+  // ============================================
+  //  ПУБЛИЧНЫЙ API
+  // ============================================
 
   window.SoundForgeInject = {
     handleMessage: handleMessage,
@@ -1498,6 +1575,10 @@
       handleMessage(msg.type, msg.data);
     });
   }
+
+  // ============================================
+  //  MUTATION OBSERVER ДЛЯ ОТСЛЕЖИВАНИЯ ИЗМЕНЕНИЙ
+  // ============================================
 
   function observeChanges() {
     if (state._observerActive) return;
@@ -1538,11 +1619,15 @@
     });
   }
 
+  // ============================================
+  //  ИНИЦИАЛИЗАЦИЯ
+  // ============================================
+
   function init() {
     if (state._initDone) return;
     state._initDone = true;
     
-    log('✅ SoundForge v3.22.8 инициализирован', 'info');
+    log('✅ SoundForge v3.22.8 Edge 151 инициализирован', 'info');
     observeChanges();
     
     safeSendMessage({ 
@@ -1568,6 +1653,6 @@
     window.addEventListener('load', () => { setTimeout(init, 500); }, { once: true });
   }
 
-  log('✅✅✅ SoundForge v3.22.8 загружен ✅✅✅', 'info');
+  log('✅✅✅ SoundForge v3.22.8 Edge 151 загружен ✅✅✅', 'info');
 
 })();
