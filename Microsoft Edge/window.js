@@ -958,15 +958,23 @@ import { state as sharedAppState } from './modules/state.js';
     console.log('🎨 Эффект изменен в окне: ' + name);
   }
 
-  function updateEffectButtonLabelInWindow() {
-    var btn = document.getElementById('effectBtn');
-    if (!btn) return;
-    _currentEffect = getSharedEffect() || _currentEffect || 'spectrum';
-    var name = getEffectNameLocal(_currentEffect);
-    btn.textContent = '🎨 ' + name;
-    btn.dataset.effect = _currentEffect;
-    btn.setAttribute('aria-label', 'Visualization effect: ' + name);
-  }
+	// window.js
+	function updateEffectButtonLabelInWindow() {
+	  var btn = document.getElementById('effectBtn');
+	  if (!btn) return;
+	  // Используем текущий язык окна (currentLang), а не глобальный из i18n
+	  var lang = currentLang; // <-- Берем язык из window.js
+	  var effectNames = {
+		ru: { spectrum: '📊 Спектр', waves: '🌊 Волны', fire: '🔥 Огонь', neon: '💜 Неон' },
+		uk: { spectrum: '📊 Спектр', waves: '🌊 Хвилі', fire: '🔥 Вогонь', neon: '💜 Неон' },
+		en: { spectrum: '📊 Spectrum', waves: '🌊 Waves', fire: '🔥 Fire', neon: '💜 Neon' }
+	  };
+	  var currentEffect = getSharedEffect() || _currentEffect || 'spectrum';
+	  var name = effectNames[lang]?.[currentEffect] || currentEffect;
+	  btn.textContent = '🎨 ' + name;
+	  btn.dataset.effect = currentEffect;
+	  btn.setAttribute('aria-label', 'Visualization effect: ' + name);
+	}
 
   function loadWindowEffect() {
     try {
