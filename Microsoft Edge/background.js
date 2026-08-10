@@ -1936,7 +1936,7 @@ edgeAPI.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   if (request.action === 'getInjectSettings') {
     var url = typeof request.url === 'string' && request.url ? request.url : (sender && sender.tab && sender.tab.url);
     loadInjectSettings(url).then(function(payload) {
-      sendResponse({ status: 'ok' });
+      sendResponse({ status: 'ok', settings: payload.settings, hasSiteSettings: payload.hasSiteSettings });
     }).catch(function(error) {
       sendResponse({ status: 'error', message: error && error.message ? error.message : 'settings_load_failed', settings: {} });
     });

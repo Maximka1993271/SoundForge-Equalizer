@@ -129,6 +129,8 @@
     _settingsReady: false,
     _settingsReadyPromise: null,
     _pendingConnectUntilSettingsReady: false,
+    _pendingConnectIsAutomatic: false,
+    _autoConnectSuppressed: false,
     _tabHardMuteRequested: false,
     _spectrumRequested: false,
     _edgeResumeArmed: false
@@ -164,7 +166,10 @@
     if (parsed.volume !== undefined) state.settings.volume = Math.max(0, Math.min(8, Number(parsed.volume) || 0));
     if (parsed.bass !== undefined) state.settings.bass = Math.max(-12, Math.min(12, Number(parsed.bass) || 0));
     if (parsed.isEnabled !== undefined) state.isEnabled = !!parsed.isEnabled;
-    if (parsed.autoConnect !== undefined) state.autoConnect = !!parsed.autoConnect;
+    if (parsed.autoConnect !== undefined) {
+      state.autoConnect = !!parsed.autoConnect;
+      state._autoConnectSuppressed = (parsed.autoConnect === false);
+    }
     if (parsed.userPresets && typeof parsed.userPresets === 'object') state._userPresets = parsed.userPresets;
     if (parsed.debugMode !== undefined) state._debugMode = !!parsed.debugMode;
     if (parsed.nightMode !== undefined) state._nightMode = !!parsed.nightMode;
@@ -259,7 +264,7 @@
       state._settingsReady = true;
       if (state._pendingConnectUntilSettingsReady) {
         state._pendingConnectUntilSettingsReady = false;
-        handleConnect();
+        handleConnect(state._pendingConnectIsAutomatic);
       }
     })();
 
@@ -1071,10 +1076,16 @@
   //  ПОДКЛЮЧЕНИЕ / ОТКЛЮЧЕНИЕ
   // ============================================
 
-  function handleConnect() {
+  function handleConnect(isAutomatic) {
     if (!state._settingsReady) {
       state._pendingConnectUntilSettingsReady = true;
+      state._pendingConnectIsAutomatic = !!isAutomatic;
       if (state._settingsReadyPromise) state._settingsReadyPromise.catch(() => {});
+      return;
+    }
+
+    if (isAutomatic && state._autoConnectSuppressed) {
+      log('🔇 Автоподключение пропущено: ранее было отключено пользователем на этом сайте/глобально', 'info');
       return;
     }
 
@@ -1643,7 +1654,7 @@
     
     setTimeout(() => {
       log('🔄 АВТОПОДКЛЮЧЕНИЕ...', 'info');
-      handleConnect();
+      handleConnect(true);
     }, 1000);
   }
 
