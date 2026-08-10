@@ -95,6 +95,17 @@
 
 ---
 
+## 🐛 v3.22.8 Fixes
+
+- Fixed loading of saved EQ, volume, bass and preset settings on a fresh page load.
+- Fixed the `getInjectSettings` response so the actual loaded settings are delivered to `inject.js`.
+- Fixed AutoConnect behavior after an explicit user disconnect; manual Connect remains available.
+- Verified the live volume pipeline from 0% to 800% without double conversion.
+- Verified MV3 Service Worker state restoration, messaging, storage synchronization and per-tab state handling.
+- Existing functionality was preserved; only the confirmed bugs were fixed in the corresponding release build.
+
+---
+
 ## 🔒 Privacy
 
 All audio processing is performed locally using the Web Audio API.
@@ -276,7 +287,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 | Version | Download |
 |---------|----------|
-| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip) |
+| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
 | 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip.zip) |
 | 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi) |
 
@@ -286,7 +297,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ### 🔹 Microsoft Edge (Chromium)
 
-1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge-Chromium.zip.zip)
+1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip)
 2. Extract to any folder
 3. Open Edge → `edge://extensions/`
 4. Enable **"Developer mode"**
@@ -436,7 +447,7 @@ SoundForge-Equalizer/
 - **3** languages (RU, UA, EN)
 - **26** files in repository
 - **14** modules
-- **2** browsers supported
+- **2** browser builds supported (Chromium + Firefox)
 
 ---
 
@@ -460,6 +471,6 @@ MIT License
 </p>
 
 <p align="center">
-  <sub>SoundForge Equalizer v3.22.8 — 31 July 2026</sub><br/>
+  <sub>SoundForge Equalizer v3.22.8 — 10 August 2026</sub><br/>
   <sub>🔓 Open Source — fully open source code</sub>
 </p>
