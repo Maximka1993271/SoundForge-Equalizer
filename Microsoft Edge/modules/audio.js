@@ -122,7 +122,7 @@ function animateVolume(targetValue, duration = ANIMATION.duration) {
             return;
         }
         
-        const startValue = parseFloat(dom.volumeSlider.value) || 100;
+        const startValue = (function() { var v = parseFloat(dom.volumeSlider.value); return Number.isFinite(v) ? v : 100; })();
         const diff = targetValue - startValue;
         
         if (Math.abs(diff) < 1) {
@@ -402,7 +402,7 @@ export async function applyPresetWithAnimation(name, isUserPreset = false) {
     }
     
     const targetGains = preset.gains || {};
-    const targetVolume = preset.volume || 100;
+    const targetVolume = Number.isFinite(Number(preset.volume)) ? Number(preset.volume) : 100;
     const targetBass = preset.bass || 0;
     
     const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
