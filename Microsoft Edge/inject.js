@@ -160,7 +160,7 @@
     if (!parsed || typeof parsed !== 'object') return;
     if (parsed.gains && typeof parsed.gains === 'object') {
       Object.keys(parsed.gains).forEach((key) => {
-        if (state.settings.gains[key] !== undefined) state.settings.gains[key] = Number(parsed.gains[key]) || 0;
+        if (state.settings.gains[key] !== undefined) state.settings.gains[key] = Math.max(-12, Math.min(12, Number(parsed.gains[key]) || 0));
       });
     }
     if (parsed.volume !== undefined) state.settings.volume = Math.max(0, Math.min(8, Number(parsed.volume) || 0));
@@ -473,7 +473,7 @@
         filter.type = 'peaking';
         filter.frequency.value = item.freq;
         filter.Q.value = item.Q;
-        filter.gain.value = state.settings.gains[item.key] || 0;
+        filter.gain.value = Math.max(-12, Math.min(12, state.settings.gains[item.key] || 0));
         previousNode.connect(filter);
         previousNode = filter;
         filters[item.key] = filter;
@@ -621,7 +621,7 @@
     try {
       Object.keys(state.settings.gains).forEach((key) => {
         if (state.filters[key]) {
-          state.filters[key].gain.value = state.settings.gains[key];
+          state.filters[key].gain.value = Math.max(-12, Math.min(12, Number(state.settings.gains[key]) || 0));
         }
       });
       

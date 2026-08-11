@@ -305,7 +305,8 @@ function initLanguage() {
   populatePresetSelect();
   
   if (dom.volumeSlider) {
-    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
     updateVolumeStatus(currentVolume);
   }
 }
@@ -328,7 +329,8 @@ function toggleLanguage() {
   updateEffectButtonLabel();
   
   if (dom.volumeSlider) {
-    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
     updateVolumeStatus(currentVolume);
   }
 }
@@ -431,7 +433,8 @@ function updateLanguage() {
   updatePresetInfo(state.currentPreset);
   
   if (dom.volumeSlider) {
-    var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+    var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
     updateVolumeStatus(currentVolume);
   }
 }
@@ -1158,7 +1161,8 @@ async function initPopup() {
     updateLanguage();
     populatePresetSelect();
     if (dom.volumeSlider) {
-      var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+      var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
       updateVolumeStatus(currentVolume);
     }
   });
@@ -1183,7 +1187,8 @@ async function initPopup() {
       updateVolumeStatus(volume);
     });
     if (dom.volumeSlider) {
-      var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+      var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
       updateVolumeStatus(currentVolume);
     }
   });
@@ -1241,7 +1246,8 @@ async function initPopup() {
   }
 
   if (dom.volumeSlider && dom.volumeDisplay) {
-    var initialVolume = parseInt(dom.volumeSlider.value) || 100;
+    var initialVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(initialVolume)) initialVolume = 100;
     updateVolumeStatus(initialVolume);
     
     dom.volumeSlider.addEventListener('input', function() {

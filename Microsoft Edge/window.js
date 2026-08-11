@@ -2108,7 +2108,8 @@ import { state as sharedAppState } from './modules/state.js';
     updateSiteInfo();
     
     if (dom.volumeSlider) {
-      var currentVolume = parseInt(dom.volumeSlider.value) || 100;
+      var currentVolume = parseInt(dom.volumeSlider.value);
+    if (!Number.isFinite(currentVolume)) currentVolume = 100;
       updateVolumeStatus(currentVolume);
     }
   }
@@ -2726,7 +2727,7 @@ import { state as sharedAppState } from './modules/state.js';
               var preset = userPresets[userPresetName];
               var tempPreset = {
                 gains: preset.gains || {},
-                volume: preset.volume || 100,
+                volume: Number.isFinite(Number(preset.volume)) ? Number(preset.volume) : 100,
                 bass: preset.bass || 0
               };
               windowState.currentPreset = userPresetName;
@@ -2746,7 +2747,7 @@ import { state as sharedAppState } from './modules/state.js';
                 }
               });
               if (dom.volumeSlider && dom.volumeDisplay) {
-                var vol3 = tempPreset.volume || 100;
+                var vol3 = Number.isFinite(Number(tempPreset.volume)) ? Number(tempPreset.volume) : 100;
                 dom.volumeSlider.value = Math.min(800, Math.max(0, vol3));
                 dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol3)) + '%';
                 updateVolumeStatus(vol3);

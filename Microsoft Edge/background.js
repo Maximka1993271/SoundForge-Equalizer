@@ -288,6 +288,38 @@ function loadSiteSettings(url) {
   });
 }
 
+function suppressAutoConnectForTab(tabId) {
+  var session = getTabSession(tabId);
+  var fallbackUrl = session && session.lastUrl;
+  edgeAPI.tabs.get(tabId, function(tab) {
+    var hadError = !!edgeAPI.runtime.lastError;
+    var url = (!hadError && tab && tab.url) || fallbackUrl;
+    if (!url) return;
+    loadSiteSettings(url).then(function(existing) {
+      return saveSiteSettings(url, Object.assign({}, existing || {}, { autoConnect: false }));
+    }).catch(function(error) {
+      console.warn('⚠️ Не удалось сохранить site-specific autoConnect=false:', error);
+    });
+  });
+}
+
+function clearAutoConnectSuppressionForTab(tabId) {
+  var session = getTabSession(tabId);
+  var fallbackUrl = session && session.lastUrl;
+  edgeAPI.tabs.get(tabId, function(tab) {
+    var hadError = !!edgeAPI.runtime.lastError;
+    var url = (!hadError && tab && tab.url) || fallbackUrl;
+    if (!url) return;
+    loadSiteSettings(url).then(function(existing) {
+      if (existing && existing.autoConnect === false) {
+        return saveSiteSettings(url, Object.assign({}, existing, { autoConnect: true }));
+      }
+    }).catch(function(error) {
+      console.warn('⚠️ Не удалось сбросить site-specific autoConnect suppression:', error);
+    });
+  });
+}
+
 function loadInjectSettings(url) {
   return Promise.all([
     loadSiteSettings(url),
@@ -313,8 +345,7 @@ function loadInjectSettings(url) {
           userPresets: result.sf_userPresets ?? result.userPresets,
           nightMode: result.sf_nightMode ?? result.nightMode,
           powerSaveMode: result.sf_powerSaveMode ?? result.powerSaveMode,
-          debugMode: result.sf_debugMode ?? result.debugMode,
-          autoConnect: result.soundforgeAutoConnect
+          debugMode: result.sf_debugMode ?? result.debugMode
         });
       });
     })
@@ -368,7 +399,7 @@ function sanitizeGains(value) {
   for (var key in value) {
     if (Object.prototype.hasOwnProperty.call(value, key)) {
       if (!EQ_FREQUENCIES.has(String(key))) continue;
-      gains[key] = clampFiniteNumber(value[key], -24, 24, 0);
+      gains[key] = clampFiniteNumber(value[key], -12, 12, 0);
     }
   }
   return gains;
@@ -2416,6 +2447,7 @@ function handleTabAction(request, tabId, sendResponse) {
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
     sendMessageToInject(tabId, 'SF_DISCONNECT');
+    suppressAutoConnectForTab(tabId);
     if (state.currentTabId === tabId) {
       state.isConnected = false;
       state._autoConnectEnabled = false;
@@ -2457,6 +2489,7 @@ function handleTabAction(request, tabId, sendResponse) {
     state._isProcessingChange = false;
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
+    clearAutoConnectSuppressionForTab(tabId);
 
     safeSendMessage({
       action: 'statusUpdate',
