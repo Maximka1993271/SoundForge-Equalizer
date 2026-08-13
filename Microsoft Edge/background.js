@@ -659,36 +659,39 @@ function safeSendMessage(message) {
 
 // ============================================
 //  ОБНОВЛЕНИЕ ИКОНКИ (EDGE OPTIMIZED)
-//  ПОЛНЫЙ НАБОР: АКТИВНЫЕ И ОТКЛЮЧЕННЫЕ
+//  ПОЛНЫЙ НАБОР: ВСЕ РАЗМЕРЫ ДЛЯ АКТИВНЫХ И ОТКЛЮЧЕННЫХ
 // ============================================
 
 function updateIcon(isActive) {
   try {
-    setTimeout(function() {
-      try {
-        var iconPath = {
-          16: isActive ? 'icons/SoundForge_16x16.png' : 'icons/SoundForge-off_16x16.png',
-          48: isActive ? 'icons/SoundForge_48x48.png' : 'icons/SoundForge-off_48x48.png',
-          128: isActive ? 'icons/SoundForge_128x128.png' : 'icons/SoundForge-off_128x128.png'
-        };
-        
-        edgeAPI.action.setIcon({ path: iconPath }, function() {
-          if (edgeAPI.runtime.lastError) {
-            // Fallback: используем основную иконку для всех размеров
-            edgeAPI.action.setIcon({
-              path: {
-                16: 'icons/SoundForge_16x16.png',
-                48: 'icons/SoundForge_48x48.png',
-                128: 'icons/SoundForge_128x128.png'
-              }
-            });
+    // Полный набор иконок для всех размеров
+    var iconPath = {
+      16: isActive ? 'icons/SoundForge_16x16.png' : 'icons/SoundForge-off_16x16.png',
+      24: isActive ? 'icons/SoundForge_24x24.png' : 'icons/SoundForge-off_24x24.png',
+      32: isActive ? 'icons/SoundForge_32x32.png' : 'icons/SoundForge-off_32x32.png',
+      48: isActive ? 'icons/SoundForge_48x48.png' : 'icons/SoundForge-off_48x48.png',
+      64: isActive ? 'icons/SoundForge_64x64.png' : 'icons/SoundForge-off_64x64.png',
+      128: isActive ? 'icons/SoundForge_128x128.png' : 'icons/SoundForge-off_128x128.png',
+      256: isActive ? 'icons/SoundForge_256x256.png' : 'icons/SoundForge-off_256x256.png',
+      512: isActive ? 'icons/SoundForge_512x512.png' : 'icons/SoundForge-off_512x512.png',
+      1024: isActive ? 'icons/SoundForge_1024x1024.png' : 'icons/SoundForge-off_1024x1024.png'
+    };
+    
+    // Устанавливаем иконку с полным набором размеров
+    edgeAPI.action.setIcon({ path: iconPath }, function() {
+      if (edgeAPI.runtime.lastError) {
+        // Fallback: используем основные размеры
+        edgeAPI.action.setIcon({
+          path: {
+            16: isActive ? 'icons/SoundForge_16x16.png' : 'icons/SoundForge-off_16x16.png',
+            48: isActive ? 'icons/SoundForge_48x48.png' : 'icons/SoundForge-off_48x48.png',
+            128: isActive ? 'icons/SoundForge_128x128.png' : 'icons/SoundForge-off_128x128.png'
           }
         });
-      } catch (e) {
-        // Игнорируем
       }
-    }, 100);
+    });
     
+    // Обновляем badge
     if (isActive) {
       edgeAPI.action.setBadgeText({ text: '🔊' });
       edgeAPI.action.setBadgeBackgroundColor({ color: '#4CAF50' });
@@ -697,7 +700,7 @@ function updateIcon(isActive) {
       edgeAPI.action.setBadgeBackgroundColor({ color: '#888888' });
     }
   } catch (e) {
-    // Игнорируем
+    // Игнорируем ошибки
   }
 }
 
