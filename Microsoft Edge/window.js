@@ -629,10 +629,17 @@ import { state as sharedAppState } from './modules/state.js';
   var _neonGlow = 0;
 
   function getEffectNameLocal(effectId) {
+    // Effect labels must follow the standalone window's current language.
+    // The shared visualization module does not own window.js's currentLang,
+    // so using getSharedEffectName() here could leave the button in Russian
+    // after switching the standalone window to English/Ukrainian.
+    var key = String(effectId || 'spectrum');
+    var translated = t(key);
+    if (translated && translated !== key) return translated;
     try {
-      return getSharedEffectName(effectId);
+      return getSharedEffectName(key);
     } catch (e) {
-      return effectId;
+      return key;
     }
   }
 
