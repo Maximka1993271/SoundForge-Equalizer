@@ -34,12 +34,6 @@
   <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
     <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge&logo=github" alt="PRs Welcome"/>
   </a>
-  <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
-    <img src="https://img.shields.io/badge/No%20Ads-✅-brightgreen.svg?style=for-the-badge" alt="No Ads"/>
-  </a>
-  <a href="https://github.com/Maximka1993271/SoundForge-Equalizer">
-    <img src="https://img.shields.io/badge/No%20Tracking-✅-brightgreen.svg?style=for-the-badge" alt="No Tracking"/>
-  </a>
 </p>
 
 <p align="center">
@@ -51,20 +45,6 @@
   Professional real-time audio processing for YouTube and other supported websites.<br/>
   <b>🔓 Free • Open Source • Privacy First • Cross-Browser</b>
 </p>
-
----
-
-## 📢 ANNOUNCEMENT
-
-> **🎉 SoundForge Equalizer v3.22.8 is now available!**
->
-> This release brings:
-> - ✅ **4 Visualization Effects** — Spectrum, Waves, Fire, Neon
-> - ✅ **50+ Professional Presets** — For all music genres
-> - ✅ **Firefox Support** — Now works on Firefox ESR
-> - ✅ **Improved Audio Processing** — Better quality and stability
-> - ✅ **Memory Management** — No leaks, better performance
-> - ✅ **3 Languages** — English, Русский, Українська
 
 ---
 
@@ -115,20 +95,22 @@
 
 ---
 
+## 🐛 v3.22.8 Fixes
+
+- Fixed loading of saved EQ, volume, bass and preset settings on a fresh page load.
+- Fixed the `getInjectSettings` response so the actual loaded settings are delivered to `inject.js`.
+- Fixed AutoConnect behavior after an explicit user disconnect; manual Connect remains available.
+- Verified the live volume pipeline from 0% to 800% without double conversion.
+- Verified MV3 Service Worker state restoration, messaging, storage synchronization and per-tab state handling.
+- Existing functionality was preserved; only the confirmed bugs were fixed in the corresponding release build.
+
+---
+
 ## 🔒 Privacy
 
 All audio processing is performed locally using the Web Audio API.
 No advertisements, tracking, telemetry, analytics or user data collection.
 **Your privacy is 100% protected.**
-
-| Privacy Aspect | Status |
-|----------------|--------|
-| Data Collection | ❌ None |
-| Tracking | ❌ None |
-| Telemetry | ❌ None |
-| Analytics | ❌ None |
-| External Requests | ❌ None |
-| User Data Storage | ✅ Only locally (settings) |
 
 ---
 
@@ -156,8 +138,6 @@ No advertisements, tracking, telemetry, analytics or user data collection.
 | 🎨 **4 Effects** | Spectrum \| Waves \| Fire \| Neon |
 | 📦 **Manifest V3/V2** | Chrome MV3 + Firefox MV2 |
 | 🔓 **Open Source** | Fully open source code with MIT License |
-| 🛡️ **Security** | No malware, no miners, no malicious code |
-| 💻 **Performance** | Optimized, no memory leaks |
 
 ---
 
@@ -165,12 +145,12 @@ No advertisements, tracking, telemetry, analytics or user data collection.
 
 SoundForge now features **4 visualization modes** that transform your spectrum display. Switch between them anytime with a single click!
 
-| Effect | Description | Visual Style |
-|--------|-------------|--------------|
-| 📊 **Spectrum** | Classic real-time frequency analyzer with colored bars | Green/Red gradient bars |
-| 🌊 **Waves** | Smooth flowing audio waves with dynamic amplitude response | Sine waves with glow |
-| 🔥 **Fire** | Animated flame effect that pulses with the music's energy | Dynamic fire particles |
-| 💜 **Neon** | Glowing neon bars with particle effects and vibrant colors | Purple/blue glow with particles |
+| Effect | Description |
+|--------|-------------|
+| 📊 **Spectrum** | Classic real-time frequency analyzer with colored bars |
+| 🌊 **Waves** | Smooth flowing audio waves with dynamic amplitude response |
+| 🔥 **Fire** | Animated flame effect that pulses with the music's energy |
+| 💜 **Neon** | Glowing neon bars with particle effects and vibrant colors |
 
 ### How to Use
 
@@ -217,20 +197,13 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ## ⌨️ Keyboard Shortcuts
 
-| Shortcut | Action | Description |
-|----------|--------|-------------|
-| `Ctrl+Shift+U` | Activate extension | Open the popup |
-| `Ctrl+Shift+E` | Toggle equalizer | Enable/disable audio processing |
-| `Ctrl+Shift+Y` | Next preset | Cycle through all 50 presets |
-| `Ctrl+Shift+X` | Reset all settings | Restore default configuration |
-| `Esc` | Close window | Close standalone window |
-
-### 🖥️ Cross-Platform Support
-
-| OS | Shortcut Modifier |
-|----|-------------------|
-| **Windows/Linux** | `Ctrl+Shift+[Key]` |
-| **macOS** | `Command+Shift+[Key]` |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+U` | Activate extension (open popup) |
+| `Ctrl+Shift+E` | Toggle equalizer ON/OFF |
+| `Ctrl+Shift+Y` | Next preset |
+| `Ctrl+Shift+X` | Reset all settings |
+| `Esc` | Close window (in standalone mode) |
 
 ---
 
@@ -312,17 +285,28 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 ### 📦 Direct Download Links
 
-| Версия | Ссылка |
-|--------|--------|
-| 🟦 **Microsoft Edge** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
-| 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Firefox.zip) |
-| 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi) |
+| Version | Download |
+|---------|----------|
+| 🟢 **Google Chrome** | [⬇️ SoundForge-Equalizer-v3.22.8-Chrome.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-chrome/SoundForge-Equalizer-v3.22.8-Chrome.zip) |
+| 🟦 **Microsoft Edge / Chromium** | [⬇️ SoundForge-Equalizer-v3.22.8-Edge.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip) |
+| 🦊 **Firefox ESR (ZIP)** | [⬇️ SoundForge-Equalizer-v3.22.8-Firefox.zip](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip) |
+| 🦊 **Firefox ESR (XPI)** | [⬇️ soundforge_equalizer-3.22.8.xpi](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi) |
 
 ---
 
 ## 🔧 Installation
 
-### 🔹 Microsoft Edge
+### 🔹 Google Chrome
+
+1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Chrome.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-chrome/SoundForge-Equalizer-v3.22.8-Chrome.zip)
+2. Extract to any folder
+3. Open Chrome → `chrome://extensions/`
+4. Enable **"Developer mode"** (toggle in top right)
+5. Click **"Load unpacked"** → select the extracted **Chrome** folder
+
+---
+
+### 🔹 Microsoft Edge (Chromium)
 
 1. Download the archive: [**SoundForge-Equalizer-v3.22.8-Edge.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Edge.zip)
 2. Extract to any folder
@@ -338,7 +322,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 #### Option 1 — Quick Install (XPI file)
 
-1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi)
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
 2. **Drag and drop** the `.xpi` file into an open Firefox window
 3. Click **"Add"**
 
@@ -348,7 +332,7 @@ SoundForge now features **4 visualization modes** that transform your spectrum d
 
 #### Option 2 — Manual Install (ZIP file)
 
-1. Download [**SoundForge-Equalizer-v3.22.8-Firefox.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/SoundForge-Equalizer-v3.22.8-Firefox.zip)
+1. Download [**SoundForge-Equalizer-v3.22.8-Firefox.zip**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/SoundForge-Equalizer-v3.22.8-Firefox.zip)
 2. Extract to any folder
 3. Open Firefox → `about:debugging#/runtime/this-firefox`
 4. Click **"Load Temporary Add-on"**
@@ -389,7 +373,7 @@ Firefox blocks unsigned extensions by default. To install this extension permane
 
 If you're using **Firefox ESR** (Extended Support Release), signature verification is more flexible:
 
-1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8/soundforge_equalizer-3.22.8.xpi)
+1. Download [**soundforge_equalizer-3.22.8.xpi**](https://github.com/Maximka1993271/SoundForge-Equalizer/releases/download/v3.22.8-firefox/soundforge_equalizer-3.22.8.xpi)
 2. Drag and drop the `.xpi` file into Firefox ESR
 3. Click **"Add"**
 
@@ -417,7 +401,6 @@ If you're using **Firefox ESR** (Extended Support Release), signature verificati
 ---
 
 ## 📁 Structure
-
 SoundForge-Equalizer/
 ├── 📁 Microsoft Edge/ # Edge/Chromium version (MV3)
 │ ├── background.js
@@ -475,8 +458,7 @@ SoundForge-Equalizer/
 - **3** languages (RU, UA, EN)
 - **26** files in repository
 - **14** modules
-- **2** browsers supported
-- **0** ads, trackers, or analytics
+- **2** browser builds supported (Chromium + Firefox)
 
 ---
 
@@ -494,57 +476,12 @@ MIT License
 
 ---
 
-## ⭐ Support the Project
-
-If you like SoundForge Equalizer, please consider:
-
-- ⭐ **Star the repository** on GitHub
-- 🐛 **Report issues** in the Issues section
-- 💡 **Suggest new features**
-- 🌍 **Help with translations**
-- 📢 **Share with your friends**
-
----
-
-## 📜 Changelog
-
-### v3.22.8 (31 July 2026)
-- ✅ Added 4 visualization effects (Spectrum, Waves, Fire, Neon)
-- ✅ Added Firefox ESR support
-- ✅ Added Night Mode (auto 22:00-07:00)
-- ✅ Added Power Save Mode
-- ✅ Added History and Statistics
-- ✅ Added Clipping Detection
-- ✅ Added Per-Site Settings
-- ✅ Fixed memory leaks
-- ✅ Improved audio processing quality
-- ✅ Enhanced UI/UX
-- ✅ 3 languages support
-
-### v3.22.0 (15 July 2026)
-- ✅ Initial release
-- ✅ 10-band EQ
-- ✅ 50 presets
-- ✅ Chrome/Edge support
-
----
-
 <p align="center">
   <b>Made with ❤️</b><br/>
   <b>Maxim Melnikov</b> — <a href="https://github.com/Maximka1993271">@Maximka1993271</a>
 </p>
 
 <p align="center">
-  <sub>SoundForge Equalizer v3.22.8 — 31 July 2026</sub><br/>
+  <sub>SoundForge Equalizer v3.22.8 — 10 August 2026</sub><br/>
   <sub>🔓 Open Source — fully open source code</sub>
-</p>
-
-<p align="center">
-  <sub>
-    <a href="#-official-source-warning">⚠️ Official Source</a> •
-    <a href="#-download--installation">📥 Download</a> •
-    <a href="#-features">✨ Features</a> •
-    <a href="#-privacy">🔒 Privacy</a> •
-    <a href="#-license">📝 License</a>
-  </sub>
 </p>
