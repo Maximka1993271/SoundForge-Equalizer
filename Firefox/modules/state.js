@@ -1,36 +1,54 @@
 // ============================================
-//  STATE.JS - Состояние приложения (v3.22.8)
-//  НОВОЕ: состояние клиппинга
-//  ИСПРАВЛЕНО: добавлены все DOM элементы для Firefox
-//  АДАПТИРОВАНО ДЛЯ FIREFOX 153.0esr
+//  STATE.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Состояние приложения
+//  Экспорты: state, dom, initDom, updateState
+//  FIREFOX 153 OPTIMIZED: инициализация DOM элементов
 // ============================================
 
 // ============================================
 //  СОСТОЯНИЕ ПРИЛОЖЕНИЯ
 // ============================================
 
-export var state = {
+export const state = {
+  // Статус подключения
   currentStatus: 'ready',
+  isConnected: false,
+  
+  // Текущий пресет и тема
   currentPreset: 'flat',
   currentTheme: 'dark',
   currentLang: 'ru',
+  
+  // Анимация
   animationFrameId: null,
+  
+  // Данные спектра
   spectrumData: new Float32Array(64),
   smoothSpectrum: new Float32Array(32),
-  peakValue: -Infinity,
+  peakValue: 0,
   peakHold: 0,
   hasAudio: false,
   rmsValue: 0,
+  
+  // A/B сравнение
   abPresetA: null,
   abPresetB: null,
   abMode: false,
+  abActive: null,
+  
+  // Состояние загрузки
   isLoading: false,
-  isConnected: false,
-  isConnecting: false,
+  
+  // Клиппинг
   isClipping: false,
   clipCount: 0,
   lastClipTime: 0,
+  
+  // Эффект визуализации
   currentEffect: 'spectrum',
+  
+  // Режим отладки
   _debugMode: false
 };
 
@@ -38,7 +56,7 @@ export var state = {
 //  DOM ЭЛЕМЕНТЫ
 // ============================================
 
-export var dom = {
+export const dom = {
   // Кнопки
   connectBtn: null,
   resetBtn: null,
@@ -50,12 +68,6 @@ export var dom = {
   savePresetBtn: null,
   abCompareBtn: null,
   effectBtn: null,
-  statsBtn: null,
-  historyBtn: null,
-  openWindowBtn: null,
-  nightModeBtn: null,
-  powerSaveBtn: null,
-  closeBtn: null,
   
   // Статус
   statusText: null,
@@ -88,18 +100,12 @@ export var dom = {
   volumeLabel: null,
   bassLabel: null,
   visStatus: null,
-  volumeStatus: null,
   
   // Оверлей загрузки
   loadingOverlay: null,
-  loadingText: null,
   
   // Индикатор клиппинга
-  clipIndicator: null,
-  
-  // Заголовки
-  windowTitle: null,
-  pageTitle: null
+  clipIndicator: null
 };
 
 // ============================================
@@ -118,12 +124,6 @@ export function initDom() {
   dom.savePresetBtn = document.getElementById('savePresetBtn');
   dom.abCompareBtn = document.getElementById('abCompareBtn');
   dom.effectBtn = document.getElementById('effectBtn');
-  dom.statsBtn = document.getElementById('statsBtn');
-  dom.historyBtn = document.getElementById('historyBtn');
-  dom.openWindowBtn = document.getElementById('openWindowBtn');
-  dom.nightModeBtn = document.getElementById('nightModeBtn');
-  dom.powerSaveBtn = document.getElementById('powerSaveBtn');
-  dom.closeBtn = document.getElementById('closeWindow');
   
   // Статус
   dom.statusText = document.getElementById('statusText');
@@ -165,18 +165,12 @@ export function initDom() {
   dom.volumeLabel = document.querySelector('.volume-label');
   dom.bassLabel = document.querySelector('.bass-label');
   dom.visStatus = document.getElementById('visStatus');
-  dom.volumeStatus = document.getElementById('volumeStatus');
   
   // Оверлей
   dom.loadingOverlay = document.getElementById('loadingOverlay');
-  dom.loadingText = document.getElementById('loadingText');
   
   // Индикатор клиппинга
   dom.clipIndicator = document.getElementById('clipIndicator');
-  
-  // Заголовки
-  dom.windowTitle = document.getElementById('windowTitle');
-  dom.pageTitle = document.getElementById('pageTitle');
 }
 
 // ============================================
@@ -184,38 +178,19 @@ export function initDom() {
 // ============================================
 
 export function updateState(newState) {
-  for (var key in newState) {
-    if (newState.hasOwnProperty(key)) {
-      state[key] = newState[key];
-    }
-  }
+  Object.assign(state, newState);
 }
 
 // ============================================
-//  СБРОС СОСТОЯНИЯ
+//  ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ
 // ============================================
 
-export function resetState() {
-  state.currentStatus = 'ready';
-  state.isConnected = false;
-  state.currentPreset = 'flat';
-  state.isLoading = false;
-  state.isClipping = false;
-  state.clipCount = 0;
-  state.hasAudio = true;
-  state.rmsValue = 0;
-  state.abMode = false;
-  state.abPresetA = null;
-  state.abPresetB = null;
-  
-  for (var i = 0; i < state.spectrumData.length; i++) {
-    state.spectrumData[i] = 0;
-  }
-  for (var j = 0; j < state.smoothSpectrum.length; j++) {
-    state.smoothSpectrum[j] = 0;
-  }
-  state.peakValue = -Infinity;
-  state.peakHold = 0;
+export function getState() {
+  return state;
+}
+
+export function getDom() {
+  return dom;
 }
 
 // ============================================
@@ -223,9 +198,10 @@ export function resetState() {
 // ============================================
 
 export default {
-  state: state,
-  dom: dom,
-  initDom: initDom,
-  updateState: updateState,
-  resetState: resetState
+  state,
+  dom,
+  initDom,
+  updateState,
+  getState,
+  getDom
 };

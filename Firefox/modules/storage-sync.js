@@ -1,11 +1,19 @@
 // ============================================
-//  STORAGE-SYNC.JS - Единая система хранения
-//  Версия: 2.0.0
-//  Chrome MV3 + Firefox MV2
+//  STORAGE-SYNC.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Единая система хранения
+//  Версия: 1.0.1
+//  Обеспечивает синхронизацию между localStorage и browserAPI.storage
+//  FIREFOX 153 OPTIMIZED: обработка ошибок во всех методах
+//  FIREFOX 153 OPTIMIZED: fallback при недоступности localStorage
 // ============================================
 
-import { universalAPI } from './browser-compat.js';
+const browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
 
+/**
+ * Единый менеджер хранилища
+ */
 class StorageManager {
   constructor() {
     this._cache = new Map();
@@ -36,12 +44,14 @@ class StorageManager {
       userPresets: {},
       settingsVersion: '3.22.8'
     };
+    // Проверка доступности localStorage
     this._hasLocalStorage = this._checkLocalStorage();
-    this._api = universalAPI;
 
+    // Keep the in-page cache synchronized with writes made by the background
+    // service worker or another extension page.
     try {
-      if (this._api.isAvailable()) {
-        this._api.onStorageChanged((changes, areaName) => {
+      if (typeof browserAPI !== 'undefined' && browserAPI.storage?.onChanged) {
+        browserAPI.storage.onChanged.addListener((changes, areaName) => {
           if (areaName !== 'local') return;
           let hasCanonicalChange = false;
           for (const [key, change] of Object.entries(changes || {})) {
@@ -65,6 +75,9 @@ class StorageManager {
     } catch {}
   }
 
+  /**
+   * Проверка доступности localStorage
+   */
   _checkLocalStorage() {
     try {
       const test = '__test__';
@@ -77,6 +90,9 @@ class StorageManager {
     }
   }
 
+  /**
+   * Инициализация хранилища
+   */
   async initialize() {
     if (this._initialized) return this._cache;
     this._initialized = true;
@@ -84,18 +100,18 @@ class StorageManager {
     console.log('[Storage] Инициализация...');
     
     try {
-      const data = await this._api.storageGet(null);
+      const data = await this._loadFromFirefox();
       
       if (!data || Object.keys(data).length === 0) {
         console.log('[Storage] Настройки не найдены, создаем дефолтные');
         const canonicalDefaults = Object.fromEntries(
           Object.entries(this._defaults).map(([key, value]) => [this._prefix + key, value])
         );
-        await this._api.storageSet(canonicalDefaults);
+        await this._saveToFirefox(canonicalDefaults);
         await this._updateCache(canonicalDefaults);
       } else {
         await this._updateCache(data);
-        console.log('[Storage] Настройки загружены из chrome.storage');
+        console.log('[Storage] Настройки загружены из browserAPI.storage');
       }
       
       await this._syncFromLocalStorage();
@@ -110,6 +126,9 @@ class StorageManager {
     }
   }
 
+  /**
+   * Получение всех настроек (синхронно)
+   */
   getAll() {
     const result = {};
     for (const [key, value] of this._cache) {
@@ -121,6 +140,9 @@ class StorageManager {
     return result;
   }
 
+  /**
+   * Получение настройки по ключу (синхронно)
+   */
   get(key, defaultValue = null) {
     const cacheKey = this._prefix + key;
     if (this._cache.has(cacheKey)) {
@@ -129,6 +151,10 @@ class StorageManager {
     return defaultValue !== null ? defaultValue : this._defaults[key];
   }
 
+  /**
+   * Обновить локальный кэш без прямой записи в browserAPI.storage.
+   * Используется, когда background.js является единым писателем настроек.
+   */
   updateCache(settings = {}) {
     if (!settings || typeof settings !== 'object') return;
     for (const [key, value] of Object.entries(settings)) {
@@ -136,6 +162,9 @@ class StorageManager {
     }
   }
 
+  /**
+   * Асинхронное получение настройки
+   */
   async getAsync(key, defaultValue = null) {
     const cacheKey = this._prefix + key;
     if (this._cache.has(cacheKey)) {
@@ -143,37 +172,52 @@ class StorageManager {
     }
     
     try {
-      const data = await this._api.storageGet(null);
+      const data = await this._loadFromFirefox();
       if (data && data[cacheKey] !== undefined) {
         this._cache.set(cacheKey, data[cacheKey]);
         return data[cacheKey];
       }
-    } catch (e) {}
+    } catch (e) {
+      // Игнорируем
+    }
     
     return defaultValue !== null ? defaultValue : this._defaults[key];
   }
 
+  /**
+   * Установка настройки
+   */
   async set(key, value) {
     const cacheKey = this._prefix + key;
     this._cache.set(cacheKey, value);
     this._pendingWrites.set(cacheKey, value);
+    
     this._scheduleFlush();
+    
     this._notifyListeners(key, value);
     return value;
   }
 
+  /**
+   * Массовое обновление настроек
+   */
   async setMultiple(settings) {
     for (const [key, value] of Object.entries(settings)) {
       const cacheKey = this._prefix + key;
       this._cache.set(cacheKey, value);
       this._pendingWrites.set(cacheKey, value);
     }
+    
     this._scheduleFlush();
+    
     for (const [key, value] of Object.entries(settings)) {
       this._notifyListeners(key, value);
     }
   }
 
+  /**
+   * Сброс настроек
+   */
   async reset() {
     console.log('[Storage] Сброс настроек к дефолтным');
     this._cache.clear();
@@ -194,6 +238,9 @@ class StorageManager {
     return this.getAll();
   }
 
+  /**
+   * Экспорт настроек
+   */
   async exportSettings() {
     const data = this.getAll();
     return {
@@ -204,6 +251,9 @@ class StorageManager {
     };
   }
 
+  /**
+   * Импорт настроек
+   */
   async importSettings(jsonData) {
     try {
       const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
@@ -226,19 +276,22 @@ class StorageManager {
     }
   }
 
+  /**
+   * Очистка всех данных
+   */
   async clear() {
     console.log('[Storage] Очистка всех данных');
     clearTimeout(this._writeDebounce);
     if (this._flushPromise) await this._flushPromise.catch(() => {});
     this._cache.clear();
     this._pendingWrites.clear();
-    await this._api.storageClear();
+    await this._clearFirefox();
     await this._clearLocalStorageCache();
 
     const canonicalDefaults = Object.fromEntries(
       Object.entries(this._defaults).map(([key, value]) => [this._prefix + key, value])
     );
-    await this._api.storageSet(canonicalDefaults);
+    await this._saveToFirefox(canonicalDefaults);
     await this._updateCache(canonicalDefaults);
     await this._refreshCanonicalBackup();
 
@@ -247,6 +300,9 @@ class StorageManager {
     }
   }
 
+  /**
+   * Подписка на изменения
+   */
   on(key, callback) {
     if (!this._listeners.has(key)) {
       this._listeners.set(key, new Set());
@@ -254,12 +310,18 @@ class StorageManager {
     this._listeners.get(key).add(callback);
   }
 
+  /**
+   * Отписка от изменений
+   */
   off(key, callback) {
     if (this._listeners.has(key)) {
       this._listeners.get(key).delete(callback);
     }
   }
 
+  /**
+   * Получение статистики
+   */
   getStats() {
     return {
       cacheSize: this._cache.size,
@@ -270,6 +332,84 @@ class StorageManager {
       initialized: this._initialized,
       hasLocalStorage: this._hasLocalStorage
     };
+  }
+
+  // ============================================
+  //  ВНУТРЕННИЕ МЕТОДЫ
+  // ============================================
+
+  _loadFromFirefox() {
+    return new Promise((resolve) => {
+      if (typeof browserAPI !== 'undefined' && browserAPI.storage) {
+        browserAPI.storage.local.get(null, (result) => {
+          if (browserAPI.runtime.lastError) {
+            console.warn('[Storage] Ошибка загрузки из browserAPI.storage:', browserAPI.runtime.lastError);
+            resolve(null);
+          } else {
+            resolve(result);
+          }
+        });
+      } else {
+        resolve(null);
+      }
+    });
+  }
+
+  _saveToFirefox(data) {
+    return new Promise((resolve, reject) => {
+      if (typeof browserAPI !== 'undefined' && browserAPI.storage) {
+        browserAPI.storage.local.set(data, () => {
+          if (browserAPI.runtime.lastError) {
+            const error = new Error(browserAPI.runtime.lastError.message);
+            console.warn('[Storage] Ошибка сохранения в browserAPI.storage:', error);
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      } else {
+        reject(new Error('browserAPI.storage.local недоступен'));
+      }
+    });
+  }
+
+  _clearFirefox() {
+    return new Promise((resolve) => {
+      if (typeof browserAPI !== 'undefined' && browserAPI.storage) {
+        browserAPI.storage.local.clear(() => {
+          if (browserAPI.runtime.lastError) {
+            console.warn('[Storage] Ошибка очистки browserAPI.storage:', browserAPI.runtime.lastError);
+          }
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async _updateCache(data) {
+    for (const [key, value] of Object.entries(data)) {
+      const cacheKey = key.startsWith(this._prefix) ? key : this._prefix + key;
+      this._cache.set(cacheKey, value);
+    }
+    
+    if (this._hasLocalStorage) {
+      try {
+        const cacheData = {};
+        for (const [key, value] of this._cache) {
+          if (key.startsWith(this._prefix)) {
+            cacheData[key] = value;
+          }
+        }
+        localStorage.setItem(this._prefix + 'cache_data', JSON.stringify({
+          data: cacheData,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        // Игнорируем ошибки localStorage
+      }
+    }
   }
 
   _scheduleFlush() {
@@ -291,7 +431,7 @@ class StorageManager {
           const snapshot = new Map(this._pendingWrites);
           const data = Object.fromEntries(snapshot);
 
-          await this._api.storageSet(data);
+          await this._saveToFirefox(data);
 
           for (const [key, value] of snapshot) {
             if (Object.is(this._pendingWrites.get(key), value)) {
@@ -350,8 +490,8 @@ class StorageManager {
   async _syncFromLocalStorage() {
     if (!this._hasLocalStorage) return;
     try {
-      let current = await this._api.storageGet(null);
-      const hadChromeData = !!current && Object.keys(current).length > 0;
+      let current = await this._loadFromFirefox();
+      const hadFirefoxData = !!current && Object.keys(current).length > 0;
 
       const oldSettings = localStorage.getItem('soundforge_settings_v322');
       if ((!current || Object.keys(current).length === 0) && oldSettings) {
@@ -367,7 +507,7 @@ class StorageManager {
           [this._prefix + 'debugMode']: parsed.debugMode ?? false
         };
 
-        await this._api.storageSet(migrated);
+        await this._saveToFirefox(migrated);
         await this._updateCache(migrated);
         current = { ...migrated };
       }
@@ -378,14 +518,16 @@ class StorageManager {
           const parsed = JSON.parse(cacheData);
           if (parsed.timestamp && Date.now() - parsed.timestamp < this._cacheTTL) {
             const canonicalCache = parsed.data || {};
-            const sourceWasEmpty = !hadChromeData && Object.keys(current || {}).length === 0;
+            const sourceWasEmpty = !hadFirefoxData && Object.keys(current || {}).length === 0;
             for (const [key, value] of Object.entries(canonicalCache)) {
               if (sourceWasEmpty || current?.[key] === undefined) {
                 this._cache.set(key, value);
               }
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          // Игнорируем поврежденный recovery cache
+        }
       }
     } catch (e) {
       console.warn('[Storage] Ошибка синхронизации из localStorage:', e);
@@ -398,28 +540,8 @@ class StorageManager {
       localStorage.removeItem('soundforge_settings_v322');
       localStorage.removeItem('soundforge_cache');
       localStorage.removeItem(this._prefix + 'cache_data');
-    } catch (e) {}
-  }
-
-  async _updateCache(data) {
-    for (const [key, value] of Object.entries(data)) {
-      const cacheKey = key.startsWith(this._prefix) ? key : this._prefix + key;
-      this._cache.set(cacheKey, value);
-    }
-    
-    if (this._hasLocalStorage) {
-      try {
-        const cacheData = {};
-        for (const [key, value] of this._cache) {
-          if (key.startsWith(this._prefix)) {
-            cacheData[key] = value;
-          }
-        }
-        localStorage.setItem(this._prefix + 'cache_data', JSON.stringify({
-          data: cacheData,
-          timestamp: Date.now()
-        }));
-      } catch (e) {}
+    } catch (e) {
+      // Игнорируем
     }
   }
 
@@ -446,7 +568,15 @@ class StorageManager {
   }
 }
 
-export const storage = new StorageManager();
+// ============================================
+//  СОЗДАНИЕ ГЛОБАЛЬНОГО ИНСТАНСА
+// ============================================
+
+const storage = new StorageManager();
+
+// ============================================
+//  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ============================================
 
 export async function initializeStorage() {
   return storage.initialize();
@@ -459,6 +589,10 @@ export function onSettingChange(key, callback) {
 export function offSettingChange(key, callback) {
   storage.off(key, callback);
 }
+
+// ============================================
+//  ЭКСПОРТ
+// ============================================
 
 export { storage };
 export default storage;

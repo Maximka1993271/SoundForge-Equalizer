@@ -1,30 +1,64 @@
 // ============================================
-//  UI.JS - Обновление интерфейса (v3.22.8)
+//  UI.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Обновление интерфейса
+//  FIREFOX 153 OPTIMIZED: обработка ошибок в updateSiteInfo
+//  FIREFOX 153 OPTIMIZED: защита connection-state для UI-сообщений
 // ============================================
 
 import { state, dom, updateState } from './state.js';
-import { t, getCurrentLang } from './i18n.js'; // ИСПРАВЛЕНО: возвращен оригинальный getCurrentLang
+import { t, getCurrentLang } from './i18n.js';
 import { PRESETS, PRESET_INFO } from './config.js';
 
+const browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
+
+// ============================================
+//  СОСТОЯНИЯ ПОДКЛЮЧЕНИЯ (для защиты)
+// ============================================
+
+const CONNECTION_STATES = new Set(['connecting', 'connected', 'disconnected', 'error']);
+
+function normalizeStatus(requested, current) {
+  if (requested === 'ready' && CONNECTION_STATES.has(current)) return current;
+  return requested;
+}
+
+// ============================================
+//  УСТАНОВКА СТАТУСА (С ЗАЩИТОЙ)
+// ============================================
+
 export function setStatus(status, text) {
-  updateState({ currentStatus: status });
+  // `ready` часто используется для коротких информационных сообщений.
+  // Оно не должно заменять реальное состояние подключения.
+  const previousStatus = state.currentStatus;
+  const preserveConnectionState = status === 'ready' &&
+    ['connected', 'connecting', 'disconnected'].includes(previousStatus);
+  const effectiveStatus = preserveConnectionState ? previousStatus : status;
+  
+  if (!preserveConnectionState) updateState({ currentStatus: status });
+  
   const dot = dom.statusDot;
   const txt = dom.statusText;
   const btn = dom.connectBtn;
 
   if (dot) {
     dot.className = 'status-dot';
-    if (status === 'connected') dot.classList.add('active');
-    else if (status === 'connecting') dot.classList.add('connecting');
-    else if (status === 'disconnected') dot.classList.add('inactive');
-    else if (status === 'reset') dot.classList.add('reset');
+    if (effectiveStatus === 'connected') dot.classList.add('active');
+    else if (effectiveStatus === 'connecting') dot.classList.add('connecting');
+    else if (effectiveStatus === 'disconnected') dot.classList.add('inactive');
+    else if (effectiveStatus === 'reset') dot.classList.add('reset');
   }
   if (txt) {
     txt.className = 'status-text';
     txt.textContent = text || t('status_ready');
   }
-  updateConnectButton(status);
+  updateConnectButton(effectiveStatus);
 }
+
+// ============================================
+//  ОБНОВЛЕНИЕ КНОПКИ ПОДКЛЮЧЕНИЯ
+// ============================================
 
 export function updateConnectButton(status) {
   const btn = dom.connectBtn;
@@ -44,6 +78,10 @@ export function updateConnectButton(status) {
   }
 }
 
+// ============================================
+//  ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ПРЕСЕТЕ
+// ============================================
+
 export function updatePresetInfo(name) {
   const el = dom.presetInfoDisplay;
   if (el) {
@@ -57,20 +95,32 @@ export function updatePresetInfo(name) {
   }
 }
 
+// ============================================
+//  ПОЛУЧЕНИЕ ОПИСАНИЯ ПРЕСЕТА
+// ============================================
+
 export function getPresetDesc(name) {
   const info = PRESET_INFO[name];
   if (!info) return t('preset');
-  const lang = getCurrentLang(); // ИСПРАВЛЕНО: возвращен вызов getCurrentLang
+  const lang = getCurrentLang();
   if (lang === 'ru') return info.desc_ru || info.desc_en || t('preset');
   if (lang === 'uk') return info.desc_uk || info.desc_en || info.desc_ru || t('preset');
   return info.desc_en || info.desc_ru || t('preset');
 }
+
+// ============================================
+//  ПОЛУЧЕНИЕ ОТОБРАЖЕНИЯ ПРЕСЕТА
+// ============================================
 
 export function getPresetDisplay(name) {
   const info = PRESET_INFO[name];
   if (!info) return '🎛️ ' + t('preset');
   return info.icon + ' ' + getPresetDesc(name);
 }
+
+// ============================================
+//  ОБНОВЛЕНИЕ КЛАССА ЗНАЧЕНИЯ GAIN
+// ============================================
 
 export function updateGainClass(element, value) {
   const val = parseFloat(value);
@@ -80,6 +130,10 @@ export function updateGainClass(element, value) {
   else element.classList.add('zero');
 }
 
+// ============================================
+//  ПОКАЗ ОВЕРЛЕЯ ЗАГРУЗКИ
+// ============================================
+
 export function showLoading(show) {
   updateState({ isLoading: show });
   const overlay = dom.loadingOverlay;
@@ -88,6 +142,10 @@ export function showLoading(show) {
   }
 }
 
+// ============================================
+//  ПЕРЕКЛЮЧЕНИЕ ТЕМЫ
+// ============================================
+
 export function toggleTheme() {
   state.currentTheme = state.currentTheme === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', state.currentTheme);
@@ -95,6 +153,10 @@ export function toggleTheme() {
     dom.themeToggle.textContent = state.currentTheme === 'dark' ? '🌙' : '☀️';
   }
 }
+
+// ============================================
+//  РАЗВЕРТЫВАНИЕ/СВЕРТЫВАНИЕ ОКНА
+// ============================================
 
 export function toggleExpand() {
   const body = document.body;
@@ -111,16 +173,54 @@ export function toggleExpand() {
   }
 }
 
+// ============================================
+//  ОБНОВЛЕНИЕ ИНФОРМАЦИИ О САЙТЕ (FIREFOX 153 OPTIMIZED)
+// ============================================
+
 export function updateSiteInfo() {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const info = dom.siteInfo;
-    if (tabs.length > 0 && tabs[0].url && info) {
+  const info = dom.siteInfo;
+  if (!info) return;
+  
+  browserAPI.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения вкладки:', browserAPI.runtime.lastError);
+      info.textContent = t('site');
+      return;
+    }
+    
+    if (tabs && tabs.length > 0 && tabs[0].url) {
       try {
         const url = new URL(tabs[0].url);
+        // Пропускаем системные страницы
+        if (url.protocol === 'about:' || url.protocol === 'about:') {
+          info.textContent = '🔒 ' + t('site');
+          return;
+        }
         info.textContent = '🌐 ' + url.hostname.replace('www.', '');
       } catch {
         info.textContent = t('site');
       }
+    } else {
+      info.textContent = t('site');
     }
   });
 }
+
+// ============================================
+//  ЭКСПОРТ ПО УМОЛЧАНИЮ
+// ============================================
+
+export default {
+  setStatus,
+  updateConnectButton,
+  updatePresetInfo,
+  getPresetDesc,
+  getPresetDisplay,
+  updateGainClass,
+  showLoading,
+  toggleTheme,
+  toggleExpand,
+  updateSiteInfo,
+  normalizeStatus,
+  CONNECTION_STATES
+};

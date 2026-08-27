@@ -1,11 +1,15 @@
 // ============================================
-//  PRESETS.JS - Работа с пресетами (v3.22.8)
-//  Chrome MV3 + Firefox MV2
+//  PRESETS.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Работа с пресетами
+//  FIREFOX 153 OPTIMIZED: выбор пресетов из списка
+//  FIREFOX 153 OPTIMIZED: определение пользовательских пресетов
+//  FIREFOX 153 OPTIMIZED: обработка ошибок и очистка A/B состояния
 // ============================================
 
 import { state, dom } from './state.js';
 import { t } from './i18n.js';
-import { PRESETS, PRESET_CATEGORIES, PRESET_INFO } from './config.js';
+import { PRESETS, PRESET_CATEGORIES, PRESET_INFO, PRESET_ORDER } from './config.js';
 import { getUserPresets, saveUserPresets, getSliderGains, saveAllSettings } from './storage.js';
 import { applyPresetEQOnly, applyPresetWithAnimation } from './audio.js';
 import { 
@@ -16,6 +20,13 @@ import {
   updateGainClass 
 } from './ui.js';
 
+const browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
+
+// ============================================
+//  ЗАПОЛНЕНИЕ СПИСКА ПРЕСЕТОВ
+// ============================================
+
 export function populatePresetSelect() {
   const select = dom.presetSelect;
   if (!select) return;
@@ -23,7 +34,7 @@ export function populatePresetSelect() {
   select.innerHTML = '';
 
   const categories = {};
-  const presetNames = Object.keys(PRESETS);
+  const presetNames = PRESET_ORDER.slice(); // Используем канонический порядок
   let userPresets = {};
   
   try {
@@ -33,20 +44,24 @@ export function populatePresetSelect() {
     userPresets = {};
   }
 
+  // Группировка стандартных пресетов по категориям
   presetNames.forEach((name) => {
     const category = PRESET_CATEGORIES[name] || '🎧 Специальные';
     if (!categories[category]) categories[category] = [];
     categories[category].push(name);
   });
 
+  // Пустой пункт (настройки)
   const emptyOption = document.createElement('option');
   emptyOption.value = '';
   emptyOption.textContent = '🎛️ ' + t('custom');
   select.appendChild(emptyOption);
 
+  // Сортировка категорий
   const categoryKeys = Object.keys(categories);
   categoryKeys.sort();
 
+  // Стандартные пресеты по категориям
   categoryKeys.forEach((category) => {
     const optgroup = document.createElement('optgroup');
     const categoryLabel = t('presets.' + category) || category;
@@ -67,6 +82,7 @@ export function populatePresetSelect() {
     select.appendChild(optgroup);
   });
 
+  // Пользовательские пресеты
   const userKeys = Object.keys(userPresets);
   if (userKeys.length > 0) {
     const userOptgroup = document.createElement('optgroup');
@@ -82,6 +98,7 @@ export function populatePresetSelect() {
     select.appendChild(userOptgroup);
   }
 
+  // Восстановление выбранного пресета
   if (state.currentPreset && state.currentPreset !== 'custom') {
     const presetExists = presetNames.includes(state.currentPreset) || 
                          userKeys.includes(state.currentPreset);
@@ -91,6 +108,10 @@ export function populatePresetSelect() {
     }
   }
 }
+
+// ============================================
+//  СОХРАНЕНИЕ ПОЛЬЗОВАТЕЛЬСКОГО ПРЕСЕТА
+// ============================================
 
 export function saveUserPreset() {
   const name = prompt(t('save_preset') + ':', 'My Preset');
@@ -131,6 +152,10 @@ export function saveUserPreset() {
   }
 }
 
+// ============================================
+//  ЗАГРУЗКА ПОЛЬЗОВАТЕЛЬСКОГО ПРЕСЕТА
+// ============================================
+
 export function loadUserPreset(name) {
   let presets;
   try {
@@ -148,30 +173,23 @@ export function loadUserPreset(name) {
     return;
   }
 
-  state.abPresetA = null;
-  state.abPresetB = null;
-  state.abMode = false;
-  if (dom.abCompareBtn) {
-    dom.abCompareBtn.textContent = t('compare');
-    dom.abCompareBtn.style.background = '';
-    dom.abCompareBtn.style.color = '';
-  }
+  // Очищаем A/B состояние при загрузке пресета
+  resetABCompareState();
 
+  // Применяем пользовательский пресет с анимацией
   applyPresetWithAnimation(name, true);
 }
+
+// ============================================
+//  ОБРАБОТКА ВЫБОРА ПРЕСЕТА ИЗ СПИСКА
+// ============================================
 
 export function handlePresetSelect(value) {
   if (!value) {
     state.currentPreset = 'custom';
     updatePresetInfo('custom');
-    state.abPresetA = null;
-    state.abPresetB = null;
-    state.abMode = false;
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = t('compare');
-      dom.abCompareBtn.style.background = '';
-      dom.abCompareBtn.style.color = '';
-    }
+    // Очищаем A/B состояние при выборе custom
+    resetABCompareState();
     return;
   }
 
@@ -180,14 +198,8 @@ export function handlePresetSelect(value) {
     loadUserPreset(userPresetName);
   } else {
     if (PRESETS[value]) {
-      state.abPresetA = null;
-      state.abPresetB = null;
-      state.abMode = false;
-      if (dom.abCompareBtn) {
-        dom.abCompareBtn.textContent = t('compare');
-        dom.abCompareBtn.style.background = '';
-        dom.abCompareBtn.style.color = '';
-      }
+      // Очищаем A/B состояние при выборе стандартного пресета
+      resetABCompareState();
       applyPresetWithAnimation(value, false);
     } else {
       console.warn(`⚠️ Пресет "${value}" не найден в PRESETS`);
@@ -196,35 +208,119 @@ export function handlePresetSelect(value) {
   }
 }
 
+// ============================================
+//  A/B СРАВНЕНИЕ
+// ============================================
+
+function resetABCompareState() {
+  state.abPresetA = null;
+  state.abPresetB = null;
+  state.abMode = false;
+  state.abActive = null;
+  if (dom.abCompareBtn) {
+    dom.abCompareBtn.textContent = t('compare');
+    dom.abCompareBtn.style.background = '';
+    dom.abCompareBtn.style.color = '';
+  }
+}
+
+function updateABCompareButton() {
+  if (!dom.abCompareBtn) return;
+  if (!state.abPresetA) {
+    dom.abCompareBtn.textContent = '🔀 A/B';
+    dom.abCompareBtn.style.background = '';
+    dom.abCompareBtn.style.color = '';
+    return;
+  }
+  if (!state.abPresetB) {
+    dom.abCompareBtn.textContent = '🔀 Save B';
+    dom.abCompareBtn.style.background = '#607D8B';
+    dom.abCompareBtn.style.color = '#fff';
+    return;
+  }
+  dom.abCompareBtn.textContent = `🔀 ${state.abActive || 'A'}`;
+  dom.abCompareBtn.style.background = state.abActive === 'B' ? '#2196F3' : '#4CAF50';
+  dom.abCompareBtn.style.color = '#fff';
+}
+
+function applyABSnapshot(snapshot, side) {
+  if (!snapshot) return;
+
+  const sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+  sliders.forEach((slider) => {
+    const value = Number(snapshot.gains?.[slider.dataset.freq] ?? 0);
+    slider.value = Number.isFinite(value) ? value : 0;
+    const valueSpan = slider.parentElement?.querySelector('.gain-value');
+    if (valueSpan) {
+      valueSpan.textContent = Number(slider.value).toFixed(1);
+      updateGainClass(valueSpan, Number(slider.value));
+    }
+  });
+
+  const volumePercent = Math.max(0, Math.min(800, (Number.isFinite(Number(snapshot.volume)) ? Number(snapshot.volume) : 1) * 100));
+  const bass = Math.max(-12, Math.min(12, (Number.isFinite(Number(snapshot.bass)) ? Number(snapshot.bass) : 0)));
+
+  if (dom.volumeSlider) dom.volumeSlider.value = volumePercent;
+  if (dom.volumeDisplay) dom.volumeDisplay.textContent = `${volumePercent}%`;
+  if (dom.bassSlider) dom.bassSlider.value = bass;
+  if (dom.bassDisplay) dom.bassDisplay.textContent = `${bass.toFixed(1)} dB`;
+
+  state.currentPreset = 'custom';
+  updatePresetInfo('custom');
+
+  const gains = getSliderGains();
+  browserAPI.runtime.sendMessage({ action: 'updateEQ', gains, instant: true, source: `ab-${side}` });
+  browserAPI.runtime.sendMessage({ action: 'setVolume', value: volumePercent / 100, instant: true, source: `ab-${side}` });
+  browserAPI.runtime.sendMessage({ action: 'setBass', value: bass, instant: true, source: `ab-${side}` });
+
+  setStatus('ready', `🔀 A/B: ${side}`);
+}
+
 export function toggleABCompare() {
-  state.abMode = !state.abMode;
-  if (state.abMode) {
+  // Первый клик: сохраняем состояние A
+  if (!state.abPresetA) {
     state.abPresetA = {
       gains: getSliderGains(),
       volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
       bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
     };
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = '🔀 A';
-      dom.abCompareBtn.style.background = '#4CAF50';
-      dom.abCompareBtn.style.color = '#fff';
-    }
-    setStatus('ready', '🔀 Режим A/B: сохранено состояние A');
-  } else {
-    state.abPresetA = null;
     state.abPresetB = null;
-    if (dom.abCompareBtn) {
-      dom.abCompareBtn.textContent = t('compare');
-      dom.abCompareBtn.style.background = '';
-      dom.abCompareBtn.style.color = '';
-    }
-    setStatus('ready', t('status_ready'));
+    state.abMode = false;
+    state.abActive = null;
+    updateABCompareButton();
+    setStatus('ready', '🔀 A/B: состояние A сохранено. Настройте B и нажмите ещё раз.');
+    return;
   }
+
+  // Второй клик: сохраняем состояние B и переключаемся на A
+  if (!state.abPresetB) {
+    state.abPresetB = {
+      gains: getSliderGains(),
+      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
+      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
+    };
+    state.abMode = true;
+    state.abActive = 'A';
+    updateABCompareButton();
+    applyABSnapshot(state.abPresetA, 'A');
+    setStatus('ready', '🔀 A/B готов: нажимайте кнопку для переключения A ↔ B.');
+    return;
+  }
+
+  // Последующие клики: реальное переключение A ↔ B
+  state.abActive = state.abActive === 'A' ? 'B' : 'A';
+  state.abMode = true;
+  updateABCompareButton();
+  applyABSnapshot(state.abActive === 'A' ? state.abPresetA : state.abPresetB, state.abActive);
 }
+
+// ============================================
+//  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СПИСКА ПРЕСЕТОВ
+// ============================================
 
 export function getPresetList() {
   const list = [];
-  const presetNames = Object.keys(PRESETS);
+  const presetNames = PRESET_ORDER.slice();
   
   presetNames.forEach((name) => {
     const info = PRESET_INFO[name];
@@ -255,11 +351,16 @@ export function getPresetList() {
   return list;
 }
 
+// ============================================
+//  ЭКСПОРТ ПО УМОЛЧАНИЮ
+// ============================================
+
 export default {
   populatePresetSelect,
   saveUserPreset,
   loadUserPreset,
   handlePresetSelect,
   toggleABCompare,
-  getPresetList
+  getPresetList,
+  resetABCompareState
 };

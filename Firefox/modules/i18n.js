@@ -1,7 +1,9 @@
 // ============================================
-//  I18N.JS - Интернационализация (v3.22.8)
+//  I18N.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
 //  3 ЯЗЫКА: Русский, Українська, English
 //  ПОЛНЫЙ НАБОР ФРАЗ ДЛЯ ИНТЕРФЕЙСА
+//  FIREFOX 153 OPTIMIZED: полные переводы для всех элементов
 // ============================================
 
 export const LANGUAGES = {
@@ -100,7 +102,7 @@ export const LANGUAGES = {
     
     // ========== ПРЕДУПРЕЖДЕНИЯ ГРОМКОСТИ ==========
     volume_warnings: {
-      quiet: '🔇 Слишком тихо',
+      quiet: '🔇 Тихо',
       normal: '🟢 Нормально',
       loud: '🔊 Громко',
       very_loud: '🔊 Очень громко',
@@ -221,7 +223,7 @@ export const LANGUAGES = {
     
     // ========== ПРЕДУПРЕЖДЕНИЯ ГРОМКОСТИ ==========
     volume_warnings: {
-      quiet: '🔇 Занадто тихо',
+      quiet: '🔇 Тихо',
       normal: '🟢 Нормально',
       loud: '🔊 Гучно',
       very_loud: '🔊 Дуже гучно',
@@ -557,6 +559,52 @@ export function formatConnectionError() {
 }
 
 // ============================================
+//  СКЛОНЕНИЯ ДЛЯ РУССКОГО И УКРАИНСКОГО
+// ============================================
+
+export function pluralizeRu(count, one, few, many) {
+  const n = Math.abs(count);
+  const lastDigit = n % 10;
+  const lastTwo = n % 100;
+  
+  if (lastTwo >= 11 && lastTwo <= 19) return many;
+  if (lastDigit === 1) return one;
+  if (lastDigit >= 2 && lastDigit <= 4) return few;
+  return many;
+}
+
+export function pluralizeUk(count, one, few, many) {
+  const n = Math.abs(count);
+  const lastDigit = n % 10;
+  const lastTwo = n % 100;
+  
+  if (lastTwo >= 11 && lastTwo <= 19) return many;
+  if (lastDigit === 1) return one;
+  if (lastDigit >= 2 && lastDigit <= 4) return few;
+  return many;
+}
+
+export function getHistoryLabel(count) {
+  const lang = getCurrentLang();
+  if (lang === 'ru') {
+    return pluralizeRu(count, 'запись', 'записи', 'записей');
+  } else if (lang === 'uk') {
+    return pluralizeUk(count, 'запис', 'записи', 'записів');
+  }
+  return count === 1 ? 'record' : 'records';
+}
+
+export function getStatsLabel(count) {
+  const lang = getCurrentLang();
+  if (lang === 'ru') {
+    return pluralizeRu(count, 'запись', 'записи', 'записей');
+  } else if (lang === 'uk') {
+    return pluralizeUk(count, 'запис', 'записи', 'записів');
+  }
+  return count === 1 ? 'record' : 'records';
+}
+
+// ============================================
 //  ЭКСПОРТ ПО УМОЛЧАНИЮ
 // ============================================
 
@@ -583,5 +631,9 @@ export default {
   formatHistoryRecords,
   formatStatsTotal,
   formatSettingsReset,
-  formatConnectionError
+  formatConnectionError,
+  pluralizeRu,
+  pluralizeUk,
+  getHistoryLabel,
+  getStatsLabel
 };

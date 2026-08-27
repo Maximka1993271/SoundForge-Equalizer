@@ -1,9 +1,16 @@
 // ============================================
-//  MEMORY.JS - Управление памятью
-//  Версия: 2.0.0
-//  Chrome MV3 + Firefox MV2
+//  MEMORY.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Управление памятью
+//  Версия: 1.0.0
+//  FIREFOX 153 OPTIMIZED: очистка мониторинга при уничтожении
+//  FIREFOX 153 OPTIMIZED: обработка ошибок storage
 // ============================================
 
+/**
+ * Менеджер памяти для SoundForge
+ * Обеспечивает правильное управление ресурсами
+ */
 export class MemoryManager {
   constructor() {
     this._references = new Map();
@@ -16,8 +23,28 @@ export class MemoryManager {
     };
     this._monitoringInterval = null;
     this._isDestroyed = false;
+    this._firefoxMemoryAPI = null;
+    
+    // Проверка поддержки memory API в Firefox
+    this._checkMemoryAPI();
   }
 
+  /**
+   * Проверка поддержки performance.memory в Firefox
+   */
+  _checkMemoryAPI() {
+    try {
+      if (typeof performance !== 'undefined' && performance.memory) {
+        this._firefoxMemoryAPI = performance.memory;
+      }
+    } catch (e) {
+      // Игнорируем
+    }
+  }
+
+  /**
+   * Регистрация объекта для управления памятью
+   */
   register(id, obj, cleanupFn = null) {
     if (this._isDestroyed) {
       console.warn('[MemoryManager] Менеджер уничтожен, регистрация невозможна');
@@ -45,6 +72,9 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Обновление времени последнего доступа
+   */
   touch(id) {
     const ref = this._references.get(id);
     if (ref) {
@@ -52,6 +82,9 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Удаление объекта из управления
+   */
   unregister(id) {
     if (this._isDestroyed) return false;
     
@@ -70,6 +103,9 @@ export class MemoryManager {
     return false;
   }
 
+  /**
+   * Добавление функции очистки
+   */
   addCleanup(fn) {
     if (this._isDestroyed) return;
     if (typeof fn === 'function') {
@@ -77,10 +113,16 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Удаление функции очистки
+   */
   removeCleanup(fn) {
     this._cleanupFunctions.delete(fn);
   }
 
+  /**
+   * Очистка конкретного объекта
+   */
   cleanup(id) {
     if (this._isCleaning || this._isDestroyed) return;
     this._isCleaning = true;
@@ -100,11 +142,14 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Проверка на утечки памяти
+   */
   _checkForLeaks() {
     if (this._isDestroyed) return;
     
     const now = Date.now();
-    const oldThreshold = 60000;
+    const oldThreshold = 60000; // 1 минута
     let cleaned = 0;
 
     for (const [id, ref] of this._references) {
@@ -119,6 +164,9 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Полная очистка всех ресурсов
+   */
   fullCleanup() {
     if (this._isCleaning || this._isDestroyed) return;
     this._isCleaning = true;
@@ -162,24 +210,38 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Безопасный запрос сборки мусора (Firefox)
+   */
   _requestGC() {
     try {
+      // Firefox: window.gc() может быть доступен с флагом
       if (typeof window !== 'undefined' && window.gc && typeof window.gc === 'function') {
         try {
           window.gc();
           console.log('[MemoryManager] GC вызван через window.gc()');
           return;
-        } catch (e) {}
+        } catch (e) {
+          // Игнорируем
+        }
       }
 
+      // Альтернативный способ: создание и очистка большого массива
       try {
         let tempArray = new Array(100000);
         tempArray.fill(0);
         tempArray = null;
-      } catch (e) {}
-    } catch (e) {}
+      } catch (e) {
+        // Игнорируем
+      }
+    } catch (e) {
+      // Игнорируем ошибки
+    }
   }
 
+  /**
+   * Получение статистики памяти
+   */
   getStats() {
     const stats = {
       ...this._stats,
@@ -190,7 +252,13 @@ export class MemoryManager {
       memoryInfo: null
     };
 
-    if (typeof performance !== 'undefined' && performance.memory) {
+    if (this._firefoxMemoryAPI) {
+      stats.memoryInfo = {
+        totalJSHeapSize: this._firefoxMemoryAPI.totalJSHeapSize,
+        usedJSHeapSize: this._firefoxMemoryAPI.usedJSHeapSize,
+        jsHeapSizeLimit: this._firefoxMemoryAPI.jsHeapSizeLimit
+      };
+    } else if (typeof performance !== 'undefined' && performance.memory) {
       stats.memoryInfo = {
         totalJSHeapSize: performance.memory.totalJSHeapSize,
         usedJSHeapSize: performance.memory.usedJSHeapSize,
@@ -201,6 +269,9 @@ export class MemoryManager {
     return stats;
   }
 
+  /**
+   * Получение списка зарегистрированных объектов
+   */
   getRegisteredObjects() {
     const objects = [];
     for (const [id, ref] of this._references) {
@@ -215,6 +286,9 @@ export class MemoryManager {
     return objects;
   }
 
+  /**
+   * Периодическая проверка памяти
+   */
   startMonitoring(interval = 30000) {
     if (this._isDestroyed) {
       console.warn('[MemoryManager] Менеджер уничтожен, мониторинг невозможен');
@@ -256,6 +330,9 @@ export class MemoryManager {
     console.log(`[MemoryManager] Мониторинг запущен (интервал: ${interval/1000}с)`);
   }
 
+  /**
+   * Остановка мониторинга
+   */
   stopMonitoring() {
     if (this._monitoringInterval) {
       clearInterval(this._monitoringInterval);
@@ -264,6 +341,9 @@ export class MemoryManager {
     }
   }
 
+  /**
+   * Ручной вызов для освобождения памяти
+   */
   freeMemory() {
     if (this._isDestroyed) return { cleaned: 0, remaining: 0, stats: null };
     
@@ -289,6 +369,9 @@ export class MemoryManager {
     };
   }
 
+  /**
+   * Полная очистка и сброс
+   */
   destroy() {
     if (this._isDestroyed) return;
     
@@ -306,8 +389,19 @@ export class MemoryManager {
   }
 }
 
+// ============================================
+//  СОЗДАНИЕ ГЛОБАЛЬНОГО ИНСТАНСА
+// ============================================
+
 export const memoryManager = new MemoryManager();
 
+// ============================================
+//  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ============================================
+
+/**
+ * Регистрация DOM элемента для управления памятью
+ */
 export function registerDOMElement(element, id, cleanupFn = null) {
   if (!element || !id) return;
 
@@ -338,6 +432,9 @@ export function registerDOMElement(element, id, cleanupFn = null) {
   memoryManager.register(id, element, cleanupFn || defaultCleanup);
 }
 
+/**
+ * Регистрация объекта для управления памятью
+ */
 export function registerObject(id, obj, cleanupFn = null) {
   const defaultCleanup = (o) => {
     if (o && typeof o === 'object') {
@@ -353,7 +450,9 @@ export function registerObject(id, obj, cleanupFn = null) {
           } else {
             o[key] = null;
           }
-        } catch (e) {}
+        } catch (e) {
+          // Игнорируем
+        }
       }
     }
   };
@@ -361,6 +460,9 @@ export function registerObject(id, obj, cleanupFn = null) {
   memoryManager.register(id, obj, cleanupFn || defaultCleanup);
 }
 
+/**
+ * Регистрация таймера
+ */
 export function registerTimer(id, timer, cleanupFn = null) {
   const defaultCleanup = (t) => {
     try {
@@ -381,6 +483,9 @@ export function registerTimer(id, timer, cleanupFn = null) {
   memoryManager.register(id, timer, cleanupFn || defaultCleanup);
 }
 
+/**
+ * Регистрация Web Audio узла
+ */
 export function registerAudioNode(id, node, context, cleanupFn = null) {
   const defaultCleanup = (n) => {
     try {
@@ -401,13 +506,23 @@ export function registerAudioNode(id, node, context, cleanupFn = null) {
   memoryManager.register(id, node, cleanupFn || defaultCleanup);
 }
 
+/**
+ * Глобальная очистка
+ */
 export function globalCleanup() {
   memoryManager.fullCleanup();
 }
 
+/**
+ * Получение статистики памяти
+ */
 export function getMemoryStats() {
   return memoryManager.getStats();
 }
+
+// ============================================
+//  АВТОМАТИЧЕСКАЯ ОЧИСТКА ПРИ ЗАКРЫТИИ
+// ============================================
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
@@ -421,6 +536,10 @@ if (typeof window !== 'undefined') {
     }
   });
 }
+
+// ============================================
+//  ЭКСПОРТ
+// ============================================
 
 export default {
   MemoryManager,

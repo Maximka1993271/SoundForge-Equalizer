@@ -1,12 +1,17 @@
 // ============================================
-//  STORAGE.JS - Работа с хранилищем (v3.22.8)
-//  ИДЕНТИЧНА Chrome ВЕРСИИ
-//  ИСПРАВЛЕНО: обработка ошибок в exportSettings
+//  STORAGE.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Работа с хранилищем
+//  FIREFOX 153 OPTIMIZED: обработка ошибок в exportSettings
+//  FIREFOX 153 OPTIMIZED: единое хранилище через storage-sync
 // ============================================
 
 import { state, dom } from './state.js';
 import { getCurrentLang } from './i18n.js';
 import { storage } from './storage-sync.js';
+
+const browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
 
 const CANONICAL_KEYS = {
   eqSettings: 'sf_eqSettings',
@@ -23,18 +28,22 @@ const CANONICAL_KEYS = {
 let _lastUserPresetsSnapshot = null;
 let _lastSettingsSnapshot = null;
 
+// ============================================
+//  ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЬСКИХ ПРЕСЕТОВ
+// ============================================
+
 export function getUserPresets() {
   try {
     if (storage.getStats().initialized) {
-      const canonicalFromChrome = storage.get('userPresets', null);
-      if (canonicalFromChrome && typeof canonicalFromChrome === 'object') {
-        _lastUserPresetsSnapshot = { ...canonicalFromChrome };
+      const canonicalFromFirefox = storage.get('userPresets', null);
+      if (canonicalFromFirefox && typeof canonicalFromFirefox === 'object') {
+        _lastUserPresetsSnapshot = { ...canonicalFromFirefox };
         try {
-          const serialized = JSON.stringify(canonicalFromChrome);
+          const serialized = JSON.stringify(canonicalFromFirefox);
           localStorage.setItem('soundforge_user_presets_canonical', serialized);
           localStorage.setItem('soundforge_user_presets', serialized);
         } catch {}
-        return canonicalFromChrome;
+        return canonicalFromFirefox;
       }
     }
 
@@ -56,10 +65,14 @@ export function getUserPresets() {
 
 function sendPresetMutation(action, payload) {
   try {
-    const maybePromise = chrome.runtime.sendMessage({ action, ...payload });
+    const maybePromise = browserAPI.runtime.sendMessage({ action, ...payload });
     if (maybePromise?.catch) maybePromise.catch(() => {});
   } catch {}
 }
+
+// ============================================
+//  СОХРАНЕНИЕ ПОЛЬЗОВАТЕЛЬСКИХ ПРЕСЕТОВ
+// ============================================
 
 export function saveUserPresets(presets) {
   try {
@@ -67,7 +80,6 @@ export function saveUserPresets(presets) {
     const previous = _lastUserPresetsSnapshot || getUserPresets();
     const serialized = JSON.stringify(normalized);
     localStorage.setItem('soundforge_user_presets_canonical', serialized);
-    // Keep the legacy key during migration so older window builds still work.
     localStorage.setItem('soundforge_user_presets', serialized);
 
     for (const [name, preset] of Object.entries(normalized)) {
@@ -86,6 +98,10 @@ export function saveUserPresets(presets) {
     console.warn('[Storage] Не удалось сохранить пользовательские пресеты:', error);
   }
 }
+
+// ============================================
+//  СОХРАНЕНИЕ ВСЕХ НАСТРОЕК
+// ============================================
 
 export function saveAllSettings() {
   const gains = getSliderGains();
@@ -114,9 +130,6 @@ export function saveAllSettings() {
   _lastSettingsSnapshot = JSON.parse(JSON.stringify(settings));
   if (Object.keys(patch).length === 0) return;
 
-  // Background service worker is the single writer for extension settings.
-  // Send only fields that actually changed so popup/window concurrent edits
-  // merge instead of overwriting each other with stale full snapshots.
   storage.updateCache(patch);
 
   const fallback = () => {
@@ -126,8 +139,8 @@ export function saveAllSettings() {
   };
 
   try {
-    chrome.runtime.sendMessage({ action: 'settingsSnapshot', settings: patch }, (response) => {
-      if (chrome.runtime.lastError || !response || response.status !== 'ok') {
+    browserAPI.runtime.sendMessage({ action: 'settingsSnapshot', settings: patch }, (response) => {
+      if (browserAPI.runtime.lastError || !response || response.status !== 'ok') {
         fallback();
       }
     });
@@ -135,6 +148,10 @@ export function saveAllSettings() {
     fallback();
   }
 }
+
+// ============================================
+//  ПОЛУЧЕНИЕ НАСТРОЕК СЛАЙДЕРОВ
+// ============================================
 
 export function getSliderGains() {
   const gains = {};
@@ -146,15 +163,19 @@ export function getSliderGains() {
   return gains;
 }
 
+// ============================================
+//  ЗАГРУЗКА НАСТРОЕК
+// ============================================
+
 export function loadSettings(callback) {
   const keys = [
     ...Object.values(CANONICAL_KEYS),
     'theme', 'eqSettings', 'selectedPreset', 'volumeBoost', 'bassBoost',
     'language', 'savedVolume', 'savedBass'
   ];
-  chrome.storage.local.get(keys, (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('[Storage] Ошибка загрузки настроек:', chrome.runtime.lastError);
+  browserAPI.storage.local.get(keys, (result) => {
+    if (browserAPI.runtime.lastError) {
+      console.warn('[Storage] Ошибка загрузки настроек:', browserAPI.runtime.lastError);
       callback?.({});
       return;
     }
@@ -183,11 +204,15 @@ export function loadSettings(callback) {
   });
 }
 
+// ============================================
+//  ЭКСПОРТ НАСТРОЕК
+// ============================================
+
 export function exportSettings() {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get(null, (data) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+    browserAPI.storage.local.get(null, (data) => {
+      if (browserAPI.runtime.lastError) {
+        reject(new Error(browserAPI.runtime.lastError.message));
         return;
       }
       const presets = getUserPresets();
@@ -201,6 +226,10 @@ export function exportSettings() {
     });
   });
 }
+
+// ============================================
+//  ИМПОРТ НАСТРОЕК
+// ============================================
 
 export function importSettings(data) {
   return new Promise((resolve, reject) => {
@@ -222,9 +251,9 @@ export function importSettings(data) {
         safeSettings.userPresets = importData.userPresets;
       }
 
-      chrome.runtime.sendMessage({ action: 'settingsSnapshot', settings: safeSettings }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+      browserAPI.runtime.sendMessage({ action: 'settingsSnapshot', settings: safeSettings }, (response) => {
+        if (browserAPI.runtime.lastError) {
+          reject(new Error(browserAPI.runtime.lastError.message));
           return;
         }
         if (!response || response.status !== 'ok') {

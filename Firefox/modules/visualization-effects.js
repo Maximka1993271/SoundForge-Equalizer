@@ -1,14 +1,17 @@
 // ============================================
-//  VISUALIZATION-EFFECTS.JS - Эффекты визуализации (v3.22.8)
-//  КРАСИВЫЕ ЗВУКОВЫЕ ВОЛНЫ | Огонь | Неон | Спектр
+//  VISUALIZATION-EFFECTS.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Звуковые волны | Огонь | Неон
 //  Поддержка 3 языков: RU, UA, EN
-//  Firefox 153.0esr
+//  FIREFOX 153 OPTIMIZED: очистка ресурсов при переключении эффектов
+//  FIREFOX 153 OPTIMIZED: проверка canvas перед рисованием
+//  ИСПРАВЛЕНО: конфликт имен state
 // ============================================
 
-import { state } from './state.js';
+import { state as appState } from './state.js';
 import { t, getCurrentLang, getEffectName as getI18nEffectName } from './i18n.js';
 
-console.log('🎨 SoundForge Visualization Effects v3.22.8 (Firefox)');
+console.log('🎨 SoundForge Visualization Effects v3.22.8 Firefox 153');
 
 // ============================================
 //  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ
@@ -24,19 +27,19 @@ export const EFFECTS = {
 export const EFFECT_NAMES = {
   ru: {
     spectrum: '📊 Спектр',
-    waves: '🌊 Красивые волны',
+    waves: '🌊 Волны',
     fire: '🔥 Огонь',
     neon: '💜 Неон'
   },
   uk: {
     spectrum: '📊 Спектр',
-    waves: '🌊 Красиві хвилі',
+    waves: '🌊 Хвилі',
     fire: '🔥 Вогонь',
     neon: '💜 Неон'
   },
   en: {
     spectrum: '📊 Spectrum',
-    waves: '🌊 Beautiful Waves',
+    waves: '🌊 Waves',
     fire: '🔥 Fire',
     neon: '💜 Neon'
   }
@@ -51,8 +54,7 @@ let _wavePhase = 0;
 let _neonGlow = 0;
 let _lastEffectSwitch = 0;
 let _effectSmoothData = new Float32Array(64);
-let _frameCount = 0;
-let _waveTime = 0;
+let _effectsInitialized = false;
 
 // ============================================
 //  ПОЛУЧЕНИЕ НАЗВАНИЯ ЭФФЕКТА
@@ -66,7 +68,9 @@ export function getEffectName(effectId) {
     if (i18nName && i18nName !== effectId) {
       return i18nName;
     }
-  } catch (e) {}
+  } catch (e) {
+    // Игнорируем
+  }
   return names[effectId] || effectId;
 }
 
@@ -78,8 +82,12 @@ export function setCurrentEffect(effect) {
   if (Object.values(EFFECTS).includes(effect)) {
     _currentEffect = effect;
     _lastEffectSwitch = Date.now();
-    localStorage.setItem('soundforge_effect', effect);
+    try {
+      localStorage.setItem('soundforge_effect', effect);
+    } catch (e) {}
     console.log(`🎨 Эффект изменен: ${effect}`);
+    // Очищаем частицы при смене эффекта
+    _particles = [];
     return true;
   }
   return false;
@@ -96,7 +104,9 @@ export function loadSavedEffect() {
       _currentEffect = saved;
       console.log(`📥 Загружен эффект: ${_currentEffect}`);
     }
-  } catch (e) {}
+  } catch (e) {
+    // Игнорируем
+  }
 }
 
 // ============================================
@@ -104,6 +114,9 @@ export function loadSavedEffect() {
 // ============================================
 
 export function initEffects() {
+  if (_effectsInitialized) return;
+  _effectsInitialized = true;
+  
   loadSavedEffect();
   
   const canvas = document.getElementById('spectrumCanvas');
@@ -139,24 +152,20 @@ function initFireData() {
 }
 
 // ============================================
-//  ИНИЦИАЛИЗАЦИЯ ЧАСТИЦ
+//  ИНИЦИАЛИЗАЦИЯ ЧАСТИЦ ДЛЯ ВОЛН И НЕОНА
 // ============================================
 
 function initParticles() {
   _particles = [];
-  const count = 120;
+  const count = 80;
   for (let i = 0; i < count; i++) {
     _particles.push({
       x: Math.random(),
       y: Math.random(),
-      size: Math.random() * 3.5 + 0.5,
-      speed: Math.random() * 0.025 + 0.003,
+      size: Math.random() * 3 + 1,
+      speed: Math.random() * 0.02 + 0.005,
       phase: Math.random() * Math.PI * 2,
-      amplitude: Math.random() * 0.35 + 0.05,
-      offsetX: (Math.random() - 0.5) * 0.6,
-      offsetY: (Math.random() - 0.5) * 0.6,
-      waveOffset: Math.random() * 100,
-      hue: Math.random() * 60 + 180
+      amplitude: Math.random() * 0.3 + 0.1
     });
   }
 }
@@ -189,14 +198,14 @@ export function renderEffect(spectrumData) {
   const ctx = _effectCtx;
   const width = _effectCanvas.width;
   const height = _effectCanvas.height;
-  const isDark = state.currentTheme === 'dark' || 
-                 (state.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const isDark = appState.currentTheme === 'dark' || 
+                 (appState.currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   
   ctx.clearRect(0, 0, width, height);
   
   switch (_currentEffect) {
     case EFFECTS.WAVES:
-      renderBeautifulWaves(ctx, width, height, isDark);
+      renderWaves(ctx, width, height, isDark);
       break;
     case EFFECTS.FIRE:
       renderFire(ctx, width, height, isDark);
@@ -206,24 +215,22 @@ export function renderEffect(spectrumData) {
       break;
     case EFFECTS.SPECTRUM:
     default:
-      renderSpectrum(ctx, width, height, isDark);
+      renderSpectrumEffect(ctx, width, height, isDark);
       break;
   }
-  
-  _frameCount++;
 }
 
 // ============================================
-//  ЭФФЕКТ 1: СПЕКТР
+//  ЭФФЕКТ 1: СПЕКТР (СТАНДАРТНЫЙ)
 // ============================================
 
-function renderSpectrum(ctx, width, height, isDark) {
+function renderSpectrumEffect(ctx, width, height, isDark) {
   const data = _effectSmoothData;
   const barCount = 32;
   const barWidth = width / barCount;
   const maxHeight = height - 4;
   
-  ctx.fillStyle = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
+  ctx.fillStyle = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)';
   ctx.fillRect(0, 0, width, height);
   
   ctx.strokeStyle = isDark ? 'rgba(76, 175, 80, 0.08)' : 'rgba(76, 175, 80, 0.08)';
@@ -279,97 +286,62 @@ function renderSpectrum(ctx, width, height, isDark) {
 }
 
 // ============================================
-//  ЭФФЕКТ 2: КРАСИВЫЕ ЗВУКОВЫЕ ВОЛНЫ (УЛУЧШЕННАЯ ВЕРСИЯ)
+//  ЭФФЕКТ 2: ЗВУКОВЫЕ ВОЛНЫ
 // ============================================
 
-function renderBeautifulWaves(ctx, width, height, isDark) {
+function renderWaves(ctx, width, height, isDark) {
   const data = _effectSmoothData;
   const centerY = height / 2;
-  const time = Date.now() / 1000;
-  _waveTime = time;
   
-  // --- 1. ФОН С ГРАДИЕНТОМ ---
-  const bgGradient = ctx.createRadialGradient(width/2, centerY, 0, width/2, centerY, width/1.5);
+  const gradient = ctx.createRadialGradient(width/2, centerY, 0, width/2, centerY, width/2);
   if (isDark) {
-    bgGradient.addColorStop(0, 'rgba(5, 15, 35, 0.95)');
-    bgGradient.addColorStop(0.4, 'rgba(8, 20, 45, 0.9)');
-    bgGradient.addColorStop(0.7, 'rgba(3, 10, 25, 0.92)');
-    bgGradient.addColorStop(1, 'rgba(0, 5, 15, 0.95)');
+    gradient.addColorStop(0, 'rgba(10, 30, 20, 0.9)');
+    gradient.addColorStop(1, 'rgba(0, 10, 5, 0.95)');
   } else {
-    bgGradient.addColorStop(0, 'rgba(235, 248, 255, 0.9)');
-    bgGradient.addColorStop(0.4, 'rgba(220, 240, 255, 0.85)');
-    bgGradient.addColorStop(0.7, 'rgba(200, 230, 250, 0.88)');
-    bgGradient.addColorStop(1, 'rgba(180, 215, 240, 0.9)');
+    gradient.addColorStop(0, 'rgba(230, 250, 240, 0.9)');
+    gradient.addColorStop(1, 'rgba(200, 230, 220, 0.95)');
   }
-  ctx.fillStyle = bgGradient;
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
   
-  // --- 2. СВЕТЯЩИЕСЯ ТОЧКИ В ФОНЕ ---
-  const numBgStars = 25;
-  for (let s = 0; s < numBgStars; s++) {
-    const starX = (s / numBgStars) * width + Math.sin(time * 0.1 + s * 0.8) * 10;
-    const starY = centerY + Math.sin(time * 0.15 + s * 0.6) * 20 + Math.sin(s * 0.9) * 8;
-    const starSize = 0.5 + Math.sin(time * 0.5 + s * 0.7) * 0.5;
-    const starAlpha = 0.03 + Math.sin(time * 0.3 + s * 0.5) * 0.02 + 0.02;
-    
-    ctx.fillStyle = isDark 
-      ? `rgba(100, 200, 255, ${starAlpha})`
-      : `rgba(50, 150, 200, ${starAlpha * 0.5})`;
+  ctx.strokeStyle = isDark ? 'rgba(76, 175, 80, 0.05)' : 'rgba(76, 175, 80, 0.05)';
+  ctx.lineWidth = 0.5;
+  for (let h = 0; h <= 4; h++) {
+    const yPos = (h / 4) * height;
     ctx.beginPath();
-    ctx.arc(starX, starY, starSize, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(0, yPos);
+    ctx.lineTo(width, yPos);
+    ctx.stroke();
   }
   
-  // --- 3. ОСНОВНЫЕ ВОЛНЫ (7 слоёв с разными цветами) ---
-  const numWaves = 7;
-  const waveColors = isDark ? [
-    [180, 220, 255, 0.7],
-    [150, 200, 255, 0.6],
-    [120, 180, 255, 0.5],
-    [90, 160, 255, 0.4],
-    [60, 140, 255, 0.35],
-    [30, 120, 255, 0.25],
-    [0, 100, 255, 0.15]
-  ] : [
-    [80, 180, 255, 0.6],
-    [60, 160, 240, 0.5],
-    [40, 140, 220, 0.4],
-    [20, 120, 200, 0.3],
-    [0, 100, 180, 0.25],
-    [0, 80, 160, 0.2],
-    [0, 60, 140, 0.15]
-  ];
+  const numWaves = 5;
+  const time = Date.now() / 1000;
   
   for (let w = 0; w < numWaves; w++) {
     const waveIndex = w / numWaves;
-    const baseAmp = 2 + (data[Math.floor(waveIndex * 32)] || 0) * 38;
-    const amplitude = baseAmp * (0.7 + waveIndex * 0.6);
-    const frequency = 0.01 + waveIndex * 0.008 + 0.005 * Math.sin(time * 0.02 + w);
-    const speed = 0.3 + waveIndex * 0.2;
-    const phase = time * speed + w * 0.8 + Math.sin(time * 0.05 + w) * 0.2;
-    const widthFactor = 1 + (data[Math.floor(waveIndex * 16)] || 0) * 1.8;
+    const amplitude = 5 + (data[Math.floor(waveIndex * 32)] || 0) * 25;
+    const frequency = 0.02 + waveIndex * 0.015;
+    const phase = time * (0.5 + waveIndex * 0.3);
+    const alpha = 0.3 + (1 - waveIndex / numWaves) * 0.5;
+    const widthFactor = 1 + (data[Math.floor(waveIndex * 16)] || 0) * 2;
     
-    const [r, g, b, alphaBase] = waveColors[w % waveColors.length];
-    const alpha = alphaBase * (0.5 + (1 - waveIndex / numWaves) * 0.5);
+    let color;
+    if (w === 0) color = `rgba(76, 175, 80, ${alpha})`;
+    else if (w === 1) color = `rgba(100, 200, 100, ${alpha * 0.9})`;
+    else if (w === 2) color = `rgba(50, 150, 80, ${alpha * 0.8})`;
+    else if (w === 3) color = `rgba(30, 200, 150, ${alpha * 0.7})`;
+    else color = `rgba(150, 255, 200, ${alpha * 0.5})`;
     
-    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    ctx.lineWidth = 1 + (1 - waveIndex / numWaves) * 3;
-    ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${alpha * 0.15})`;
-    ctx.shadowBlur = 6 + (1 - waveIndex / numWaves) * 15;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 + (1 - waveIndex / numWaves) * 1.5;
+    ctx.shadowColor = isDark ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.1)';
+    ctx.shadowBlur = 10;
     
     ctx.beginPath();
-    for (let x = 0; x <= width; x += 1.5) {
+    for (let x = 0; x <= width; x += 1) {
       const progress = x / width;
-      
-      // Множество гармоник для сложной формы волны
-      const yOffset = 
-        Math.sin(progress * Math.PI * 2 * frequency * widthFactor + phase) * amplitude +
-        Math.sin(progress * Math.PI * 4 * frequency * widthFactor * 0.6 + phase * 1.4 + 0.3) * amplitude * 0.35 +
-        Math.sin(progress * Math.PI * 8 * frequency * widthFactor * 0.35 + phase * 0.7 + 1.2) * amplitude * 0.15 +
-        Math.sin(progress * Math.PI * 16 * frequency * widthFactor * 0.2 + phase * 0.3 + 2.5) * amplitude * 0.07;
-      
-      const yPos = centerY + yOffset + (w - numWaves/2) * 4.5 * (1 + waveIndex * 0.2);
-      
+      const yOffset = Math.sin(progress * Math.PI * 2 * frequency * widthFactor + phase) * amplitude;
+      const yPos = centerY + yOffset + (w - numWaves/2) * 8;
       if (x === 0) ctx.moveTo(x, yPos);
       else ctx.lineTo(x, yPos);
     }
@@ -377,130 +349,32 @@ function renderBeautifulWaves(ctx, width, height, isDark) {
     ctx.shadowBlur = 0;
   }
   
-  // --- 4. ЗАПОЛНЕННЫЕ ВОЛНЫ (подложка с прозрачностью) ---
-  for (let w = 0; w < 4; w++) {
-    const waveIndex = w / 4;
-    const amplitude = 2 + (data[Math.floor(waveIndex * 32)] || 0) * 22;
-    const frequency = 0.015 + waveIndex * 0.006;
-    const phase = time * (0.35 + waveIndex * 0.12) + w * 1.2;
-    const alpha = 0.02 + (1 - waveIndex / 4) * 0.06;
-    
-    const hue = 195 + waveIndex * 20;
-    ctx.fillStyle = isDark 
-      ? `hsla(${hue}, 80%, 60%, ${alpha})`
-      : `hsla(${hue}, 70%, 70%, ${alpha * 0.6})`;
-    
+  for (let s = 0; s < 2; s++) {
+    const side = s === 0 ? 0 : width;
+    const amplitude2 = 3 + (data[Math.floor(s * 31)] || 0) * 15;
+    const time2 = time * (0.7 + s * 0.3);
+    ctx.strokeStyle = isDark ? 'rgba(100, 255, 150, 0.15)' : 'rgba(50, 150, 80, 0.15)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = 0; x <= width; x += 1) {
-      const progress = x / width;
-      const yOffset = 
-        Math.sin(progress * Math.PI * 2 * frequency + phase) * amplitude +
-        Math.sin(progress * Math.PI * 4 * frequency * 0.5 + phase * 0.7) * amplitude * 0.3;
-      const yPos = centerY + yOffset + (w - 1.5) * 5;
-      if (x === 0) ctx.moveTo(x, yPos);
-      else ctx.lineTo(x, yPos);
+    for (let y = 0; y <= height; y += 2) {
+      const progress = y / height;
+      const xOffset = Math.sin(progress * Math.PI * 4 + time2) * amplitude2;
+      const xPos = side + xOffset * (s === 0 ? 1 : -1);
+      if (y === 0) ctx.moveTo(xPos, y);
+      else ctx.lineTo(xPos, y);
     }
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.closePath();
-    ctx.fill();
+    ctx.stroke();
   }
   
-  // --- 5. СВЕТЯЩИЕСЯ ГРЕБНИ ВОЛН (акценты) ---
-  const numGlowPoints = 40;
-  for (let g = 0; g < numGlowPoints; g++) {
-    const progress = g / numGlowPoints;
-    const xPos = progress * width;
-    const intensity = data[Math.floor(progress * 32)] || 0;
-    if (intensity < 0.03) continue;
-    
-    // Вычисляем положение гребня
-    const freqMain = 0.025;
-    const phaseMain = time * 0.4;
-    const waveY = centerY + 
-      Math.sin(progress * Math.PI * 2 * freqMain + phaseMain) * 15 +
-      Math.sin(progress * Math.PI * 4 * freqMain * 0.6 + phaseMain * 1.4) * 5 +
-      Math.sin(progress * Math.PI * 8 * freqMain * 0.35 + phaseMain * 0.7) * 2;
-    
-    const glowSize = 2 + intensity * 14;
-    const glowAlpha = 0.1 + intensity * 0.35;
-    const hue = 190 + intensity * 50 + Math.sin(time * 0.2 + progress * 2) * 10;
-    
-    const glow = ctx.createRadialGradient(xPos, waveY, 0, xPos, waveY, glowSize);
-    glow.addColorStop(0, `hsla(${hue}, 100%, 95%, ${glowAlpha})`);
-    glow.addColorStop(0.4, `hsla(${hue}, 100%, 85%, ${glowAlpha * 0.5})`);
-    glow.addColorStop(1, `hsla(${hue + 20}, 100%, 80%, 0)`);
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(xPos, waveY, glowSize, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  
-  // --- 6. ПАРЯЩИЕ ЧАСТИЦЫ (пена/брызги) ---
-  const numParticles = 30 + Math.floor((data[0] || 0) * 40);
-  for (let p = 0; p < numParticles; p++) {
-    const particle = _particles[p % _particles.length];
-    if (!particle) continue;
-    
-    // Движение частиц вдоль волн
-    const progress = (particle.x + Math.sin(time * particle.speed * 0.6 + particle.phase) * 0.35) % 1;
-    const xPos = progress * width + particle.offsetX * 15;
-    
-    // Положение на волне
-    const waveY = centerY + 
-      Math.sin(progress * Math.PI * 2 * 0.025 + time * 0.4) * 15 +
-      Math.sin(progress * Math.PI * 4 * 0.015 + time * 0.6) * 6 +
-      Math.sin(progress * Math.PI * 8 * 0.008 + time * 0.2) * 3;
-    
-    const yOffset = (particle.y - 0.5) * 25 + Math.sin(time * particle.speed + particle.phase) * 5;
-    const yPos = waveY + yOffset;
-    const size = particle.size * (0.4 + Math.sin(time * 1.8 + particle.phase) * 0.6);
-    const alpha = 0.1 + (1 - Math.abs(yOffset) / 25) * 0.5;
-    
-    const hue2 = 195 + Math.sin(time * 0.2 + p * 0.05) * 25;
-    ctx.fillStyle = `hsla(${hue2}, 100%, 95%, ${alpha * 0.7})`;
-    ctx.shadowColor = `hsla(${hue2}, 100%, 90%, ${alpha * 0.15})`;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(xPos, yPos, size * 1.8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-  }
-  
-  // --- 7. МЕРЦАЮЩАЯ ЛИНИЯ УРОВНЯ ---
-  const level = data[0] || 0;
-  if (level > 0.05) {
-    const lineY = centerY - level * 25;
-    const lineAlpha = 0.05 + level * 0.15;
-    const hue3 = 200 + level * 40;
-    
-    const lineGradient = ctx.createLinearGradient(0, lineY, width, lineY);
-    lineGradient.addColorStop(0, `hsla(${hue3}, 100%, 80%, 0)`);
-    lineGradient.addColorStop(0.3, `hsla(${hue3}, 100%, 90%, ${lineAlpha})`);
-    lineGradient.addColorStop(0.5, `hsla(${hue3 + 10}, 100%, 95%, ${lineAlpha * 1.3})`);
-    lineGradient.addColorStop(0.7, `hsla(${hue3}, 100%, 90%, ${lineAlpha})`);
-    lineGradient.addColorStop(1, `hsla(${hue3}, 100%, 80%, 0)`);
-    
-    ctx.fillStyle = lineGradient;
-    ctx.shadowColor = `hsla(${hue3}, 100%, 90%, ${lineAlpha * 0.2})`;
-    ctx.shadowBlur = 15;
-    ctx.fillRect(0, lineY - 1, width, 2);
-    ctx.shadowBlur = 0;
-  }
-  
-  // --- 8. ЧАСТОТНЫЕ МЕТКИ ---
   const freqLabels = ['31Hz', '62Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz'];
   const labelStep = width / freqLabels.length;
-  ctx.fillStyle = isDark ? 'rgba(150, 220, 255, 0.25)' : 'rgba(50, 150, 200, 0.2)';
+  ctx.fillStyle = isDark ? 'rgba(200,255,200,0.3)' : 'rgba(50,150,50,0.3)';
   ctx.font = '7px Segoe UI, Arial, sans-serif';
   ctx.textAlign = 'center';
-  ctx.shadowColor = isDark ? 'rgba(150, 220, 255, 0.08)' : 'rgba(50, 150, 200, 0.05)';
-  ctx.shadowBlur = 3;
   for (let f = 0; f < freqLabels.length; f++) {
     const labelX = (f * labelStep + labelStep / 2);
     ctx.fillText(freqLabels[f], labelX, height - 2);
   }
-  ctx.shadowBlur = 0;
 }
 
 // ============================================
@@ -544,6 +418,7 @@ function renderFire(ctx, width, height, isDark) {
     );
     
     const flameAlpha = Math.min(1, alpha * fireIntensity * 1.5);
+    const colorIntensity = Math.min(1, fireIntensity * 1.2);
     
     if (f % 3 === 0) {
       flameGrad.addColorStop(0, `rgba(255, 200, 50, ${flameAlpha * 0.9})`);
@@ -735,8 +610,11 @@ function renderNeon(ctx, width, height, isDark) {
   }
   
   const numParticles = 40 + Math.floor(_neonGlow * 20);
-  for (let p = 0; p < numParticles; p++) {
-    const particle = _particles[p % _particles.length];
+  if (_particles.length === 0) {
+    initParticles();
+  }
+  for (let p = 0; p < Math.min(numParticles, _particles.length); p++) {
+    const particle = _particles[p] || _particles[0];
     if (!particle) continue;
     
     const xPos = (particle.x + Math.sin(time * particle.speed + particle.phase) * 0.2) * width;
