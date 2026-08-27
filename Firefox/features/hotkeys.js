@@ -1,9 +1,16 @@
-// ============================================
-//  HOTKEYS.JS - Горячие клавиши (v3.22.8)
-//  Chrome MV3 + Firefox MV2
+//  HOTKEYS.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Горячие клавиши
+//  Поддержка 3 языков: RU, UA, EN
+//  FIREFOX 153 OPTIMIZED: обработка ошибок commands.update
 // ============================================
 
-const HOTKEY_LABELS = {
+var browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
+
+var _hotkeysInitialized = false;
+
+var HOTKEY_LABELS = {
   ru: {
     toggle_eq: 'Включить/выключить эквалайзер (Ctrl+Shift+E)',
     next_preset: 'Следующий пресет (Ctrl+Shift+Y)',
@@ -24,7 +31,308 @@ const HOTKEY_LABELS = {
   }
 };
 
-const TRANSLATIONS = {
+// ============================================
+//  ИНИЦИАЛИЗАЦИЯ ГОРЯЧИХ КЛАВИШ
+// ============================================
+
+export function initHotkeys() {
+  if (_hotkeysInitialized) return;
+  _hotkeysInitialized = true;
+  console.log('⌨️ Инициализация горячих клавиш...');
+  
+  updateCommandDescriptions();
+  
+  browserAPI.commands.onCommand.addListener(function(command) {
+    console.log('⌨️ Горячая клавиша:', command);
+    handleHotkeyCommand(command);
+  });
+  
+  console.log('✅ Горячие клавиши инициализированы');
+}
+
+// ============================================
+//  ОБРАБОТЧИК КОМАНД
+// ============================================
+
+function handleHotkeyCommand(command) {
+  browserAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (browserAPI.runtime.lastError || !tabs || tabs.length === 0) return;
+    var tabId = tabs[0].id;
+    
+    switch (command) {
+      case 'toggle_eq':
+        toggleEqualizer(tabId);
+        break;
+        
+      case 'next_preset':
+        nextPreset(tabId);
+        break;
+        
+      case 'reset_settings':
+        resetAllSettings(tabId);
+        break;
+        
+      case 'open_window':
+        openEqualizerWindow();
+        break;
+        
+      default:
+        console.log('⚠️ Неизвестная команда:', command);
+    }
+  });
+}
+
+// ============================================
+//  ВКЛЮЧЕНИЕ/ВЫКЛЮЧЕНИЕ ЭКВАЛАЙЗЕРА
+// ============================================
+
+function toggleEqualizer(tabId) {
+  browserAPI.runtime.sendMessage({ action: 'getStatus', targetTabId: tabId }, function(statusResponse) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения состояния:', browserAPI.runtime.lastError);
+      return;
+    }
+    var isConnected = statusResponse && statusResponse.status === 'connected';
+    var action = isConnected ? 'disconnect' : 'connect';
+    browserAPI.runtime.sendMessage({ action: action, targetTabId: tabId, source: 'hotkey' }, function(response) {
+      if (browserAPI.runtime.lastError || !response || response.status === 'error') {
+        console.warn('⚠️ Ошибка команды ' + action + ':', browserAPI.runtime.lastError || response);
+        return;
+      }
+      var connected = action === 'connect';
+      showNotification('🔊 SoundForge', getTranslationSync(connected ? 'eq_enabled' : 'eq_disabled'), connected ? 'success' : 'info');
+      updateIcon(connected);
+    });
+  });
+}
+
+// ============================================
+//  СЛЕДУЮЩИЙ ПРЕСЕТ
+// ============================================
+
+function nextPreset(tabId) {
+  browserAPI.storage.local.get(['selectedPreset', 'presetHistory'], function(result) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения пресета:', browserAPI.runtime.lastError);
+      return;
+    }
+    
+    var currentPreset = result.selectedPreset || 'flat';
+    var history = result.presetHistory || [];
+    
+    var allPresets = [
+      'flat', 'natural', 'universal', 'balanced',
+      'club', 'dance', 'edm', 'synthwave', 'deephouse',
+      'rock', 'metal', 'hardrock', 'grunge',
+      'vocal', 'podcast', 'speech', 'rap',
+      'acoustic', 'piano', 'orchestra', 'classical',
+      'headphones', 'car', 'night', 'bassboost',
+      'jazz', 'hiphop', 'soul', 'blues', 'reggae',
+      'sunset', 'chill', 'lofi', 'pop', 'kpop',
+      'world', 'ambient', 'festival', 'clarity',
+      'wave', 'phonk', 'logitech', 'maxboost',
+      'gaming', 'movie', 'fps',
+      'hifi', 'studio', 'premium', 'master'
+    ];
+    
+    var currentIndex = allPresets.indexOf(currentPreset);
+    if (currentIndex === -1) currentIndex = 0;
+    
+    var nextIndex = (currentIndex + 1) % allPresets.length;
+    var nextPresetName = allPresets[nextIndex];
+    
+    browserAPI.runtime.sendMessage({ 
+      action: 'applyPreset', 
+      preset: nextPresetName,
+      targetTabId: tabId,
+      source: 'hotkey' 
+    });
+    
+    var newHistory = history.concat([{
+      preset: nextPresetName,
+      timestamp: Date.now(),
+      action: 'hotkey'
+    }]);
+    if (newHistory.length > 100) newHistory.shift();
+    
+    browserAPI.storage.local.set({
+      selectedPreset: nextPresetName,
+      presetHistory: newHistory
+    });
+    
+    var presetNames = getPresetNames();
+    showNotification(
+      '🎵 SoundForge',
+      getTranslationSync('preset_changed') + ': ' + (presetNames[nextPresetName] || nextPresetName),
+      'info'
+    );
+  });
+}
+
+// ============================================
+//  СБРОС ВСЕХ НАСТРОЕК
+// ============================================
+
+function resetAllSettings(tabId) {
+  browserAPI.runtime.sendMessage({ action: 'reset', fullReset: true, targetTabId: tabId, source: 'hotkey' }, function(response) {
+    if (browserAPI.runtime.lastError || !response || response.status === 'error') {
+      console.warn('⚠️ Ошибка сброса:', browserAPI.runtime.lastError || response);
+      return;
+    }
+    showNotification('🔄 SoundForge', getTranslationSync('settings_reset'), 'warning');
+    updateIcon(false);
+  });
+}
+
+// ============================================
+//  ОТКРЫТИЕ ОКНА ЭКВАЛАЙЗЕРА
+// ============================================
+
+function openEqualizerWindow() {
+  browserAPI.windows.create({
+    url: browserAPI.runtime.getURL('window.html'),
+    type: 'popup',
+    width: 560,
+    height: 820,
+    top: 100,
+    left: 100
+  }, function(window) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка открытия окна:', browserAPI.runtime.lastError);
+    } else {
+      console.log('🪟 Окно эквалайзера открыто');
+    }
+  });
+}
+
+// ============================================
+//  ОБНОВЛЕНИЕ ИКОНКИ РАСШИРЕНИЯ
+// ============================================
+
+export function updateIcon(isActive) {
+  var iconPath = isActive 
+    ? 'icons/SoundForge_128x128.png'
+    : 'icons/SoundForge-off_128x128.png';
+  
+  browserAPI.action.setIcon({
+    path: {
+      16: iconPath,
+      48: iconPath,
+      128: iconPath
+    }
+  }, function() {
+    if (browserAPI.runtime.lastError) {
+      // Игнорируем ошибку
+    }
+  });
+  
+  browserAPI.action.setBadgeText({
+    text: isActive ? '🔊' : ''
+  });
+  
+  if (isActive) {
+    browserAPI.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+  }
+}
+
+// ============================================
+//  ОБНОВЛЕНИЕ ОПИСАНИЙ КОМАНД
+// ============================================
+
+function updateCommandDescriptions() {
+  browserAPI.storage.local.get(['language'], function(result) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения языка:', browserAPI.runtime.lastError);
+      return;
+    }
+    
+    var lang = result.language || 'ru';
+    var labels = HOTKEY_LABELS[lang] || HOTKEY_LABELS.en;
+    
+    var commands = [
+      'toggle_eq',
+      'next_preset',
+      'reset_settings',
+      'open_window'
+    ];
+    
+    commands.forEach(function(cmd) {
+      try {
+        browserAPI.commands.update({
+          name: cmd,
+          description: labels[cmd] || cmd
+        });
+      } catch (e) {
+        console.warn('⚠️ Ошибка обновления команды', cmd, ':', e);
+      }
+    });
+  });
+}
+
+// ============================================
+//  ПОЛУЧЕНИЕ НАЗВАНИЙ ПРЕСЕТОВ
+// ============================================
+
+function getPresetNames() {
+  return {
+    flat: 'Reference',
+    natural: 'Естественный',
+    universal: 'Универсальный',
+    balanced: 'Сбалансированный',
+    club: 'Клуб',
+    dance: 'Танцы',
+    edm: 'EDM',
+    synthwave: 'Синтвейв',
+    deephouse: 'Deep House',
+    rock: 'Рок',
+    metal: 'Метал',
+    hardrock: 'Хард-рок',
+    grunge: 'Гранж',
+    vocal: 'Вокал',
+    podcast: 'Подкаст',
+    speech: 'Речь',
+    rap: 'Рэп',
+    acoustic: 'Акустика',
+    piano: 'Фортепиано',
+    orchestra: 'Оркестр',
+    classical: 'Классика',
+    headphones: 'Наушники',
+    car: 'Авто',
+    night: 'Ночной',
+    bassboost: 'Макс. Бас',
+    jazz: 'Джаз',
+    hiphop: 'Хип-хоп',
+    soul: 'Соул',
+    blues: 'Блюз',
+    reggae: 'Регги',
+    sunset: 'Закат',
+    chill: 'Чилл',
+    lofi: 'Lo-Fi',
+    pop: 'Поп',
+    kpop: 'K-Pop',
+    world: 'World',
+    ambient: 'Эмбиент',
+    festival: 'Фестиваль',
+    clarity: 'Четкость',
+    wave: 'Wave/Phonk',
+    phonk: 'Phonk/Drift',
+    logitech: 'Logitech G321',
+    maxboost: 'MAX BOOST ⚡',
+    gaming: 'Игры',
+    movie: 'Кино',
+    fps: 'FPS',
+    hifi: 'Hi-Fi',
+    studio: 'Студия',
+    premium: 'Премиум',
+    master: 'Мастер'
+  };
+}
+
+// ============================================
+//  ПЕРЕВОДЫ ДЛЯ УВЕДОМЛЕНИЙ (СИНХРОННЫЙ ВАРИАНТ)
+// ============================================
+
+var TRANSLATIONS = {
   ru: {
     eq_enabled: '🔊 Эквалайзер включен',
     eq_disabled: '🔇 Эквалайзер выключен',
@@ -45,409 +353,59 @@ const TRANSLATIONS = {
   }
 };
 
-const PRESET_NAMES = {
-  flat: 'Reference',
-  natural: 'Естественный',
-  universal: 'Универсальный',
-  balanced: 'Сбалансированный',
-  club: 'Клуб',
-  dance: 'Танцы',
-  edm: 'EDM',
-  synthwave: 'Синтвейв',
-  deephouse: 'Deep House',
-  rock: 'Рок',
-  metal: 'Метал',
-  hardrock: 'Хард-рок',
-  grunge: 'Гранж',
-  vocal: 'Вокал',
-  podcast: 'Подкаст',
-  speech: 'Речь',
-  rap: 'Рэп',
-  acoustic: 'Акустика',
-  piano: 'Фортепиано',
-  orchestra: 'Оркестр',
-  classical: 'Классика',
-  headphones: 'Наушники',
-  car: 'Авто',
-  night: 'Ночной',
-  bassboost: 'Макс. Бас',
-  jazz: 'Джаз',
-  hiphop: 'Хип-хоп',
-  soul: 'Соул',
-  blues: 'Блюз',
-  reggae: 'Регги',
-  sunset: 'Закат',
-  chill: 'Чилл',
-  lofi: 'Lo-Fi',
-  pop: 'Поп',
-  kpop: 'K-Pop',
-  world: 'World',
-  ambient: 'Эмбиент',
-  festival: 'Фестиваль',
-  clarity: 'Четкость',
-  wave: 'Wave/Phonk',
-  phonk: 'Phonk/Drift',
-  logitech: 'Logitech G321',
-  maxboost: 'MAX BOOST ⚡',
-  gaming: 'Игры',
-  movie: 'Кино',
-  fps: 'FPS',
-  hifi: 'Hi-Fi',
-  studio: 'Студия',
-  premium: 'Премиум',
-  master: 'Мастер'
-};
-
-export function initHotkeys() {
-  console.log('⌨️ Инициализация горячих клавиш...');
-  
-  updateCommandDescriptions();
-  
-  if (typeof chrome !== 'undefined' && chrome.commands) {
-    chrome.commands.onCommand.addListener((command) => {
-      console.log(`⌨️ Горячая клавиша: ${command}`);
-      handleHotkeyCommand(command);
-    });
-  }
-  
-  console.log('✅ Горячие клавиши инициализированы');
-}
-
-function handleHotkeyCommand(command) {
-  if (typeof chrome !== 'undefined' && chrome.tabs) {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
-      
-      switch (command) {
-        case 'toggle_eq':
-          toggleEqualizer();
-          break;
-        case 'next_preset':
-          nextPreset();
-          break;
-        case 'reset_settings':
-          resetAllSettings();
-          break;
-        case 'open_window':
-          openEqualizerWindow();
-          break;
-        default:
-          console.log(`⚠️ Неизвестная команда: ${command}`);
-      }
-    });
-  }
-}
-
-function toggleEqualizer() {
-  if (typeof chrome === 'undefined' || !chrome.storage) return;
-  
-  chrome.storage.local.get(['isConnected'], (result) => {
-    if (chrome.runtime.lastError) return;
-    
-    const isConnected = result.isConnected === true;
-    
-    if (isConnected) {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({ action: 'disconnect' }, () => {
-          if (chrome.runtime.lastError) return;
-          showNotificationLocal(
-            '🔊 SoundForge',
-            getTranslationLocal('eq_disabled'),
-            'info'
-          );
-          updateIconLocal(false);
-        });
-      }
-    } else {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({ action: 'connect' }, () => {
-          if (chrome.runtime.lastError) return;
-          showNotificationLocal(
-            '🔊 SoundForge',
-            getTranslationLocal('eq_enabled'),
-            'success'
-          );
-          updateIconLocal(true);
-        });
-      }
-    }
-  });
-}
-
-const ALL_PRESETS_ORDER = [
-  "flat",
-  "natural",
-  "universal",
-  "balanced",
-  "club",
-  "dance",
-  "edm",
-  "synthwave",
-  "deephouse",
-  "festival",
-  "rock",
-  "metal",
-  "hardrock",
-  "grunge",
-  "vocal",
-  "podcast",
-  "speech",
-  "rap",
-  "acoustic",
-  "piano",
-  "orchestra",
-  "classical",
-  "jazz",
-  "headphones",
-  "car",
-  "night",
-  "bassboost",
-  "pop",
-  "kpop",
-  "world",
-  "ambient",
-  "wave",
-  "phonk",
-  "hiphop",
-  "soul",
-  "blues",
-  "reggae",
-  "chill",
-  "lofi",
-  "sunset",
-  "logitech",
-  "maxboost",
-  "gaming",
-  "movie",
-  "fps",
-  "hifi",
-  "studio",
-  "premium",
-  "master",
-  "clarity"
-];
-
-function nextPreset() {
-  if (typeof chrome === 'undefined' || !chrome.storage) return;
-  
-  chrome.storage.local.get(['selectedPreset', 'presetHistory'], (result) => {
-    if (chrome.runtime.lastError) return;
-    
-    const currentPreset = result.selectedPreset || 'flat';
-    const history = result.presetHistory || [];
-    
-    const allPresets = [
-      'flat', 'natural', 'universal', 'balanced',
-      'club', 'dance', 'edm', 'synthwave', 'deephouse',
-      'rock', 'metal', 'hardrock', 'grunge',
-      'vocal', 'podcast', 'speech', 'rap',
-      'acoustic', 'piano', 'orchestra', 'classical',
-      'headphones', 'car', 'night', 'bassboost',
-      'jazz', 'hiphop', 'soul', 'blues', 'reggae',
-      'sunset', 'chill', 'lofi', 'pop', 'kpop',
-      'world', 'ambient', 'festival', 'clarity',
-      'wave', 'phonk', 'logitech', 'maxboost',
-      'gaming', 'movie', 'fps',
-      'hifi', 'studio', 'premium', 'master'
-    ];
-    
-    let currentIndex = allPresets.indexOf(currentPreset);
-    if (currentIndex === -1) currentIndex = 0;
-    
-    const nextIndex = (currentIndex + 1) % allPresets.length;
-    const nextPresetName = allPresets[nextIndex];
-    
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ 
-        action: 'applyPreset', 
-        preset: nextPresetName 
-      });
-    }
-    
-    const newHistory = [...history, {
-      preset: nextPresetName,
-      timestamp: Date.now(),
-      action: 'hotkey'
-    }];
-    if (newHistory.length > 100) newHistory.shift();
-    
-    chrome.storage.local.set({
-      selectedPreset: nextPresetName,
-      presetHistory: newHistory
-    });
-    
-    const presetName = PRESET_NAMES[nextPresetName] || nextPresetName;
-    showNotificationLocal(
-      '🎵 SoundForge',
-      `${getTranslationLocal('preset_changed')}: ${presetName}`,
-      'info'
-    );
-  });
-}
-
-function resetAllSettings() {
-  if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.sendMessage({ 
-      action: 'reset', 
-      fullReset: true 
-    });
-  }
-  
-  const soundForgeKeys = [
-    'eqSettings', 'volumeBoost', 'bassBoost', 'selectedPreset', 'theme', 'language',
-    'savedVolume', 'savedBass', 'userPresets', 'siteSettings', 'settingsHistory',
-    'soundforgeConnected', 'soundforgeAutoConnect', 'connectedTabs', 'autoConnectTabs',
-    'nightMode', 'powerSaveMode', 'lastSite', 'nightModeAuto', 'autoDisableOnSiteChange',
-    'presetHistory', 'isConnected'
-  ];
-  
-  if (typeof chrome !== 'undefined' && chrome.storage) {
-    chrome.storage.local.remove(soundForgeKeys, function() {
-      if (chrome.runtime.lastError) return;
-      showNotificationLocal(
-        '🔄 SoundForge',
-        getTranslationLocal('settings_reset'),
-        'warning'
-      );
-      updateIconLocal(false);
-    });
-  }
-}
-
-function openEqualizerWindow() {
-  if (typeof chrome === 'undefined' || !chrome.windows) return;
-  
-  chrome.windows.create({
-    url: chrome.runtime.getURL('window.html'),
-    type: 'popup',
-    width: 500,
-    height: 750,
-    top: 100,
-    left: 100
-  }, (window) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка открытия окна:', chrome.runtime.lastError);
-    } else {
-      console.log('🪟 Окно эквалайзера открыто');
-    }
-  });
-}
-
-function updateIconLocal(isActive) {
-  if (typeof chrome === 'undefined') return;
-  
-  const iconPath = isActive 
-    ? 'icons/SoundForge.png'
-    : 'icons/SoundForge-off.png';
-  
+function getTranslationSync(key) {
   try {
-    if (chrome.action) {
-      chrome.action.setIcon({
-        path: {
-          16: iconPath,
-          48: iconPath,
-          128: iconPath
-        }
-      });
-      chrome.action.setBadgeText({ text: isActive ? '🔊' : '' });
-      if (isActive) {
-        chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-      }
-    } else if (chrome.browserAction) {
-      chrome.browserAction.setIcon({
-        path: {
-          16: iconPath,
-          48: iconPath,
-          128: iconPath
-        }
-      });
-      chrome.browserAction.setBadgeText({ text: isActive ? '🔊' : '' });
-      if (isActive) {
-        chrome.browserAction.setBadgeBackgroundColor({ color: '#4CAF50' });
-      }
-    }
+    var lang = localStorage.getItem('soundforge_language') || 'ru';
+    var dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
+    return dict[key] || key;
   } catch (e) {
-    console.warn('⚠️ Ошибка обновления иконки:', e);
+    return key;
   }
 }
 
-function updateCommandDescriptions() {
-  if (typeof chrome === 'undefined' || !chrome.storage) return;
-  
-  chrome.storage.local.get(['language'], (result) => {
-    if (chrome.runtime.lastError) return;
-    
-    const lang = result.language || 'ru';
-    const labels = HOTKEY_LABELS[lang] || HOTKEY_LABELS.en;
-    
-    const commands = ['toggle_eq', 'next_preset', 'reset_settings', 'open_window'];
-    
-    commands.forEach((cmd) => {
-      try {
-        if (typeof chrome !== 'undefined' && chrome.commands && chrome.commands.update) {
-          chrome.commands.update({
-            name: cmd,
-            description: labels[cmd] || cmd
-          });
-        }
-      } catch (e) {}
-    });
-  });
-}
+// ============================================
+//  УВЕДОМЛЕНИЯ
+// ============================================
 
-function getTranslationLocal(key) {
-  return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage) {
-      resolve(key);
-      return;
-    }
-    chrome.storage.local.get(['language'], (result) => {
-      if (chrome.runtime.lastError) {
-        resolve(key);
-        return;
-      }
-      const lang = result.language || 'ru';
-      const dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
-      resolve(dict[key] || key);
-    });
-  });
-}
-
-function showNotificationLocal(title, message, type = 'info') {
-  const types = {
+function showNotification(title, message, type) {
+  type = type || 'info';
+  var types = {
     success: { icon: '✅', color: '#4CAF50' },
     info: { icon: 'ℹ️', color: '#2196F3' },
     warning: { icon: '⚠️', color: '#FF9800' },
     error: { icon: '❌', color: '#f44336' }
   };
   
-  const info = types[type] || types.info;
+  var info = types[type] || types.info;
   
   try {
-    if (typeof chrome !== 'undefined' && chrome.notifications) {
-      chrome.notifications.create({
+    if (typeof browserAPI !== 'undefined' && browserAPI.notifications) {
+      browserAPI.notifications.create({
         type: 'basic',
-        iconUrl: 'icons/SoundForge.png',
+        iconUrl: 'icons/SoundForge_128x128.png',
         title: title,
         message: message,
         priority: 1
-      }, (notificationId) => {
-        if (chrome.runtime.lastError) {
-          console.log(`${info.icon} ${title}: ${message}`);
+      }, function(notificationId) {
+        if (browserAPI.runtime.lastError) {
+          console.log(info.icon + ' ' + title + ': ' + message);
         }
       });
     } else {
-      console.log(`${info.icon} ${title}: ${message}`);
+      console.log(info.icon + ' ' + title + ': ' + message);
     }
   } catch (e) {
-    console.log(`${info.icon} ${title}: ${message}`);
+    console.log(info.icon + ' ' + title + ': ' + message);
   }
 }
 
+// ============================================
+//  ЭКСПОРТ
+// ============================================
+
 export default {
-  initHotkeys,
-  updateIconLocal,
-  handleHotkeyCommand,
-  showNotificationLocal,
-  updateCommandDescriptions
+  initHotkeys: initHotkeys,
+  updateIcon: updateIcon,
+  handleHotkeyCommand: handleHotkeyCommand,
+  showNotification: showNotification
 };

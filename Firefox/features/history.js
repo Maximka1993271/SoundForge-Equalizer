@@ -1,9 +1,17 @@
-// ============================================
-//  HISTORY.JS - История изменений (v3.22.8)
+//  HISTORY.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  История изменений
 //  Хранение до 1000 записей
+//  FIREFOX 153 OPTIMIZED: обработка ошибок storage
 // ============================================
 
-const CONFIG = {
+var browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
+
+var _historyMutationQueue = Promise.resolve();
+var _historyTrackingInitialized = false;
+
+var CONFIG = {
   maxHistoryEntries: 1000,
   storageKey: 'settingsHistory',
   preserveForDays: 30
@@ -13,32 +21,38 @@ const CONFIG = {
 //  ДОБАВЛЕНИЕ ЗАПИСИ В ИСТОРИЮ
 // ============================================
 
-export function addHistoryEntry(action, data, metadata = {}) {
-  const entry = {
+export function addHistoryEntry(action, data, metadata) {
+  _historyMutationQueue = _historyMutationQueue
+    .catch(function() {})
+    .then(function() { return addHistoryEntryInternal(action, data, metadata); });
+  return _historyMutationQueue;
+}
+
+function addHistoryEntryInternal(action, data, metadata) {
+  metadata = metadata || {};
+  var entry = {
     id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: Date.now(),
     action: action,
     data: data || {},
-    metadata: metadata || {},
+    metadata: metadata,
     url: metadata.url || '',
     site: metadata.site || ''
   };
   
-  // Получаем текущую историю
-  getHistory().then((history) => {
+  return getHistory().then(function(history) {
     history.push(entry);
     
-    // Ограничиваем размер
     if (history.length > CONFIG.maxHistoryEntries) {
-      // Удаляем старые записи
       history = history.slice(-CONFIG.maxHistoryEntries);
     }
     
-    // Удаляем записи старше preserveForDays дней
-    const cutoff = Date.now() - (CONFIG.preserveForDays * 24 * 60 * 60 * 1000);
-    history = history.filter((h) => h.timestamp > cutoff);
+    var cutoff = Date.now() - (CONFIG.preserveForDays * 24 * 60 * 60 * 1000);
+    history = history.filter(function(h) { return h.timestamp > cutoff; });
     
-    saveHistory(history);
+    return saveHistory(history);
+  }).catch(function(e) {
+    console.warn('⚠️ Ошибка добавления в историю:', e);
   });
 }
 
@@ -47,8 +61,13 @@ export function addHistoryEntry(action, data, metadata = {}) {
 // ============================================
 
 export function getHistory() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([CONFIG.storageKey], (result) => {
+  return new Promise(function(resolve) {
+    browserAPI.storage.local.get([CONFIG.storageKey], function(result) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения истории:', browserAPI.runtime.lastError);
+        resolve([]);
+        return;
+      }
       resolve(result[CONFIG.storageKey] || []);
     });
   });
@@ -59,97 +78,112 @@ export function getHistory() {
 // ============================================
 
 function saveHistory(history) {
-  chrome.storage.local.set({ [CONFIG.storageKey]: history });
+  return new Promise(function(resolve) {
+  browserAPI.storage.local.set({ [CONFIG.storageKey]: history }, function() {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка сохранения истории:', browserAPI.runtime.lastError);
+    }
+    resolve();
+  });
+  });
 }
 
 // ============================================
 //  ПОЛУЧЕНИЕ ИСТОРИИ С ФИЛЬТРАМИ
 // ============================================
 
-export async function getHistoryWithFilters(filters = {}) {
-  const history = await getHistory();
-  
-  let filtered = history;
-  
-  if (filters.action) {
-    filtered = filtered.filter((h) => h.action === filters.action);
-  }
-  
-  if (filters.site) {
-    filtered = filtered.filter((h) => h.site === filters.site);
-  }
-  
-  if (filters.fromDate) {
-    filtered = filtered.filter((h) => h.timestamp >= filters.fromDate);
-  }
-  
-  if (filters.toDate) {
-    filtered = filtered.filter((h) => h.timestamp <= filters.toDate);
-  }
-  
-  if (filters.limit) {
-    filtered = filtered.slice(-filters.limit);
-  }
-  
-  return filtered;
+export function getHistoryWithFilters(filters) {
+  filters = filters || {};
+  return getHistory().then(function(history) {
+    var filtered = history;
+    
+    if (filters.action) {
+      filtered = filtered.filter(function(h) { return h.action === filters.action; });
+    }
+    
+    if (filters.site) {
+      filtered = filtered.filter(function(h) { return h.site === filters.site; });
+    }
+    
+    if (filters.fromDate) {
+      filtered = filtered.filter(function(h) { return h.timestamp >= filters.fromDate; });
+    }
+    
+    if (filters.toDate) {
+      filtered = filtered.filter(function(h) { return h.timestamp <= filters.toDate; });
+    }
+    
+    if (filters.limit) {
+      filtered = filtered.slice(-filters.limit);
+    }
+    
+    return filtered;
+  }).catch(function(e) {
+    console.warn('⚠️ Ошибка фильтрации истории:', e);
+    return [];
+  });
 }
 
 // ============================================
 //  ПОЛУЧЕНИЕ СТАТИСТИКИ ИСТОРИИ
 // ============================================
 
-export async function getHistoryStats() {
-  const history = await getHistory();
-  
-  const stats = {
-    total: history.length,
-    byAction: {},
-    bySite: {},
-    lastWeek: 0,
-    lastMonth: 0,
-    mostCommonAction: null,
-    mostCommonSite: null
-  };
-  
-  const now = Date.now();
-  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
-  
-  history.forEach((h) => {
-    // По действиям
-    stats.byAction[h.action] = (stats.byAction[h.action] || 0) + 1;
+export function getHistoryStats() {
+  return getHistory().then(function(history) {
+    var stats = {
+      total: history.length,
+      byAction: {},
+      bySite: {},
+      lastWeek: 0,
+      lastMonth: 0,
+      mostCommonAction: null,
+      mostCommonSite: null
+    };
     
-    // По сайтам
-    if (h.site) {
-      stats.bySite[h.site] = (stats.bySite[h.site] || 0) + 1;
+    var now = Date.now();
+    var weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    var monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+    
+    history.forEach(function(h) {
+      stats.byAction[h.action] = (stats.byAction[h.action] || 0) + 1;
+      
+      if (h.site) {
+        stats.bySite[h.site] = (stats.bySite[h.site] || 0) + 1;
+      }
+      
+      if (h.timestamp >= weekAgo) stats.lastWeek++;
+      if (h.timestamp >= monthAgo) stats.lastMonth++;
+    });
+    
+    var maxAction = 0;
+    for (var action in stats.byAction) {
+      if (stats.byAction[action] > maxAction) {
+        maxAction = stats.byAction[action];
+        stats.mostCommonAction = action;
+      }
     }
     
-    // За последнюю неделю
-    if (h.timestamp >= weekAgo) stats.lastWeek++;
+    var maxSite = 0;
+    for (var site in stats.bySite) {
+      if (stats.bySite[site] > maxSite) {
+        maxSite = stats.bySite[site];
+        stats.mostCommonSite = site;
+      }
+    }
     
-    // За последний месяц
-    if (h.timestamp >= monthAgo) stats.lastMonth++;
+    return stats;
+  }).catch(function(e) {
+    console.warn('⚠️ Ошибка получения статистики истории:', e);
+    return {
+      total: 0,
+      byAction: {},
+      bySite: {},
+      lastWeek: 0,
+      lastMonth: 0,
+      mostCommonAction: null,
+      mostCommonSite: null
+    };
   });
-  
-  // Находим самое частое действие
-  let maxAction = 0;
-  for (const [action, count] of Object.entries(stats.byAction)) {
-    if (count > maxAction) {
-      maxAction = count;
-      stats.mostCommonAction = action;
-    }
-  }
-  
-  // Находим самый частый сайт
-  let maxSite = 0;
-  for (const [site, count] of Object.entries(stats.bySite)) {
-    if (count > maxSite) {
-      maxSite = count;
-      stats.mostCommonSite = site;
-    }
-  }
-  
-  return stats;
 }
 
 // ============================================
@@ -157,52 +191,60 @@ export async function getHistoryStats() {
 // ============================================
 
 export function clearHistory() {
-  chrome.storage.local.set({ [CONFIG.storageKey]: [] });
-  console.log('🗑️ История очищена');
+  browserAPI.storage.local.set({ [CONFIG.storageKey]: [] }, function() {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка очистки истории:', browserAPI.runtime.lastError);
+    } else {
+      console.log('🗑️ История очищена');
+    }
+  });
 }
 
 // ============================================
 //  ЭКСПОРТ ИСТОРИИ В JSON
 // ============================================
 
-export async function exportHistory() {
-  const history = await getHistory();
-  return {
-    version: '1.0',
-    exported: Date.now(),
-    total: history.length,
-    history: history
-  };
+export function exportHistory() {
+  return getHistory().then(function(history) {
+    return {
+      version: '1.0',
+      exported: Date.now(),
+      total: history.length,
+      history: history
+    };
+  }).catch(function(e) {
+    console.warn('⚠️ Ошибка экспорта истории:', e);
+    throw e;
+  });
 }
 
 // ============================================
 //  ИМПОРТ ИСТОРИИ ИЗ JSON
 // ============================================
 
-export async function importHistory(jsonData) {
+export function importHistory(jsonData) {
   try {
-    const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+    var data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
     
     if (!data.history || !Array.isArray(data.history)) {
       throw new Error('Неверный формат данных');
     }
     
-    const current = await getHistory();
-    const merged = [...current, ...data.history];
-    
-    // Сортируем по времени
-    merged.sort((a, b) => a.timestamp - b.timestamp);
-    
-    // Ограничиваем размер
-    const limited = merged.slice(-CONFIG.maxHistoryEntries);
-    
-    saveHistory(limited);
-    console.log(`📥 Импортировано ${data.history.length} записей`);
-    
-    return true;
+    return getHistory().then(function(current) {
+      var merged = current.concat(data.history);
+      
+      merged.sort(function(a, b) { return a.timestamp - b.timestamp; });
+      
+      var limited = merged.slice(-CONFIG.maxHistoryEntries);
+      
+      saveHistory(limited);
+      console.log('📥 Импортировано ' + data.history.length + ' записей');
+      
+      return true;
+    });
   } catch (e) {
     console.error('❌ Ошибка импорта истории:', e);
-    return false;
+    throw e;
   }
 }
 
@@ -211,23 +253,25 @@ export async function importHistory(jsonData) {
 // ============================================
 
 export function initHistoryTracking() {
+  if (_historyTrackingInitialized) return;
+  _historyTrackingInitialized = true;
   console.log('📜 Инициализация отслеживания истории...');
   
-  // Отслеживаем изменения настроек
-  chrome.storage.onChanged.addListener((changes, namespace) => {
+  browserAPI.storage.onChanged.addListener(function(changes, namespace) {
     if (namespace !== 'local') return;
     
-    const settingsKeys = [
+    var settingsKeys = [
       'eqSettings', 'volumeBoost', 'bassBoost', 
       'selectedPreset', 'isConnected'
     ];
     
-    for (const key of settingsKeys) {
+    for (var i = 0; i < settingsKeys.length; i++) {
+      var key = settingsKeys[i];
       if (changes[key]) {
-        const oldValue = changes[key].oldValue;
-        const newValue = changes[key].newValue;
+        var oldValue = changes[key].oldValue;
+        var newValue = changes[key].newValue;
         
-        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+        if (oldValue !== newValue) {
           addHistoryEntry('settings_change', {
             key: key,
             oldValue: oldValue,
@@ -240,31 +284,35 @@ export function initHistoryTracking() {
     }
   });
   
-  // Отслеживаем пресеты
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  browserAPI.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.action === 'applyPreset' && request.preset) {
-      addHistoryEntry('preset_applied', {
-        preset: request.preset
-      }, {
-        source: request.source || 'ui'
+      getCurrentSite().then(function(site) {
+        addHistoryEntry('preset_applied', {
+          preset: request.preset
+        }, {
+          source: request.source || 'ui',
+          site: site
+        });
       });
+      sendResponse({ status: 'ok' });
+      return true;
     }
     
     if (request.action === 'connect') {
-      addHistoryEntry('eq_enabled', {}, {
-        source: request.source || 'ui'
+      getCurrentSite().then(function(site) {
+        addHistoryEntry('eq_enabled', {}, {
+          source: request.source || 'ui',
+          site: site
+        });
       });
     }
     
     if (request.action === 'disconnect') {
-      addHistoryEntry('eq_disabled', {}, {
-        source: request.source || 'ui'
-      });
-    }
-    
-    if (request.action === 'reset') {
-      addHistoryEntry('settings_reset', {}, {
-        source: request.source || 'ui'
+      getCurrentSite().then(function(site) {
+        addHistoryEntry('eq_disabled', {}, {
+          source: request.source || 'ui',
+          site: site
+        });
       });
     }
     
@@ -274,18 +322,40 @@ export function initHistoryTracking() {
   console.log('✅ Отслеживание истории активировано');
 }
 
+function getCurrentSite() {
+  return new Promise(function(resolve) {
+    browserAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (browserAPI.runtime.lastError || !tabs || tabs.length === 0) {
+        resolve('unknown');
+        return;
+      }
+      
+      if (tabs[0].url) {
+        try {
+          var url = new URL(tabs[0].url);
+          resolve(url.hostname.replace('www.', ''));
+        } catch {
+          resolve('unknown');
+        }
+      } else {
+        resolve('unknown');
+      }
+    });
+  });
+}
+
 // ============================================
 //  ЭКСПОРТ
 // ============================================
 
 export default {
-  addHistoryEntry,
-  getHistory,
-  getHistoryWithFilters,
-  getHistoryStats,
-  clearHistory,
-  exportHistory,
-  importHistory,
-  initHistoryTracking,
-  CONFIG
+  addHistoryEntry: addHistoryEntry,
+  getHistory: getHistory,
+  getHistoryWithFilters: getHistoryWithFilters,
+  getHistoryStats: getHistoryStats,
+  clearHistory: clearHistory,
+  exportHistory: exportHistory,
+  importHistory: importHistory,
+  initHistoryTracking: initHistoryTracking,
+  CONFIG: CONFIG
 };

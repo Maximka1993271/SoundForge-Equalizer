@@ -1,207 +1,138 @@
 // ============================================
-//  NOTIFICATIONS.JS - Уведомления об обновлениях (v3.22.8)
+//  NOTIFICATIONS.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Уведомления об обновлениях
 //  3 языка: RU, UA, EN
-//  ИСПРАВЛЕНО: Firefox не поддерживает "buttons"
-//  ИСПРАВЛЕНО: синтаксическая ошибка
+//  FIREFOX 153 OPTIMIZED: обработка ошибок notifications API
 // ============================================
 
-(function() {
-  'use strict';
+var browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
 
-  const VERSION = '3.22.8';
-  const STORAGE_KEY = 'lastUpdateNotification';
-  const CHECK_INTERVAL = 24 * 60 * 60 * 1000;
+var VERSION = '3.22.8';
+var _notificationHandlersInitialized = false;
+var STORAGE_KEY = 'lastUpdateNotification';
+var CHECK_INTERVAL = 24 * 60 * 60 * 1000; // Раз в день
 
-  const UPDATE_MESSAGES = {
-    ru: {
-      title: '🎵 SoundForge обновлен!',
-      message: 'Версия ' + VERSION + ' доступна. Новые пресеты и улучшения!',
-      button: 'Подробнее'
-    },
-    uk: {
-      title: '🎵 SoundForge оновлено!',
-      message: 'Версія ' + VERSION + ' доступна. Нові пресети та покращення!',
-      button: 'Детальніше'
-    },
-    en: {
-      title: '🎵 SoundForge updated!',
-      message: 'Version ' + VERSION + ' available. New presets and improvements!',
-      button: 'Learn more'
-    }
-  };
-
-  // ============================================
-  //  ПРОВЕРКА БРАУЗЕРА
-  // ============================================
-
-  function isFirefox() {
-    return navigator.userAgent.toLowerCase().indexOf('firefox') !== -1;
+var UPDATE_MESSAGES = {
+  ru: {
+    title: '🎵 SoundForge обновлен!',
+    message: 'Версия ' + VERSION + ' доступна. Новые пресеты и улучшения!',
+    button: 'Подробнее'
+  },
+  uk: {
+    title: '🎵 SoundForge оновлено!',
+    message: 'Версія ' + VERSION + ' доступна. Нові пресети та покращення!',
+    button: 'Детальніше'
+  },
+  en: {
+    title: '🎵 SoundForge updated!',
+    message: 'Version ' + VERSION + ' available. New presets and improvements!',
+    button: 'Learn more'
   }
+};
 
-  // ============================================
-  //  ПОКАЗ УВЕДОМЛЕНИЯ
-  // ============================================
+// ============================================
+//  ПРОВЕРКА ОБНОВЛЕНИЙ
+// ============================================
 
-  function showNotification(title, message, type) {
-    type = type || 'info';
-    
-    var types = {
-      success: { icon: '✅', color: '#4CAF50' },
-      info: { icon: 'ℹ️', color: '#2196F3' },
-      warning: { icon: '⚠️', color: '#FF9800' },
-      error: { icon: '❌', color: '#f44336' }
-    };
-    
-    var info = types[type] || types.info;
-    
-    try {
-      if (typeof chrome !== 'undefined' && chrome.notifications) {
-        var options = {
-          type: 'basic',
-          iconUrl: 'icons/SoundForge.png',
-          title: title,
-          message: message,
-          priority: 1
-        };
-        
-        // Firefox НЕ поддерживает buttons
-        if (!isFirefox()) {
-          options.buttons = [{ title: 'OK' }];
-        }
-        
-        chrome.notifications.create(options, function(notificationId) {
-          if (chrome.runtime && chrome.runtime.lastError) {
-            console.log(info.icon + ' ' + title + ': ' + message);
-          }
-        });
-      } else {
-        console.log(info.icon + ' ' + title + ': ' + message);
-      }
-    } catch (e) {
-      console.log(info.icon + ' ' + title + ': ' + message);
+export function checkForUpdates() {
+  browserAPI.storage.local.get([STORAGE_KEY], function(result) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка проверки обновлений:', browserAPI.runtime.lastError);
+      return;
     }
-  }
-
-  // ============================================
-  //  ПРОВЕРКА ОБНОВЛЕНИЙ
-  // ============================================
-
-  function checkForUpdates() {
-    if (typeof chrome === 'undefined' || !chrome.storage) return;
     
-    chrome.storage.local.get([STORAGE_KEY], function(result) {
-      if (chrome.runtime.lastError) return;
-      
-      var lastCheck = result[STORAGE_KEY] || 0;
-      var now = Date.now();
-      
-      if (now - lastCheck < CHECK_INTERVAL) {
-        console.log('ℹ️ Проверка обновлений: ожидание');
+    var lastCheck = result[STORAGE_KEY] || 0;
+    var now = Date.now();
+    
+    if (now - lastCheck < CHECK_INTERVAL) {
+      console.log('ℹ️ Проверка обновлений: ожидание');
+      return;
+    }
+    
+    browserAPI.storage.local.set({ [STORAGE_KEY]: now }, function() {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка сохранения времени проверки:', browserAPI.runtime.lastError);
         return;
       }
-      
-      chrome.storage.local.set({ [STORAGE_KEY]: now }, function() {
-        if (chrome.runtime.lastError) return;
-        showUpdateNotification();
-      });
+      showUpdateNotification();
     });
-  }
+  });
+}
 
-  // ============================================
-  //  ПОКАЗ УВЕДОМЛЕНИЯ ОБ ОБНОВЛЕНИИ
-  // ============================================
+// ============================================
+//  ПОКАЗ УВЕДОМЛЕНИЯ
+// ============================================
 
-  function showUpdateNotification() {
-    if (typeof chrome === 'undefined' || !chrome.storage) return;
-    
-    chrome.storage.local.get(['language'], function(result) {
-      if (chrome.runtime.lastError) return;
-      
-      var lang = result.language || 'ru';
-      var messages = UPDATE_MESSAGES[lang] || UPDATE_MESSAGES.en;
-      
-      try {
-        if (typeof chrome !== 'undefined' && chrome.notifications) {
-          var options = {
-            type: 'basic',
-            iconUrl: 'icons/SoundForge.png',
-            title: messages.title,
-            message: messages.message,
-            priority: 2,
-            requireInteraction: true
-          };
-          
-          // Firefox НЕ поддерживает buttons
-          if (!isFirefox()) {
-            options.buttons = [{ title: messages.button }];
-          }
-          
-          chrome.notifications.create(options, function(notificationId) {
-            if (chrome.runtime && chrome.runtime.lastError) {
-              console.log('📢 ' + messages.title + ': ' + messages.message);
-            }
-          });
-          
-          console.log('📢 Показано уведомление об обновлении (' + lang + ')');
-        } else {
-          console.log('📢 ' + messages.title + ': ' + messages.message);
-        }
-      } catch (e) {
-        console.warn('⚠️ Ошибка показа уведомления:', e);
-      }
-    });
-  }
-
-  // ============================================
-  //  ОБРАБОТЧИКИ УВЕДОМЛЕНИЙ
-  // ============================================
-
-  if (typeof chrome !== 'undefined' && chrome.notifications) {
-    // Firefox не поддерживает onButtonClicked
-    if (chrome.notifications.onButtonClicked) {
-      chrome.notifications.onButtonClicked.addListener(function(notificationId, buttonIndex) {
-        if (notificationId && buttonIndex === 0) {
-          chrome.tabs.create({
-            url: 'https://github.com/yourusername/soundforge/releases'
-          });
-        }
-      });
+function showUpdateNotification() {
+  browserAPI.storage.local.get(['language'], function(result) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения языка:', browserAPI.runtime.lastError);
+      return;
     }
+    
+    var lang = result.language || 'ru';
+    var messages = UPDATE_MESSAGES[lang] || UPDATE_MESSAGES.en;
+    
+    if (typeof browserAPI === 'undefined' || !browserAPI.notifications) {
+      console.log('📢 ' + messages.title + ': ' + messages.message);
+      return;
+    }
+    
+    try {
+      browserAPI.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/SoundForge_128x128.png',
+        title: messages.title,
+        message: messages.message,
+        buttons: [{ title: messages.button }],
+        priority: 2,
+        requireInteraction: true
+      }, function(notificationId) {
+        if (browserAPI.runtime.lastError) {
+          console.warn('⚠️ Ошибка создания уведомления:', browserAPI.runtime.lastError);
+        } else {
+          console.log('📢 Показано уведомление об обновлении (' + lang + ')');
+        }
+      });
+    } catch (e) {
+      console.warn('⚠️ Ошибка показа уведомления:', e);
+    }
+  });
+}
 
-    chrome.notifications.onClicked.addListener(function(notificationId) {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.openOptionsPage();
-      }
-    });
-  }
+// ============================================
+//  ОБРАБОТЧИК КЛИКА ПО УВЕДОМЛЕНИЮ
+// ============================================
 
-  // ============================================
-  //  ПРИНУДИТЕЛЬНЫЙ ПОКАЗ УВЕДОМЛЕНИЯ
-  // ============================================
-
-  function forceShowUpdateNotification() {
-    showUpdateNotification();
-  }
-
-  // ============================================
-  //  ЭКСПОРТ
-  // ============================================
-
-  window.SoundForgeNotifications = {
-    showNotification: showNotification,
-    checkForUpdates: checkForUpdates,
-    forceShowUpdateNotification: forceShowUpdateNotification,
-    VERSION: VERSION
+if (!_notificationHandlersInitialized && typeof browserAPI !== 'undefined' && browserAPI.notifications) {
+  _notificationHandlersInitialized = true;
+  var openChangelog = function() {
+    browserAPI.tabs.create({ url: browserAPI.runtime.getURL('Readme/%D0%A7%D1%82%D0%BE%20%D0%BD%D0%BE%D0%B2%D0%BE%D0%B3%D0%BE.txt') });
   };
+  browserAPI.notifications.onButtonClicked.addListener(function(notificationId, buttonIndex) {
+    if (notificationId && buttonIndex === 0) openChangelog();
+  });
+  browserAPI.notifications.onClicked.addListener(function(notificationId) {
+    if (notificationId) openChangelog();
+  });
+}
 
-  // Экспорт для модулей
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-      showNotification: showNotification,
-      checkForUpdates: checkForUpdates,
-      forceShowUpdateNotification: forceShowUpdateNotification,
-      VERSION: VERSION
-    };
-  }
+// ============================================
+//  ПРИНУДИТЕЛЬНЫЙ ПОКАЗ УВЕДОМЛЕНИЯ
+// ============================================
 
-})();
+export function forceShowUpdateNotification() {
+  showUpdateNotification();
+}
+
+// ============================================
+//  ЭКСПОРТ
+// ============================================
+
+export default {
+  checkForUpdates: checkForUpdates,
+  forceShowUpdateNotification: forceShowUpdateNotification,
+  VERSION: VERSION
+};

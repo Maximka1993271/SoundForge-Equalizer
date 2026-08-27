@@ -1,13 +1,17 @@
-// ============================================
-//  SITE-SETTINGS.JS - Настройки для каждого сайта (v3.22.8)
+//  SITE-SETTINGS.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  Настройки для каждого сайта
 //  Автовыключение при смене сайта
+//  FIREFOX 153 OPTIMIZED: обработка ошибок storage и URL
 // ============================================
 
-// ============================================
-//  КОНФИГУРАЦИЯ
-// ============================================
+var browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
 
-const CONFIG = {
+var _siteSettingsMutationQueue = Promise.resolve();
+var _autoDisableInitialized = false;
+
+var CONFIG = {
   maxHistoryPerSite: 50,
   autoDisableOnSiteChange: true,
   siteSettingsEnabled: true
@@ -19,7 +23,7 @@ const CONFIG = {
 
 export function getSiteDomain(url) {
   try {
-    const parsed = new URL(url);
+    var parsed = new URL(url);
     return parsed.hostname.replace('www.', '');
   } catch {
     return null;
@@ -27,116 +31,86 @@ export function getSiteDomain(url) {
 }
 
 export function getSiteKey(url) {
-  const domain = getSiteDomain(url);
+  var domain = getSiteDomain(url);
   if (!domain) return null;
   return 'site_' + domain.replace(/[^a-zA-Z0-9]/g, '_');
 }
 
-/**
- * Санитизация настроек сайта
- */
-export function sanitizeSiteSettings(settings) {
-  if (!settings || typeof settings !== 'object') {
-    return null;
-  }
-  
-  const result = {};
-  
-  // Санитизация Gain-ов
+
+function sanitizeSiteSettings(settings) {
+  if (!settings || typeof settings !== 'object') return {};
+  var safe = {};
   if (settings.gains && typeof settings.gains === 'object') {
-    const allowedFreqs = ['31', '62', '125', '250', '500', '1000', '2000', '4000', '8000', '16000'];
-    result.gains = {};
-    for (const freq of allowedFreqs) {
-      if (settings.gains[freq] !== undefined) {
-        const value = Number(settings.gains[freq]);
-        result.gains[freq] = isNaN(value) ? 0 : Math.max(-12, Math.min(12, value));
-      }
-    }
+    safe.gains = {};
+    Object.keys(settings.gains).slice(0, 10).forEach(function(freq) {
+      var value = Number(settings.gains[freq]);
+      if (Number.isFinite(value)) safe.gains[freq] = Math.max(-12, Math.min(12, value));
+    });
   }
-  
-  // Громкость
-  if (settings.volume !== undefined) {
-    const volume = Number(settings.volume);
-    result.volume = isNaN(volume) ? 1.0 : Math.max(0, Math.min(8.0, volume));
-  }
-  
-  // Бас
-  if (settings.bass !== undefined) {
-    const bass = Number(settings.bass);
-    result.bass = isNaN(bass) ? 0 : Math.max(-12, Math.min(12, bass));
-  }
-  
-  // Пресет
-  if (settings.preset && typeof settings.preset === 'string') {
-    result.preset = settings.preset;
-  }
-  
-  return Object.keys(result).length > 0 ? result : null;
+  if (Number.isFinite(Number(settings.volume))) safe.volume = Math.max(0, Math.min(800, Number(settings.volume)));
+  if (Number.isFinite(Number(settings.bass))) safe.bass = Math.max(-12, Math.min(12, Number(settings.bass)));
+  if (typeof settings.preset === 'string' && settings.preset.length <= 100) safe.preset = settings.preset;
+  return safe;
 }
 
+function enqueueSiteSettingsMutation(mutate) {
+  _siteSettingsMutationQueue = _siteSettingsMutationQueue.catch(function() {}).then(function() {
+    return getSiteSettingsData().then(function(data) {
+      var next = data && typeof data === 'object' ? { ...data } : {};
+      mutate(next);
+      return new Promise(function(resolve) {
+        browserAPI.storage.local.set({ siteSettings: next }, function() {
+          if (browserAPI.runtime.lastError) console.warn('⚠️ Ошибка записи siteSettings:', browserAPI.runtime.lastError);
+          resolve(next);
+        });
+      });
+    });
+  });
+  return _siteSettingsMutationQueue;
+}
 // ============================================
 //  СОХРАНЕНИЕ НАСТРОЕК ДЛЯ САЙТА
 // ============================================
 
-export async function saveSiteSettings(url, settings) {
-  if (!CONFIG.siteSettingsEnabled) return false;
-  
-  const key = getSiteKey(url);
-  if (!key) return false;
-  
-  const sanitized = sanitizeSiteSettings(settings);
-  if (!sanitized) return false;
-  
-  try {
-    const data = await getSiteSettingsData();
-    data[key] = {
-      settings: sanitized,
-      updated: Date.now(),
-      url: url,
-      domain: getSiteDomain(url)
-    };
-    
-    // Ограничиваем количество сохраненных сайтов
-    const keys = Object.keys(data);
+export function saveSiteSettings(url, settings) {
+  if (!CONFIG.siteSettingsEnabled) return Promise.resolve();
+  var key = getSiteKey(url);
+  if (!key) return Promise.resolve();
+  var safeSettings = sanitizeSiteSettings(settings);
+  return enqueueSiteSettingsMutation(function(data) {
+    data[key] = { settings: safeSettings, updated: Date.now(), url: url };
+    var keys = Object.keys(data);
     if (keys.length > CONFIG.maxHistoryPerSite) {
-      const sorted = keys.sort((a, b) => data[a].updated - data[b].updated);
-      const toRemove = sorted.slice(0, keys.length - CONFIG.maxHistoryPerSite);
-      toRemove.forEach((k) => delete data[k]);
+      keys.sort(function(a, b) { return (data[a].updated || 0) - (data[b].updated || 0); })
+        .slice(0, keys.length - CONFIG.maxHistoryPerSite)
+        .forEach(function(k) { delete data[k]; });
     }
-    
-    await chrome.storage.local.set({ siteSettings: data });
-    console.log(`💾 Настройки сохранены для сайта: ${key}`);
-    return true;
-  } catch (e) {
-    console.error('❌ Ошибка сохранения настроек сайта:', e);
-    return false;
-  }
+  });
 }
 
 // ============================================
 //  ЗАГРУЗКА НАСТРОЕК ДЛЯ САЙТА
 // ============================================
 
-export async function loadSiteSettings(url) {
-  if (!CONFIG.siteSettingsEnabled) return null;
+export function loadSiteSettings(url) {
+  if (!CONFIG.siteSettingsEnabled) return Promise.resolve(null);
   
-  const key = getSiteKey(url);
-  if (!key) return null;
+  var key = getSiteKey(url);
+  if (!key) return Promise.resolve(null);
   
-  try {
-    const data = await getSiteSettingsData();
-    const siteData = data[key];
+  return getSiteSettingsData().then(function(data) {
+    var siteData = data[key];
     
     if (siteData) {
-      console.log(`📥 Загружены настройки для сайта: ${key}`);
-      return siteData.settings || null;
+      console.log('📥 Загружены настройки для сайта:', key);
+      return siteData.settings;
     }
     
     return null;
-  } catch (e) {
+  }).catch(function(e) {
     console.error('❌ Ошибка загрузки настроек сайта:', e);
     return null;
-  }
+  });
 }
 
 // ============================================
@@ -144,8 +118,13 @@ export async function loadSiteSettings(url) {
 // ============================================
 
 function getSiteSettingsData() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['siteSettings'], (result) => {
+  return new Promise(function(resolve) {
+    browserAPI.storage.local.get(['siteSettings'], function(result) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения siteSettings:', browserAPI.runtime.lastError);
+        resolve({});
+        return;
+      }
       resolve(result.siteSettings || {});
     });
   });
@@ -155,44 +134,38 @@ function getSiteSettingsData() {
 //  УДАЛЕНИЕ НАСТРОЕК ДЛЯ САЙТА
 // ============================================
 
-export async function deleteSiteSettings(url) {
-  const key = getSiteKey(url);
-  if (!key) return;
-  
-  try {
-    const data = await getSiteSettingsData();
-    delete data[key];
-    await chrome.storage.local.set({ siteSettings: data });
-    console.log(`🗑️ Настройки удалены для сайта: ${key}`);
-  } catch (e) {
-    console.error('❌ Ошибка удаления настроек сайта:', e);
-  }
+export function deleteSiteSettings(url) {
+  var key = getSiteKey(url);
+  if (!key) return Promise.resolve();
+  return enqueueSiteSettingsMutation(function(data) { delete data[key]; });
 }
 
 // ============================================
 //  ПОЛУЧЕНИЕ ВСЕХ САЙТОВ С НАСТРОЙКАМИ
 // ============================================
 
-export async function getAllSitesWithSettings() {
-  try {
-    const data = await getSiteSettingsData();
-    const sites = [];
+export function getAllSitesWithSettings() {
+  return getSiteSettingsData().then(function(data) {
+    var sites = [];
     
-    for (const [key, value] of Object.entries(data)) {
-      sites.push({
-        key: key,
-        domain: key.replace('site_', ''),
-        settings: value.settings,
-        updated: value.updated,
-        url: value.url
-      });
+    for (var key in data) {
+      if (data.hasOwnProperty(key)) {
+        var value = data[key];
+        sites.push({
+          key: key,
+          domain: key.replace('site_', ''),
+          settings: value.settings,
+          updated: value.updated,
+          url: value.url
+        });
+      }
     }
     
-    return sites.sort((a, b) => b.updated - a.updated);
-  } catch (e) {
+    return sites.sort(function(a, b) { return b.updated - a.updated; });
+  }).catch(function(e) {
     console.error('❌ Ошибка получения списка сайтов:', e);
     return [];
-  }
+  });
 }
 
 // ============================================
@@ -200,75 +173,74 @@ export async function getAllSitesWithSettings() {
 // ============================================
 
 export function initAutoDisable() {
-  if (!CONFIG.autoDisableOnSiteChange) return;
+  if (!CONFIG.autoDisableOnSiteChange || _autoDisableInitialized) return;
+  _autoDisableInitialized = true;
   
-  let lastSite = null;
-  let lastTabId = null;
+  var lastSite = null;
   
-  // Отслеживаем активацию вкладок
-  chrome.tabs.onActivated.addListener((activeInfo) => {
-    chrome.tabs.get(activeInfo.tabId, (tab) => {
-      if (chrome.runtime.lastError) return;
-      if (tab.url) {
-        checkSiteChange(tab.url, activeInfo.tabId);
+  browserAPI.tabs.onActivated.addListener(function(activeInfo) {
+    browserAPI.tabs.get(activeInfo.tabId, function(tab) {
+      if (browserAPI.runtime.lastError) return;
+      if (tab && tab.url) {
+        checkSiteChange(tab.url);
       }
     });
   });
   
-  // Отслеживаем обновление вкладок
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if ((changeInfo.url || changeInfo.status === 'complete') && tab.active && tab.url) {
-      checkSiteChange(tab.url, tabId);
+  browserAPI.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+    if (changeInfo.url || changeInfo.status === 'complete') {
+      if (tab.active && tab.url) {
+        checkSiteChange(tab.url);
+      }
     }
   });
   
-  // Отслеживаем навигацию
-  chrome.webNavigation.onCompleted.addListener((details) => {
+  browserAPI.webNavigation.onCompleted.addListener(function(details) {
     if (details.frameId === 0 && details.url) {
-      checkSiteChange(details.url, details.tabId);
+      checkSiteChange(details.url);
     }
   });
   
-  function checkSiteChange(url, tabId) {
-    const currentSite = getSiteDomain(url);
+  function checkSiteChange(url) {
+    var currentSite = getSiteDomain(url);
     if (!currentSite) return;
     
-    if (lastSite && lastSite !== currentSite && lastTabId !== tabId) {
-      console.log(`🔄 Смена сайта: ${lastSite} → ${currentSite}`);
+    if (lastSite && lastSite !== currentSite) {
+      console.log('🔄 Смена сайта:', lastSite, '→', currentSite);
       
-      // Загружаем настройки для нового сайта
-      loadSiteSettings(url).then((settings) => {
+      loadSiteSettings(url).then(function(settings) {
         if (settings) {
-          console.log(`📥 Применяем настройки для ${currentSite}`);
+          console.log('📥 Применяем настройки для', currentSite);
           applySiteSettings(settings);
         }
-      });
+      }).catch(function() {});
       
-      // Проверяем, нужно ли отключить
-      chrome.storage.local.get(['isConnected', 'autoDisableOnSiteChange'], (result) => {
-        const autoDisable = result.autoDisableOnSiteChange !== false;
-        const isConnected = result.isConnected === true;
+      browserAPI.storage.local.get(['isConnected', 'autoDisableOnSiteChange'], function(result) {
+        if (browserAPI.runtime.lastError) return;
+        
+        var autoDisable = result.autoDisableOnSiteChange !== false;
+        var isConnected = result.isConnected === true;
         
         if (autoDisable && isConnected) {
-          console.log(`🔇 Автовыключение: смена сайта ${lastSite} → ${currentSite}`);
-          chrome.runtime.sendMessage({ action: 'disconnect' });
+          console.log('🔇 Автовыключение: смена сайта', lastSite, '→', currentSite);
+          browserAPI.runtime.sendMessage({ action: 'disconnect' });
           
-          // Показываем уведомление
           try {
-            chrome.notifications.create({
-              type: 'basic',
-              iconUrl: 'icons/SoundForge.png',
-              title: '🔇 SoundForge',
-              message: `Эквалайзер выключен при смене сайта`,
-              priority: 1
-            });
+            if (typeof browserAPI !== 'undefined' && browserAPI.notifications) {
+              browserAPI.notifications.create({
+                type: 'basic',
+                iconUrl: 'icons/SoundForge_128x128.png',
+                title: '🔇 SoundForge',
+                message: 'Эквалайзер выключен при смене сайта',
+                priority: 1
+              });
+            }
           } catch (e) {}
         }
       });
     }
     
     lastSite = currentSite;
-    lastTabId = tabId;
   }
   
   console.log('🔄 Автовыключение при смене сайта активировано');
@@ -281,10 +253,13 @@ export function initAutoDisable() {
 function applySiteSettings(settings) {
   if (!settings) return;
   
-  const { gains, volume, bass, preset } = settings;
+  var gains = settings.gains;
+  var volume = settings.volume;
+  var bass = settings.bass;
+  var preset = settings.preset;
   
-  if (gains && typeof gains === 'object') {
-    chrome.runtime.sendMessage({ 
+  if (gains) {
+    browserAPI.runtime.sendMessage({ 
       action: 'updateEQ', 
       gains: gains,
       instant: true 
@@ -292,26 +267,23 @@ function applySiteSettings(settings) {
   }
   
   if (volume !== undefined) {
-    chrome.runtime.sendMessage({ 
+    browserAPI.runtime.sendMessage({ 
       action: 'setVolume', 
-      value: volume,
-      instant: true 
+      value: volume 
     });
   }
   
   if (bass !== undefined) {
-    chrome.runtime.sendMessage({ 
+    browserAPI.runtime.sendMessage({ 
       action: 'setBass', 
-      value: bass,
-      instant: true 
+      value: bass 
     });
   }
   
   if (preset) {
-    chrome.runtime.sendMessage({ 
+    browserAPI.runtime.sendMessage({ 
       action: 'applyPreset', 
-      preset: preset,
-      source: 'site_settings'
+      preset: preset 
     });
   }
 }
@@ -321,13 +293,12 @@ function applySiteSettings(settings) {
 // ============================================
 
 export default {
-  getSiteDomain,
-  getSiteKey,
-  sanitizeSiteSettings,
-  saveSiteSettings,
-  loadSiteSettings,
-  deleteSiteSettings,
-  getAllSitesWithSettings,
-  initAutoDisable,
-  CONFIG
+  getSiteDomain: getSiteDomain,
+  getSiteKey: getSiteKey,
+  saveSiteSettings: saveSiteSettings,
+  loadSiteSettings: loadSiteSettings,
+  deleteSiteSettings: deleteSiteSettings,
+  getAllSitesWithSettings: getAllSitesWithSettings,
+  initAutoDisable: initAutoDisable,
+  CONFIG: CONFIG
 };
