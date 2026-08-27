@@ -1,13 +1,18 @@
 // ============================================
-//  BACKGROUND.JS - v3.22.8 (FIREFOX)
-//  ПОЛНОСТЬЮ ИДЕНТИЧЕН CHROME ВЕРСИИ
-//  АДАПТИРОВАН ДЛЯ FIREFOX 153.0esr
-//  ИСПРАВЛЕНО: отправка статуса в окно
-//  ИСПРАВЛЕНО: обработка statusUpdate
+//  BACKGROUND.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
 //  ГОРЯЧИЕ КЛАВИШИ: Ctrl+Shift+U, Ctrl+Shift+E, Ctrl+Shift+Y, Ctrl+Shift+X
+//  ИСПРАВЛЕНО: полная очистка ресурсов
+//  ИСПРАВЛЕНО: обработка ошибок storage
+//  ИСПРАВЛЕНО: отправка статуса в окно при подключении
+//  FIREFOX 153 OPTIMIZED: без firefox.* прямых вызовов
+//  FIREFOX 153 OPTIMIZED: полный набор иконок (active + off)
 // ============================================
 
-console.log('🎛️ SoundForge Background v3.22.8 запущен (Firefox)');
+const browserAPI = globalThis.browser;
+if (!browserAPI?.runtime) throw new Error('Mozilla Firefox extension API unavailable');
+
+console.log('🎛️ SoundForge Background v3.22.8 Firefox 153 запущен');
 
 // ============================================
 //  СОСТОЯНИЕ
@@ -29,7 +34,7 @@ const state = {
   _debugMode: false,
   _exportData: null,
   _pendingMessages: {},
-  _connectWatchTimers: {},
+  _spectrumClients: new Set(),
   _activeTabInterval: null,
   _spectrumInterval: null,
   _reconnectTimer: null,
@@ -51,7 +56,9 @@ const state = {
   _documentTokens: {},
   _lastSiteByTab: {},
   _storageWriteQueues: {},
-  _tabMuteStates: {}
+  _tabMuteStates: {},
+  _tabMuteOps: {},
+  _currentEffect: 'spectrum'
 };
 
 function getTabSession(tabId) {
@@ -71,52 +78,9 @@ function getTabSession(tabId) {
   return state._tabSessions[tabId];
 }
 
-
-function setTabVolumeMute(tabId, muted) {
-  if (!tabId) return Promise.resolve(false);
-
-  return new Promise((resolve) => {
-    try {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) {
-          resolve(false);
-          return;
-        }
-
-        if (muted) {
-          if (!Object.prototype.hasOwnProperty.call(state._tabMuteStates, String(tabId))) {
-            state._tabMuteStates[String(tabId)] = {
-              muted: !!tab.mutedInfo?.muted,
-              reason: tab.mutedInfo?.extensionId || null
-            };
-          }
-        }
-
-        const key = String(tabId);
-        const previous = state._tabMuteStates[key];
-        const targetMuted = muted ? true : (previous ? !!previous.muted : false);
-
-        chrome.tabs.update(tabId, { muted: targetMuted }, () => {
-          if (chrome.runtime.lastError) {
-            resolve(false);
-            return;
-          }
-
-          if (!muted) {
-            delete state._tabMuteStates[key];
-          }
-
-          resolve(true);
-        });
-      });
-    } catch (e) {
-      resolve(false);
-    }
-  });
-}
-
-function invalidateTabRuntime(tabId, reason = 'navigation') {
-  const session = getTabSession(tabId);
+function invalidateTabRuntime(tabId, reason) {
+  reason = reason || 'navigation';
+  var session = getTabSession(tabId);
   if (!session) return;
   session.connected = false;
   session.injected = false;
@@ -129,8 +93,9 @@ function invalidateTabRuntime(tabId, reason = 'navigation') {
   delete state._failureTimestamps[tabId];
 }
 
-function markTabInjected(tabId, url = null) {
-  const session = getTabSession(tabId);
+function markTabInjected(tabId, url) {
+  url = url || null;
+  var session = getTabSession(tabId);
   if (!session) return;
   session.injected = true;
   session.lastUrl = url || session.lastUrl;
@@ -138,84 +103,96 @@ function markTabInjected(tabId, url = null) {
   state._injectedTabs[tabId] = { token: session.documentToken, url: session.lastUrl };
 }
 
+// ============================================
+//  СЕРИАЛИЗОВАННАЯ ЗАПИСЬ В STORAGE (FIREFOX 153 OPTIMIZED)
+// ============================================
+
 function enqueueStorageMutation(storageKey, mutate) {
-  const previous = state._storageWriteQueues[storageKey] || Promise.resolve();
-  const next = previous.then(() => new Promise((resolve, reject) => {
-    chrome.storage.local.get([storageKey], (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      let nextValue;
-      try {
-        nextValue = mutate(result[storageKey]);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      chrome.storage.local.set({ [storageKey]: nextValue }, () => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(nextValue);
+  var previous = state._storageWriteQueues[storageKey] || Promise.resolve();
+  var next = previous.then(function() {
+    return new Promise(function(resolve, reject) {
+      browserAPI.storage.local.get([storageKey], function(result) {
+        if (browserAPI.runtime.lastError) {
+          reject(new Error(browserAPI.runtime.lastError.message));
+          return;
+        }
+        var nextValue;
+        try {
+          nextValue = mutate(result[storageKey]);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        browserAPI.storage.local.set({ [storageKey]: nextValue }, function() {
+          if (browserAPI.runtime.lastError) reject(new Error(browserAPI.runtime.lastError.message));
+          else resolve(nextValue);
+        });
       });
     });
-  }));
-  state._storageWriteQueues[storageKey] = next.catch((error) => {
-    console.warn(`[Storage] Mutation failed for ${storageKey}:`, error);
+  });
+  state._storageWriteQueues[storageKey] = next.catch(function(error) {
+    console.warn('[Storage] Mutation failed for', storageKey, error);
   });
   return next;
 }
 
 function enqueueStoragePatch(queueKey, patch) {
-  const previous = state._storageWriteQueues[queueKey] || Promise.resolve();
-  const next = previous.then(() => new Promise((resolve, reject) => {
-    const keys = Object.keys(patch);
-    chrome.storage.local.get(keys, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      const merged = { ...result, ...patch };
-      chrome.storage.local.set(merged, () => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(merged);
+  var previous = state._storageWriteQueues[queueKey] || Promise.resolve();
+  var next = previous.then(function() {
+    return new Promise(function(resolve, reject) {
+      var keys = Object.keys(patch);
+      browserAPI.storage.local.get(keys, function(result) {
+        if (browserAPI.runtime.lastError) {
+          reject(new Error(browserAPI.runtime.lastError.message));
+          return;
+        }
+        var merged = Object.assign({}, result || {}, patch || {});
+        browserAPI.storage.local.set(merged, function() {
+          if (browserAPI.runtime.lastError) reject(new Error(browserAPI.runtime.lastError.message));
+          else resolve(merged);
+        });
       });
     });
-  }));
-  state._storageWriteQueues[queueKey] = next.catch((error) => {
-    console.warn(`[Storage] Patch failed for ${queueKey}:`, error);
+  });
+  state._storageWriteQueues[queueKey] = next.catch(function(error) {
+    console.warn('[Storage] Patch failed for', queueKey, error);
   });
   return next;
 }
 
 function enqueueUserPresetsMutation(mutate) {
-  const queueKey = 'globalUserPresets';
-  const previous = state._storageWriteQueues[queueKey] || Promise.resolve();
-  const next = previous.then(() => new Promise((resolve, reject) => {
-    chrome.storage.local.get(['userPresets', 'sf_userPresets'], (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      const existing = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
-        ? result.sf_userPresets
-        : ((result.userPresets && typeof result.userPresets === 'object') ? result.userPresets : {});
-      let nextPresets;
-      try {
-        nextPresets = mutate({ ...existing });
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      chrome.storage.local.set({
-        userPresets: nextPresets,
-        sf_userPresets: nextPresets
-      }, () => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(nextPresets);
+  var queueKey = 'globalUserPresets';
+  var previous = state._storageWriteQueues[queueKey] || Promise.resolve();
+  var next = previous.then(function() {
+    return new Promise(function(resolve, reject) {
+      browserAPI.storage.local.get(['userPresets', 'sf_userPresets'], function(result) {
+        if (browserAPI.runtime.lastError) {
+          reject(new Error(browserAPI.runtime.lastError.message));
+          return;
+        }
+        var existing = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
+          ? result.sf_userPresets
+          : ((result.userPresets && typeof result.userPresets === 'object') ? result.userPresets : {});
+        var nextPresets;
+        try {
+          nextPresets = mutate(Object.assign({}, existing || {}));
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        var limitedEntries = Object.entries(nextPresets || {}).slice(-50);
+        nextPresets = Object.fromEntries(limitedEntries);
+        browserAPI.storage.local.set({
+          userPresets: nextPresets,
+          sf_userPresets: nextPresets
+        }, function() {
+          if (browserAPI.runtime.lastError) reject(new Error(browserAPI.runtime.lastError.message));
+          else resolve(nextPresets);
+        });
       });
     });
-  }));
-  state._storageWriteQueues[queueKey] = next.catch((error) => {
+  });
+  state._storageWriteQueues[queueKey] = next.catch(function(error) {
     console.warn('[Storage] User preset mutation failed:', error);
   });
   return next;
@@ -227,7 +204,7 @@ function enqueueUserPresetsMutation(mutate) {
 
 function getSiteDomain(url) {
   try {
-    const parsed = new URL(url);
+    var parsed = new URL(url);
     if (!parsed.hostname) return null;
     return parsed.hostname.replace(/^www\./i, '').toLowerCase();
   } catch {
@@ -236,16 +213,16 @@ function getSiteDomain(url) {
 }
 
 function getSiteKey(url) {
-  const domain = getSiteDomain(url);
+  var domain = getSiteDomain(url);
   if (!domain) return null;
-  return `site_${domain.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  return 'site_' + domain.replace(/[^a-zA-Z0-9]/g, '_');
 }
 
 function sanitizeSiteSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return {};
-  const result = {};
+  var result = {};
 
-  const gains = sanitizeGains(settings.gains);
+  var gains = sanitizeGains(settings.gains);
   if (gains) result.gains = gains;
 
   if (settings.volume !== undefined) result.volume = clampFiniteNumber(settings.volume, 0, 8, 1);
@@ -260,50 +237,50 @@ function sanitizeSiteSettings(settings) {
 }
 
 function saveSiteSettings(url, settings) {
-  const domain = getSiteDomain(url);
-  const key = getSiteKey(url);
+  var domain = getSiteDomain(url);
+  var key = getSiteKey(url);
   if (!domain || !key) return Promise.resolve(false);
 
-  const safeSettings = sanitizeSiteSettings(settings);
-  return enqueueStorageMutation('siteSettings', (current) => {
-    const data = (current && typeof current === 'object' && !Array.isArray(current)) ? { ...current } : {};
+  var safeSettings = sanitizeSiteSettings(settings);
+  return enqueueStorageMutation('siteSettings', function(current) {
+    var data = (current && typeof current === 'object' && !Array.isArray(current)) ? Object.assign({}, current) : {};
     data[key] = {
       settings: safeSettings,
       updated: Date.now(),
       url: String(url).slice(0, 2000),
-      domain
+      domain: domain
     };
 
-    const keys = Object.keys(data);
+    var keys = Object.keys(data);
     if (keys.length > 50) {
       keys
-        .sort((a, b) => Number(data[a]?.updated || 0) - Number(data[b]?.updated || 0))
+        .sort(function(a, b) { return Number(data[a]?.updated || 0) - Number(data[b]?.updated || 0); })
         .slice(0, keys.length - 50)
-        .forEach((oldKey) => delete data[oldKey]);
+        .forEach(function(oldKey) { delete data[oldKey]; });
     }
     return data;
-  }).then(() => {
-    console.log(`💾 Настройки сохранены для сайта: ${domain}`);
+  }).then(function() {
+    console.log('💾 Настройки сохранены для сайта:', domain);
     return true;
-  }).catch((error) => {
-    console.warn(`⚠️ Ошибка сохранения настроек сайта ${domain}:`, error);
+  }).catch(function(error) {
+    console.warn('⚠️ Ошибка сохранения настроек сайта', domain, error);
     return false;
   });
 }
 
 function loadSiteSettings(url) {
-  const key = getSiteKey(url);
+  var key = getSiteKey(url);
   if (!key) return Promise.resolve(null);
 
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['siteSettings'], (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка получения siteSettings:', chrome.runtime.lastError);
+  return new Promise(function(resolve) {
+    browserAPI.storage.local.get(['siteSettings'], function(result) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения siteSettings:', browserAPI.runtime.lastError);
         resolve(null);
         return;
       }
-      const data = result.siteSettings;
-      const siteData = data && typeof data === 'object' ? data[key] : null;
+      var data = result.siteSettings;
+      var siteData = data && typeof data === 'object' ? data[key] : null;
       resolve(siteData && siteData.settings && typeof siteData.settings === 'object'
         ? sanitizeSiteSettings(siteData.settings)
         : null);
@@ -311,11 +288,43 @@ function loadSiteSettings(url) {
   });
 }
 
+function suppressAutoConnectForTab(tabId) {
+  var session = getTabSession(tabId);
+  var fallbackUrl = session && session.lastUrl;
+  browserAPI.tabs.get(tabId, function(tab) {
+    var hadError = !!browserAPI.runtime.lastError;
+    var url = (!hadError && tab && tab.url) || fallbackUrl;
+    if (!url) return;
+    loadSiteSettings(url).then(function(existing) {
+      return saveSiteSettings(url, Object.assign({}, existing || {}, { autoConnect: false }));
+    }).catch(function(error) {
+      console.warn('⚠️ Не удалось сохранить site-specific autoConnect=false:', error);
+    });
+  });
+}
+
+function clearAutoConnectSuppressionForTab(tabId) {
+  var session = getTabSession(tabId);
+  var fallbackUrl = session && session.lastUrl;
+  browserAPI.tabs.get(tabId, function(tab) {
+    var hadError = !!browserAPI.runtime.lastError;
+    var url = (!hadError && tab && tab.url) || fallbackUrl;
+    if (!url) return;
+    loadSiteSettings(url).then(function(existing) {
+      if (existing && existing.autoConnect === false) {
+        return saveSiteSettings(url, Object.assign({}, existing, { autoConnect: true }));
+      }
+    }).catch(function(error) {
+      console.warn('⚠️ Не удалось сбросить site-specific autoConnect suppression:', error);
+    });
+  });
+}
+
 function loadInjectSettings(url) {
   return Promise.all([
     loadSiteSettings(url),
-    new Promise((resolve) => {
-      chrome.storage.local.get([
+    new Promise(function(resolve) {
+      browserAPI.storage.local.get([
         'sf_eqSettings', 'eqSettings',
         'sf_volumeBoost', 'volumeBoost',
         'sf_bassBoost', 'bassBoost',
@@ -324,8 +333,8 @@ function loadInjectSettings(url) {
         'sf_powerSaveMode', 'powerSaveMode',
         'sf_debugMode', 'debugMode',
         'soundforgeAutoConnect'
-      ], (result) => {
-        if (chrome.runtime.lastError) {
+      ], function(result) {
+        if (browserAPI.runtime.lastError) {
           resolve({});
           return;
         }
@@ -336,28 +345,36 @@ function loadInjectSettings(url) {
           userPresets: result.sf_userPresets ?? result.userPresets,
           nightMode: result.sf_nightMode ?? result.nightMode,
           powerSaveMode: result.sf_powerSaveMode ?? result.powerSaveMode,
-          debugMode: result.sf_debugMode ?? result.debugMode,
-          autoConnect: result.soundforgeAutoConnect
+          debugMode: result.sf_debugMode ?? result.debugMode
         });
       });
     })
-  ]).then(([siteSettings, globalSettings]) => ({
-    settings: { ...globalSettings, ...(siteSettings || {}) },
-    hasSiteSettings: !!siteSettings
-  }));
+  ]).then(function(results) {
+    var siteSettings = results[0];
+    var globalSettings = results[1];
+    return {
+      settings: Object.assign({}, globalSettings || {}, (siteSettings || {})),
+      hasSiteSettings: !!siteSettings
+    };
+  });
 }
 
-function normalizePresetPayload(presetId, source = 'background') {
-  const preset = presetId && PRESETS[presetId] ? PRESETS[presetId] : null;
+function normalizePresetPayload(presetId, source) {
+  source = source || 'background';
+  var preset = presetId && PRESETS[presetId] ? PRESETS[presetId] : null;
   if (!preset) return null;
   return {
     preset: presetId,
-    presetData: { ...preset, gains: { ...(preset.gains || {}) } },
-    source
+    presetData: Object.assign({}, preset, { gains: Object.assign({}, preset.gains || {}) }),
+    source: source
   };
 }
 
-const IMPORTABLE_KEYS = new Set([
+// ============================================
+//  КОНСТАНТЫ И УТИЛИТЫ
+// ============================================
+
+var IMPORTABLE_KEYS = new Set([
   'theme', 'eqSettings', 'selectedPreset', 'volumeBoost', 'bassBoost',
   'language', 'savedVolume', 'savedBass', 'userPresets', 'nightMode',
   'powerSaveMode', 'debugMode', 'soundforgeConnected', 'soundforgeAutoConnect',
@@ -367,32 +384,38 @@ const IMPORTABLE_KEYS = new Set([
   'sf_isConnected'
 ]);
 
-const EQ_FREQUENCIES = new Set(['31', '62', '125', '250', '500', '1000', '2000', '4000', '8000', '16000']);
+var EQ_FREQUENCIES = new Set(['31', '62', '125', '250', '500', '1000', '2000', '4000', '8000', '16000']);
 
-function clampFiniteNumber(value, min, max, fallback = 0) {
-  const num = Number(value);
+function clampFiniteNumber(value, min, max, fallback) {
+  fallback = fallback || 0;
+  var num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, num));
 }
 
 function sanitizeGains(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const gains = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!EQ_FREQUENCIES.has(String(key))) continue;
-    gains[key] = clampFiniteNumber(raw, -24, 24, 0);
+  var gains = {};
+  for (var key in value) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      if (!EQ_FREQUENCIES.has(String(key))) continue;
+      gains[key] = clampFiniteNumber(value[key], -12, 12, 0);
+    }
   }
   return gains;
 }
 
 function sanitizeUserPresets(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const result = {};
-  for (const [name, rawPreset] of Object.entries(value).slice(0, 200)) {
+  var result = {};
+  var entries = Object.entries(value).slice(0, 200);
+  for (var i = 0; i < entries.length; i++) {
+    var name = entries[i][0];
+    var rawPreset = entries[i][1];
     if (!name || name.length > 100 || !rawPreset || typeof rawPreset !== 'object') continue;
-    const gains = sanitizeGains(rawPreset.gains) || {};
+    var gains = sanitizeGains(rawPreset.gains) || {};
     result[name] = {
-      gains,
+      gains: gains,
       volume: clampFiniteNumber(rawPreset.volume, 0, 800, 100),
       bass: clampFiniteNumber(rawPreset.bass, -12, 12, 0),
       timestamp: Number.isFinite(Number(rawPreset.timestamp)) ? Number(rawPreset.timestamp) : Date.now()
@@ -406,60 +429,63 @@ function sanitizeImportedSettings(raw) {
     throw new Error('Неверный формат настроек');
   }
 
-  const settings = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (!IMPORTABLE_KEYS.has(key)) continue;
-    switch (key) {
-      case 'eqSettings':
-      case 'sf_eqSettings': {
-        const gains = sanitizeGains(value);
-        if (gains) settings[key] = gains;
-        break;
+  var settings = {};
+  for (var key in raw) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      if (!IMPORTABLE_KEYS.has(key)) continue;
+      var value = raw[key];
+      switch (key) {
+        case 'eqSettings':
+        case 'sf_eqSettings': {
+          var gains = sanitizeGains(value);
+          if (gains) settings[key] = gains;
+          break;
+        }
+        case 'volumeBoost':
+        case 'sf_volumeBoost':
+          settings[key] = clampFiniteNumber(value, 0, 8, 1);
+          break;
+        case 'bassBoost':
+        case 'sf_bassBoost':
+          settings[key] = clampFiniteNumber(value, -12, 12, 0);
+          break;
+        case 'savedVolume':
+        case 'sf_savedVolume':
+          settings[key] = clampFiniteNumber(value, 0, 800, 100);
+          break;
+        case 'savedBass':
+        case 'sf_savedBass':
+          settings[key] = clampFiniteNumber(value, -12, 12, 0);
+          break;
+        case 'selectedPreset':
+        case 'sf_selectedPreset':
+          if (typeof value === 'string' && value.length <= 100) settings[key] = value;
+          break;
+        case 'theme':
+          if (['system', 'light', 'dark'].includes(value)) settings[key] = value;
+          break;
+        case 'language':
+          if (['ru', 'uk', 'en'].includes(value)) settings[key] = value;
+          break;
+        case 'userPresets':
+        case 'sf_userPresets':
+          settings[key] = sanitizeUserPresets(value);
+          break;
+        case 'nightMode':
+        case 'powerSaveMode':
+        case 'debugMode':
+        case 'soundforgeConnected':
+        case 'soundforgeAutoConnect':
+        case 'autoDisableOnSiteChange':
+        case 'sf_nightMode':
+        case 'sf_powerSaveMode':
+        case 'sf_debugMode':
+        case 'sf_isConnected':
+          if (typeof value === 'boolean') settings[key] = value;
+          break;
+        default:
+          break;
       }
-      case 'volumeBoost':
-      case 'sf_volumeBoost':
-        settings[key] = clampFiniteNumber(value, 0, 8, 1);
-        break;
-      case 'bassBoost':
-      case 'sf_bassBoost':
-        settings[key] = clampFiniteNumber(value, -12, 12, 0);
-        break;
-      case 'savedVolume':
-      case 'sf_savedVolume':
-        settings[key] = clampFiniteNumber(value, 0, 800, 100);
-        break;
-      case 'savedBass':
-      case 'sf_savedBass':
-        settings[key] = clampFiniteNumber(value, -12, 12, 0);
-        break;
-      case 'selectedPreset':
-      case 'sf_selectedPreset':
-        if (typeof value === 'string' && value.length <= 100) settings[key] = value;
-        break;
-      case 'theme':
-        if (['system', 'light', 'dark'].includes(value)) settings[key] = value;
-        break;
-      case 'language':
-        if (['ru', 'uk', 'en'].includes(value)) settings[key] = value;
-        break;
-      case 'userPresets':
-      case 'sf_userPresets':
-        settings[key] = sanitizeUserPresets(value);
-        break;
-      case 'nightMode':
-      case 'powerSaveMode':
-      case 'debugMode':
-      case 'soundforgeConnected':
-      case 'soundforgeAutoConnect':
-      case 'autoDisableOnSiteChange':
-      case 'sf_nightMode':
-      case 'sf_powerSaveMode':
-      case 'sf_debugMode':
-      case 'sf_isConnected':
-        if (typeof value === 'boolean') settings[key] = value;
-        break;
-      default:
-        break;
     }
   }
   return settings;
@@ -470,16 +496,18 @@ function sanitizeImportedSettings(raw) {
 // ============================================
 
 const ALL_PRESETS_ORDER = [
-  'flat', 'natural', 'universal', 'balanced', 'club',
-  'dance', 'edm', 'synthwave', 'deephouse', 'festival',
-  'rock', 'metal', 'hardrock', 'grunge', 'vocal',
-  'podcast', 'speech', 'rap', 'acoustic', 'piano',
-  'orchestra', 'classical', 'jazz', 'headphones', 'car',
-  'night', 'bassboost', 'pop', 'kpop', 'world',
-  'ambient', 'wave', 'phonk', 'hiphop', 'soul',
-  'blues', 'reggae', 'chill', 'lofi', 'sunset',
-  'logitech', 'maxboost', 'gaming', 'movie', 'fps',
-  'hifi', 'studio', 'premium', 'master', 'clarity'
+  'flat', 'natural', 'universal', 'balanced',
+  'club', 'dance', 'edm', 'synthwave', 'deephouse',
+  'rock', 'metal', 'hardrock', 'grunge',
+  'vocal', 'podcast', 'speech', 'rap',
+  'acoustic', 'piano', 'orchestra', 'classical',
+  'headphones', 'car', 'night', 'bassboost',
+  'jazz', 'hiphop', 'soul', 'blues', 'reggae',
+  'sunset', 'chill', 'lofi', 'pop', 'kpop',
+  'world', 'ambient', 'festival', 'clarity',
+  'wave', 'phonk', 'logitech', 'maxboost',
+  'gaming', 'movie', 'fps',
+  'hifi', 'studio', 'premium', 'master'
 ];
 
 // ============================================
@@ -487,25 +515,25 @@ const ALL_PRESETS_ORDER = [
 // ============================================
 
 function restorePersistedConnection(storedUrl, storedSite) {
-  chrome.tabs.query({}, (tabs) => {
-    if (chrome.runtime.lastError || !Array.isArray(tabs)) return;
+  browserAPI.tabs.query({}, function(tabs) {
+    if (browserAPI.runtime.lastError || !Array.isArray(tabs)) return;
 
-    const candidates = tabs.filter((tab) => (
-      tab?.id && tab.url && !isSystemUrl(tab.url) && canInjectScript(tab.url)
-    ));
+    var candidates = tabs.filter(function(tab) {
+      return tab && tab.id && tab.url && !isSystemUrl(tab.url) && canInjectScript(tab.url);
+    });
 
-    const exactMatch = storedUrl
-      ? candidates.find((tab) => tab.url === storedUrl)
+    var exactMatch = storedUrl
+      ? candidates.find(function(tab) { return tab.url === storedUrl; })
       : null;
-    const siteMatch = storedSite
-      ? candidates.find((tab) => getSiteDomain(tab.url) === storedSite)
+    var siteMatch = storedSite
+      ? candidates.find(function(tab) { return getSiteDomain(tab.url) === storedSite; })
       : null;
-    const activeMatch = candidates.find((tab) => tab.active);
-    const target = exactMatch || siteMatch || (!storedUrl && !storedSite ? activeMatch : null);
+    var activeMatch = candidates.find(function(tab) { return tab.active; });
+    var target = exactMatch || siteMatch || (!storedUrl && !storedSite ? activeMatch : null);
 
-    if (!target?.id) return;
+    if (!target || !target.id) return;
 
-    const session = getTabSession(target.id);
+    var session = getTabSession(target.id);
     session.shouldReconnect = true;
     session.lastUrl = target.url;
     state.currentTabId = target.id;
@@ -514,11 +542,11 @@ function restorePersistedConnection(storedUrl, storedSite) {
     state.isConnected = false;
     state.active = false;
 
-    setTimeout(() => {
+    setTimeout(function() {
       injectScriptDirectly(target.id);
-      setTimeout(() => {
-        const currentSession = getTabSession(target.id);
-        if (currentSession?.shouldReconnect) {
+      setTimeout(function() {
+        var currentSession = getTabSession(target.id);
+        if (currentSession && currentSession.shouldReconnect) {
           sendMessageToInject(target.id, 'SF_CONNECT');
         }
       }, 1000);
@@ -527,7 +555,7 @@ function restorePersistedConnection(storedUrl, storedSite) {
 }
 
 function loadSavedState() {
-  chrome.storage.local.get([
+  browserAPI.storage.local.get([
     'soundforgeConnected',
     'soundforgeAutoConnect',
     'soundforgeConnectedUrl',
@@ -543,18 +571,18 @@ function loadSavedState() {
     'sf_powerSaveMode',
     'sf_connectedUrl',
     'sf_connectedSite'
-  ], (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn('⚠️ Ошибка загрузки состояния:', chrome.runtime.lastError);
+  ], function(result) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка загрузки состояния:', browserAPI.runtime.lastError);
       return;
     }
 
-    const connectedState = result.soundforgeConnected ?? result.sf_isConnected;
-    const selectedPreset = result.sf_selectedPreset ?? result.selectedPreset;
-    const nightMode = result.sf_nightMode ?? result.nightMode;
-    const powerSaveMode = result.sf_powerSaveMode ?? result.powerSaveMode;
-    const connectedUrl = result.sf_connectedUrl ?? result.soundforgeConnectedUrl ?? null;
-    const connectedSite = result.sf_connectedSite ?? result.soundforgeConnectedSite ?? null;
+    var connectedState = result.soundforgeConnected ?? result.sf_isConnected;
+    var selectedPreset = result.sf_selectedPreset ?? result.selectedPreset;
+    var nightMode = result.sf_nightMode ?? result.nightMode;
+    var powerSaveMode = result.sf_powerSaveMode ?? result.powerSaveMode;
+    var connectedUrl = result.sf_connectedUrl ?? result.soundforgeConnectedUrl ?? null;
+    var connectedSite = result.sf_connectedSite ?? result.soundforgeConnectedSite ?? null;
 
     state.isConnected = false;
     state.active = false;
@@ -595,18 +623,18 @@ function loadSavedState() {
       state._currentPreset = selectedPreset;
     }
 
-    setTimeout(() => {
+    setTimeout(function() {
       updateIcon(false);
     }, 500);
   });
 }
 
 function saveConnectedState(connected) {
-  const session = state.currentTabId ? getTabSession(state.currentTabId) : null;
-  const connectedUrl = connected ? (session?.lastUrl || state._lastUrl || null) : null;
-  const connectedSite = connected ? (getSiteDomain(connectedUrl || '') || state._lastSite || null) : null;
+  var session = state.currentTabId ? getTabSession(state.currentTabId) : null;
+  var connectedUrl = connected ? (session && session.lastUrl ? session.lastUrl : state._lastUrl || null) : null;
+  var connectedSite = connected ? (getSiteDomain(connectedUrl || '') || state._lastSite || null) : null;
 
-  const payload = {
+  var payload = {
     soundforgeConnected: connected,
     soundforgeAutoConnect: state._autoConnectEnabled,
     sf_isConnected: connected,
@@ -617,92 +645,90 @@ function saveConnectedState(connected) {
   };
 
   enqueueStoragePatch('connectionState', payload)
-    .then(() => console.log(`💾 Состояние сохранено: ${connected ? 'ПОДКЛЮЧЕН' : 'ОТКЛЮЧЕН'}`))
-    .catch((error) => console.warn('⚠️ Ошибка сохранения состояния:', error));
+    .then(function() { console.log('💾 Состояние сохранено:', connected ? 'ПОДКЛЮЧЕН' : 'ОТКЛЮЧЕН'); })
+    .catch(function(error) { console.warn('⚠️ Ошибка сохранения состояния:', error); });
 }
 
 loadSavedState();
 
 function safeSendMessage(message) {
   try {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage(message, function(response) {
-        // Игнорируем ошибки
-        if (chrome.runtime && chrome.runtime.lastError) {
-          // Просто логируем в отладку
-        }
-      });
-    } else if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
-      browser.runtime.sendMessage(message).catch(function() {});
-    }
-  } catch (e) {
-    // Игнорируем
-  }
+    browserAPI.runtime.sendMessage(message).catch(function() {});
+  } catch {}
 }
 
 // ============================================
-//  ОБНОВЛЕНИЕ ИКОНКИ
+//  ОБНОВЛЕНИЕ ИКОНКИ (FIREFOX 153 OPTIMIZED)
+//  ПОЛНЫЙ НАБОР: ВСЕ РАЗМЕРЫ ДЛЯ АКТИВНЫХ И ОТКЛЮЧЕННЫХ
 // ============================================
 
 function updateIcon(isActive) {
   try {
-    const iconPath = isActive 
-      ? 'icons/SoundForge.png' 
-      : 'icons/SoundForge-off.png';
+    // Полный набор иконок для всех размеров
+    var iconPath = {
+      16: isActive ? 'icons/SoundForge_16x16.png' : 'icons/SoundForge-off_16x16.png',
+      24: isActive ? 'icons/SoundForge_24x24.png' : 'icons/SoundForge-off_24x24.png',
+      32: isActive ? 'icons/SoundForge_32x32.png' : 'icons/SoundForge-off_32x32.png',
+      48: isActive ? 'icons/SoundForge_48x48.png' : 'icons/SoundForge-off_48x48.png',
+      64: isActive ? 'icons/SoundForge_64x64.png' : 'icons/SoundForge-off_64x64.png',
+      128: isActive ? 'icons/SoundForge_128x128.png' : 'icons/SoundForge-off_128x128.png',
+      256: isActive ? 'icons/SoundForge_256x256.png' : 'icons/SoundForge-off_256x256.png',
+      512: isActive ? 'icons/SoundForge_512x512.png' : 'icons/SoundForge-off_512x512.png',
+      1024: isActive ? 'icons/SoundForge_1024x1024.png' : 'icons/SoundForge-off_1024x1024.png'
+    };
     
-    setTimeout(() => {
-      try {
-        chrome.browserAction.setIcon({
+    // Устанавливаем иконку с полным набором размеров
+    browserAPI.action.setIcon({ path: iconPath }, function() {
+      if (browserAPI.runtime.lastError) {
+        // Fallback: используем основные размеры
+        browserAPI.action.setIcon({
           path: {
-            16: iconPath,
-            48: iconPath,
-            128: iconPath
+            16: isActive ? 'icons/SoundForge_16x16.png' : 'icons/SoundForge-off_16x16.png',
+            48: isActive ? 'icons/SoundForge_48x48.png' : 'icons/SoundForge-off_48x48.png',
+            128: isActive ? 'icons/SoundForge_128x128.png' : 'icons/SoundForge-off_128x128.png'
           }
-        }, () => {
-          if (chrome.runtime.lastError) {}
         });
-      } catch (e) {}
-    }, 100);
+      }
+    });
     
+    // Обновляем badge
     if (isActive) {
-      chrome.browserAction.setBadgeText({ text: '🔊' });
-      chrome.browserAction.setBadgeBackgroundColor({ color: '#4CAF50' });
+      browserAPI.action.setBadgeText({ text: '🔊' });
+      browserAPI.action.setBadgeBackgroundColor({ color: '#4CAF50' });
     } else {
-      chrome.browserAction.setBadgeText({ text: '⛔' });
-      chrome.browserAction.setBadgeBackgroundColor({ color: '#888888' });
+      browserAPI.action.setBadgeText({ text: '⛔' });
+      browserAPI.action.setBadgeBackgroundColor({ color: '#888888' });
     }
-  } catch (e) {}
+  } catch (e) {
+    // Игнорируем ошибки
+  }
 }
 
 // ============================================
-//  ПРОВЕРКА URL
+//  ПРОВЕРКА URL (FIREFOX 153 OPTIMIZED)
 // ============================================
 
 function isSystemUrl(url) {
   if (!url) return true;
-  const lowerUrl = url.toLowerCase();
-  return lowerUrl.startsWith('chrome://') || 
-         lowerUrl.startsWith('edge://') || 
+  var lowerUrl = url.toLowerCase();
+  return lowerUrl.startsWith('about:') ||  
          lowerUrl.startsWith('about:') ||
          lowerUrl.startsWith('devtools://') ||
          lowerUrl === 'about:blank' ||
-         lowerUrl === 'about:empty' ||
-         lowerUrl.startsWith('moz-extension://');
+         lowerUrl === 'about:empty';
 }
 
 function canInjectScript(url) {
   if (!url) return false;
-  const lowerUrl = url.toLowerCase();
+  var lowerUrl = url.toLowerCase();
   
-  if (lowerUrl.startsWith('chrome://') || 
-      lowerUrl.startsWith('edge://') || 
+  if (lowerUrl.startsWith('about:') ||  
       lowerUrl.startsWith('about:') ||
-      lowerUrl.startsWith('devtools://') ||
-      lowerUrl.startsWith('moz-extension://')) {
+      lowerUrl.startsWith('devtools://')) {
     return false;
   }
   
-  if (lowerUrl.startsWith('chrome-extension://')) {
+  if (lowerUrl.startsWith('moz-extension://')) {
     return false;
   }
   
@@ -711,13 +737,11 @@ function canInjectScript(url) {
 
 function canSendMessage(url) {
   if (!url) return false;
-  const lowerUrl = url.toLowerCase();
+  var lowerUrl = url.toLowerCase();
   
-  if (lowerUrl.startsWith('chrome://') || 
-      lowerUrl.startsWith('edge://') || 
+  if (lowerUrl.startsWith('about:') ||  
       lowerUrl.startsWith('about:') ||
-      lowerUrl.startsWith('devtools://') ||
-      lowerUrl.startsWith('moz-extension://')) {
+      lowerUrl.startsWith('devtools://')) {
     return false;
   }
   
@@ -729,41 +753,41 @@ function canSendMessage(url) {
 // ============================================
 
 function findActiveTabWithAudio(callback) {
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    if (chrome.runtime.lastError) {
+  browserAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (browserAPI.runtime.lastError) {
       callback(null);
       return;
     }
 
-    const activeTab = tabs?.[0];
-    const activeSession = activeTab?.id ? getTabSession(activeTab.id) : null;
+    var activeTab = tabs && tabs.length > 0 ? tabs[0] : null;
+    var activeSession = activeTab && activeTab.id ? getTabSession(activeTab.id) : null;
 
-    if (activeTab?.id && activeTab.url && canInjectScript(activeTab.url) && activeSession?.connected) {
+    if (activeTab && activeTab.id && activeTab.url && canInjectScript(activeTab.url) && activeSession && activeSession.connected) {
       callback(activeTab);
       return;
     }
 
-    chrome.tabs.query({}, (allTabs) => {
-      if (chrome.runtime.lastError || !Array.isArray(allTabs)) {
-        callback(activeTab?.url && canInjectScript(activeTab.url) ? activeTab : null);
+    browserAPI.tabs.query({}, function(allTabs) {
+      if (browserAPI.runtime.lastError || !Array.isArray(allTabs)) {
+        callback(activeTab && activeTab.url && canInjectScript(activeTab.url) ? activeTab : null);
         return;
       }
 
-      const currentConnected = state.currentTabId
-        ? allTabs.find((tab) => tab.id === state.currentTabId && canInjectScript(tab.url) && getTabSession(tab.id)?.connected)
+      var currentConnected = state.currentTabId
+        ? allTabs.find(function(tab) { return tab.id === state.currentTabId && canInjectScript(tab.url) && getTabSession(tab.id) && getTabSession(tab.id).connected; })
         : null;
       if (currentConnected) {
         callback(currentConnected);
         return;
       }
 
-      const connectedTab = allTabs.find((tab) => tab.id && canInjectScript(tab.url) && getTabSession(tab.id)?.connected);
+      var connectedTab = allTabs.find(function(tab) { return tab.id && canInjectScript(tab.url) && getTabSession(tab.id) && getTabSession(tab.id).connected; });
       if (connectedTab) {
         callback(connectedTab);
         return;
       }
 
-      if (activeTab?.url && canInjectScript(activeTab.url)) {
+      if (activeTab && activeTab.url && canInjectScript(activeTab.url)) {
         callback(activeTab);
         return;
       }
@@ -774,8 +798,9 @@ function findActiveTabWithAudio(callback) {
 }
 
 function findBestTab(tabs, callback) {
-  for (const tab of tabs) {
-    if (tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('moz-extension://')) {
+  for (var i = 0; i < tabs.length; i++) {
+    var tab = tabs[i];
+    if (tab.url && !tab.url.startsWith('moz-extension://') && !tab.url.startsWith('about:')) {
       if (tab.audible === true) {
         callback(tab);
         return;
@@ -783,16 +808,18 @@ function findBestTab(tabs, callback) {
     }
   }
   
-  for (const tab of tabs) {
-    if (tab.url && tab.url.includes('youtube.com') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('moz-extension://')) {
-      callback(tab);
+  for (var j = 0; j < tabs.length; j++) {
+    var tab2 = tabs[j];
+    if (tab2.url && tab2.url.includes('youtube.com') && !tab2.url.startsWith('moz-extension://')) {
+      callback(tab2);
       return;
     }
   }
   
-  for (const tab of tabs) {
-    if (tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('moz-extension://')) {
-      callback(tab);
+  for (var k = 0; k < tabs.length; k++) {
+    var tab3 = tabs[k];
+    if (tab3.url && !tab3.url.startsWith('moz-extension://') && !tab3.url.startsWith('about:')) {
+      callback(tab3);
       return;
     }
   }
@@ -801,45 +828,49 @@ function findBestTab(tabs, callback) {
 }
 
 // ============================================
-//  ВНЕДРЕНИЕ INJECT.JS
+//  ВНЕДРЕНИЕ INJECT.JS (FIREFOX 153 OPTIMIZED)
 // ============================================
 
 function isInjectLoaded(tabId) {
-  return new Promise((resolve) => {
-    if (!tabId) { resolve(false); return; }
-    chrome.tabs.executeScript(tabId, {
-      code: '!!(window.SoundForgeInject && window._soundforge_loaded)'
-    }, (results) => {
-      if (chrome.runtime.lastError) {
-        const session = getTabSession(tabId);
-        if (session) session.injected = false;
-        delete state._injectedTabs[tabId];
-        resolve(false);
-        return;
-      }
-      const loaded = results?.[0] === true;
-      if (loaded) markTabInjected(tabId);
+  return new Promise(function(resolve) {
+    if (!Number.isInteger(tabId)) { resolve(false); return; }
+    var settled = false;
+    var timer = setTimeout(function() { finish(false); }, 1200);
+    
+    function finish(value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      var session = getTabSession(tabId);
+      if (value) markTabInjected(tabId);
       else {
-        const session = getTabSession(tabId);
         if (session) session.injected = false;
         delete state._injectedTabs[tabId];
       }
-      resolve(loaded);
-    });
+      resolve(value);
+    }
+    
+    try {
+      browserAPI.tabs.sendMessage(tabId, { type: 'SF_PING', data: { source: 'firefox153' } }, function(response) {
+        if (browserAPI.runtime.lastError) { finish(false); return; }
+        finish(response && (response.ready === true || response.status === 'ready' || response.loaded === true));
+      });
+    } catch (_) { finish(false); }
   });
 }
 
-function injectScriptDirectly(tabId, retryCount = 0) {
-  if (!tabId) { if (typeof onResponse === 'function') onResponse(null, new Error('no_tab')); return; }
+function injectScriptDirectly(tabId, retryCount) {
+  retryCount = retryCount || 0;
+  if (!tabId) return;
   
-  chrome.tabs.get(tabId, (tab) => {
-    if (chrome.runtime.lastError) {
-      console.warn(`⚠️ Ошибка получения таба ${tabId}:`, chrome.runtime.lastError);
+  browserAPI.tabs.get(tabId, function(tab) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения таба', tabId, browserAPI.runtime.lastError);
       return;
     }
     
     if (!tab || !tab.url || !canInjectScript(tab.url)) {
-      console.log(`⛔ Пропускаем внедрение: ${tab?.url || 'unknown'}`);
+      console.log('⛔ Пропускаем внедрение:', tab && tab.url ? tab.url : 'unknown');
       return;
     }
     
@@ -847,26 +878,27 @@ function injectScriptDirectly(tabId, retryCount = 0) {
   });
 }
 
-function doInjectScriptDirectly(tabId, retryCount = 0) {
-  const now = Date.now();
+function doInjectScriptDirectly(tabId, retryCount) {
+  retryCount = retryCount || 0;
+  var now = Date.now();
   if (state._failedTabs[tabId]) {
-    const lastFailure = state._failureTimestamps[tabId] || 0;
+    var lastFailure = state._failureTimestamps[tabId] || 0;
     if (now - lastFailure < 30000) {
-      console.log(`⏳ Таб ${tabId} в состоянии ошибки, ожидание 30с`);
+      console.log('⏳ Таб', tabId, 'в состоянии ошибки, ожидание 30с');
       return;
     }
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
   }
   
-  const key = 'tab_' + tabId;
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 2000;
+  var key = 'tab_' + tabId;
+  var MAX_RETRIES = 3;
+  var RETRY_DELAY = 2000;
 
   if (state._injectAttempts[key]) {
-    const elapsed = Date.now() - state._injectAttempts[key].startTime;
+    var elapsed = Date.now() - state._injectAttempts[key].startTime;
     if (elapsed < 3000) {
-      console.log(`⏳ Внедрение уже выполняется (прошло ${elapsed}мс)`);
+      console.log('⏳ Внедрение уже выполняется (прошло', elapsed, 'мс)');
       return;
     } else {
       console.log('🔄 Сброс зависшей попытки внедрения (таймаут)');
@@ -875,16 +907,11 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
   }
 
   if (retryCount >= MAX_RETRIES) {
-    console.error(`❌ Превышен лимит попыток внедрения (${MAX_RETRIES}) для таба ${tabId}`);
+    console.error('❌ Превышен лимит попыток внедрения (', MAX_RETRIES, ') для таба', tabId);
     delete state._injectAttempts[key];
-    const session = getTabSession(tabId);
-    if (session?.connecting) {
-      console.warn(`⏳ Пропускаем преждевременный inject error для handshake tab ${tabId}`);
-      return;
-    }
     state._failedTabs[tabId] = true;
     state._failureTimestamps[tabId] = Date.now();
-    safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
+    safeSendMessage({ action: 'statusUpdate', status: 'error' });
     return;
   }
 
@@ -894,68 +921,42 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
     retryCount: retryCount
   };
 
-  console.log(`📝 Внедряем inject.js (попытка ${retryCount + 1}/${MAX_RETRIES})`);
+  console.log('📝 Внедряем inject.js (попытка', retryCount + 1, '/', MAX_RETRIES, ')');
 
-  isInjectLoaded(tabId).then((loaded) => {
+  isInjectLoaded(tabId).then(function(loaded) {
     if (loaded) {
       console.log('✅ inject.js уже загружен (найден при проверке)');
       delete state._injectAttempts[key];
       return;
     }
 
-    chrome.tabs.executeScript(tabId, {
-      file: 'inject.js'
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.warn(`⚠️ Ошибка внедрения: ${chrome.runtime.lastError.message}`);
-        delete state._injectAttempts[key];
-        state._failedTabs[tabId] = true;
-        state._failureTimestamps[tabId] = Date.now();
-        safeSendMessage({ action: 'statusUpdate', status: 'error' });
-        setTimeout(() => {
-          doInjectScriptDirectly(tabId, retryCount + 1);
-        }, RETRY_DELAY);
-        return;
-      }
+    browserAPI.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['inject.js']
+    })
+    .then(function() {
+      console.log('📝 inject.js внедрен, ждем инициализацию...');
       
-      console.log(`📝 inject.js внедрен, ждем инициализацию...`);
-      
-      let checkCount = 0;
-      const maxChecks = 10;
-      const checkDelay = 300;
+      var checkCount = 0;
+      var maxChecks = 10;
+      var checkDelay = 300;
 
       function checkInjection() {
         checkCount++;
-        
-        chrome.tabs.executeScript(tabId, {
-          code: '!!(window.SoundForgeInject || window._soundforge_loaded)'
-        }, (results) => {
-          if (chrome.runtime.lastError) {
-            console.warn(`⚠️ Ошибка проверки инъекции: ${chrome.runtime.lastError.message}`);
-            delete state._injectAttempts[key];
-            state._failedTabs[tabId] = true;
-            state._failureTimestamps[tabId] = Date.now();
-            safeSendMessage({ action: 'statusUpdate', status: 'error' });
-            setTimeout(() => {
-              doInjectScriptDirectly(tabId, retryCount + 1);
-            }, RETRY_DELAY);
-            return;
-          }
-          
-          const isReady = results && results[0] === true;
-          
+        isInjectLoaded(tabId).then(function(isReady) {
           if (isReady) {
-            console.log(`✅ SoundForgeInject готов (проверка ${checkCount})`);
+            console.log('✅ SoundForgeInject готов (проверка', checkCount, ')');
             markTabInjected(tabId);
             state._connectionAttempts = 0;
             delete state._injectAttempts[key];
             delete state._failedTabs[tabId];
             delete state._failureTimestamps[tabId];
             
-            const session = getTabSession(tabId);
-            if (session?.shouldReconnect) {
-              setTimeout(() => {
-                if (getTabSession(tabId)?.shouldReconnect) {
+            var session = getTabSession(tabId);
+            if (session && session.shouldReconnect) {
+              setTimeout(function() {
+                var currentSession = getTabSession(tabId);
+                if (currentSession && currentSession.shouldReconnect) {
                   sendMessageToInject(tabId, 'SF_CONNECT');
                 }
               }, 500);
@@ -964,28 +965,48 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
             if (tabId === state.currentTabId) {
               safeSendMessage({
                 action: 'statusUpdate',
-                status: session?.connected ? 'connected' : 'disconnected'
+                status: session && session.connected ? 'connected' : 'disconnected'
               });
-              updateIcon(!!session?.connected);
+              updateIcon(!!(session && session.connected));
             }
             
           } else if (checkCount < maxChecks) {
-            console.log(`⏳ Ожидаем инициализацию (проверка ${checkCount}/${maxChecks})...`);
+            console.log('⏳ Ожидаем инициализацию (проверка', checkCount, '/', maxChecks, ')...');
             setTimeout(checkInjection, checkDelay);
           } else {
-            console.warn(`⚠️ Не удалось дождаться инициализации после ${maxChecks} проверок`);
+            console.warn('⚠️ Не удалось дождаться инициализации после', maxChecks, 'проверок');
             delete state._injectAttempts[key];
             state._failedTabs[tabId] = true;
             state._failureTimestamps[tabId] = Date.now();
             safeSendMessage({ action: 'statusUpdate', status: 'error' });
-            setTimeout(() => {
+            setTimeout(function() {
               doInjectScriptDirectly(tabId, retryCount + 1);
             }, RETRY_DELAY);
           }
+        })
+        .catch(function(err) {
+          console.warn('⚠️ Ошибка проверки инъекции:', err.message);
+          delete state._injectAttempts[key];
+          state._failedTabs[tabId] = true;
+          state._failureTimestamps[tabId] = Date.now();
+          safeSendMessage({ action: 'statusUpdate', status: 'error' });
+          setTimeout(function() {
+            doInjectScriptDirectly(tabId, retryCount + 1);
+          }, RETRY_DELAY);
         });
       }
 
       setTimeout(checkInjection, 500);
+    })
+    .catch(function(err) {
+      console.warn('⚠️ Ошибка внедрения:', err.message);
+      delete state._injectAttempts[key];
+      state._failedTabs[tabId] = true;
+      state._failureTimestamps[tabId] = Date.now();
+      safeSendMessage({ action: 'statusUpdate', status: 'error' });
+      setTimeout(function() {
+        doInjectScriptDirectly(tabId, retryCount + 1);
+      }, RETRY_DELAY);
     });
   });
 }
@@ -994,60 +1015,57 @@ function doInjectScriptDirectly(tabId, retryCount = 0) {
 //  ОТПРАВКА СООБЩЕНИЙ В INJECT
 // ============================================
 
-function sendMessageToInject(tabId, type, data, onResponse) {
+function sendMessageToInject(tabId, type, data) {
   if (!tabId) return;
   
   if (state._failedTabs[tabId]) {
-    console.log(`⏳ Таб ${tabId} в состоянии ошибки, пропускаем отправку ${type}`);
-    if (typeof onResponse === 'function') onResponse(null, new Error('failed_tab'));
+    console.log('⏳ Таб', tabId, 'в состоянии ошибки, пропускаем отправку', type);
     return;
   }
   
-  chrome.tabs.get(tabId, (tab) => {
-    if (chrome.runtime.lastError) {
-      console.warn(`⚠️ Ошибка получения таба ${tabId}:`, chrome.runtime.lastError);
+  browserAPI.tabs.get(tabId, function(tab) {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Ошибка получения таба', tabId, browserAPI.runtime.lastError);
       return;
     }
     
     if (!tab || !tab.url) {
-      console.log(`⛔ Нет URL для таба ${tabId}`);
+      console.log('⛔ Нет URL для таба', tabId);
       return;
     }
     
-    if (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://')) {
-      console.log(`⏳ Страница расширения, пропускаем отправку ${type}`);
+    if (tab.url.startsWith('moz-extension://')) {
+      console.log('⏳ Страница расширения, пропускаем отправку', type);
       return;
     }
     
     if (!canSendMessage(tab.url)) {
-      console.log(`⛔ Пропускаем отправку ${type} на: ${tab.url}`);
+      console.log('⛔ Пропускаем отправку', type, 'на:', tab.url);
       return;
     }
     
-    doSendMessageToInject(tabId, type, data, onResponse);
+    doSendMessageToInject(tabId, type, data);
   });
 }
 
-function doSendMessageToInject(tabId, type, data, onResponse) {
-  isInjectLoaded(tabId).then((loaded) => {
+function doSendMessageToInject(tabId, type, data) {
+  isInjectLoaded(tabId).then(function(loaded) {
     if (!loaded) {
-      console.log(`⏳ inject.js не загружен, внедряем для отправки ${type}`);
+      console.log('⏳ inject.js не загружен, внедряем для отправки', type);
       injectScriptDirectly(tabId);
-      setTimeout(() => sendMessageToInject(tabId, type, data, onResponse), 700);
+      setTimeout(function() { sendMessageToInject(tabId, type, data); }, 700);
       return;
     }
 
-    chrome.tabs.sendMessage(tabId, { type, data: data || {} }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn(`⚠️ Ошибка отправки сообщения ${type}:`, chrome.runtime.lastError.message);
-        const session = getTabSession(tabId);
+    browserAPI.tabs.sendMessage(tabId, { type: type, data: data || {} }, function(response) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка отправки сообщения', type, browserAPI.runtime.lastError.message);
+        var session = getTabSession(tabId);
         if (session) session.injected = false;
         delete state._injectedTabs[tabId];
-        if (typeof onResponse === 'function') onResponse(null, chrome.runtime.lastError);
         return;
       }
-      if (response?.ok === false) console.warn(`⚠️ Inject отклонил ${type}:`, response.error);
-      if (typeof onResponse === 'function') onResponse(response || null, null);
+      if (response && response.ok === false) console.warn('⚠️ Inject отклонил', type, response.error);
     });
   });
 }
@@ -1058,12 +1076,69 @@ function doSendMessageToInject(tabId, type, data, onResponse) {
 
 function getSpectrumFromInject(tabId) {
   if (!tabId || state._failedTabs[tabId]) return;
-  chrome.tabs.sendMessage(tabId, { type: 'SF_GET_SPECTRUM', data: {} }, () => {
-    if (chrome.runtime.lastError) {
-      const session = getTabSession(tabId);
+  browserAPI.tabs.sendMessage(tabId, { type: 'SF_GET_SPECTRUM', data: {} }, function() {
+    if (browserAPI.runtime.lastError) {
+      var session = getTabSession(tabId);
       if (session) session.injected = false;
       delete state._injectedTabs[tabId];
     }
+  });
+}
+
+// ============================================
+//  ГЛОБАЛЬНЫЙ TAB MUTE ДЛЯ 0% ГРОМКОСТИ
+// ============================================
+
+function setTabVolumeMute(tabId, shouldMute) {
+  if (!tabId) return;
+
+  var opId = (state._tabMuteOps[tabId] || 0) + 1;
+  state._tabMuteOps[tabId] = opId;
+
+  if (shouldMute) {
+    var record = state._tabMuteStates[tabId] || {
+      originalMuted: null,
+      active: false
+    };
+    record.active = true;
+    state._tabMuteStates[tabId] = record;
+
+    browserAPI.tabs.get(tabId, function(tab) {
+      if (browserAPI.runtime.lastError || !tab) return;
+
+      var current = state._tabMuteStates[tabId];
+      if (!current) return;
+      if (current.originalMuted === null) {
+        current.originalMuted = !!(tab.mutedInfo && tab.mutedInfo.muted);
+      }
+
+      if (state._tabMuteOps[tabId] !== opId || !current.active) return;
+
+      browserAPI.tabs.update(tabId, { muted: true }, function() {
+        if (browserAPI.runtime.lastError) {
+          console.warn('⚠️ Не удалось заглушить вкладку', tabId, browserAPI.runtime.lastError.message);
+          return;
+        }
+        console.log('🔇 Вкладка', tabId, 'полностью заглушена: SoundForge 0%');
+      });
+    });
+    return;
+  }
+
+  var record = state._tabMuteStates[tabId];
+  if (!record) return;
+  record.active = false;
+  delete state._tabMuteStates[tabId];
+
+  if (record.originalMuted === null) return;
+
+  var originalMuted = !!record.originalMuted;
+  browserAPI.tabs.update(tabId, { muted: originalMuted }, function() {
+    if (browserAPI.runtime.lastError) {
+      console.warn('⚠️ Не удалось восстановить mute вкладки', tabId, browserAPI.runtime.lastError.message);
+      return;
+    }
+    console.log('🔊 Состояние mute вкладки', tabId, 'восстановлено:', originalMuted ? 'muted' : 'unmuted');
   });
 }
 
@@ -1073,7 +1148,7 @@ function getSpectrumFromInject(tabId) {
 
 function notifyWindows(message) {
   try {
-    chrome.runtime.sendMessage(message);
+    browserAPI.runtime.sendMessage(message);
   } catch (e) {}
 }
 
@@ -1082,39 +1157,35 @@ function notifyWindows(message) {
 // ============================================
 
 function nextPreset() {
-  const currentPreset = state._currentPreset || 'flat';
-  let currentIndex = ALL_PRESETS_ORDER.indexOf(currentPreset);
+  var currentPreset = state._currentPreset || 'flat';
+  var currentIndex = ALL_PRESETS_ORDER.indexOf(currentPreset);
   if (currentIndex === -1) currentIndex = 0;
-
-  const nextIndex = (currentIndex + 1) % ALL_PRESETS_ORDER.length;
-  const nextPresetName = ALL_PRESETS_ORDER[nextIndex];
-
-  console.log(`🔄 Следующий пресет: ${currentPreset} → ${nextPresetName}`);
-
+  var nextIndex = (currentIndex + 1) % ALL_PRESETS_ORDER.length;
+  var nextPresetName = ALL_PRESETS_ORDER[nextIndex];
+  
+  console.log('🔄 Следующий пресет:', currentPreset, '→', nextPresetName);
+  
   state._currentPreset = nextPresetName;
-  chrome.storage.local.set({ selectedPreset: nextPresetName });
-
-  findActiveTabWithAudio((tab) => {
-    if (!tab) return;
-
-    const payload = normalizePresetPayload(nextPresetName, 'hotkey');
-    if (!payload) return;
-
-    sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
-
-    notifyWindows({
-      action: 'presetChanged',
-      preset: nextPresetName,
-      presetData: payload.presetData || null,
-      source: 'hotkey',
-      tabId: tab.id,
-      uiOnly: true
-    });
+  browserAPI.storage.local.set({ selectedPreset: nextPresetName });
+  
+  findActiveTabWithAudio(function(tab) {
+    if (tab) {
+      var payload = normalizePresetPayload(nextPresetName, 'hotkey');
+      if (payload) sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
+    }
   });
-
+  
+  notifyWindows({ 
+    action: 'presetChanged', 
+    preset: nextPresetName,
+    source: 'hotkey',
+    uiOnly: true
+  });
+  
   addHistoryEntry('preset_applied', { preset: nextPresetName }, { source: 'hotkey' });
-  showNotification('🎵 SoundForge', `Пресет: ${nextPresetName}`, 'info');
-
+  
+  showNotification('🎵 SoundForge', 'Пресет: ' + nextPresetName, 'info');
+  
   return nextPresetName;
 }
 
@@ -1125,23 +1196,23 @@ function nextPreset() {
 function checkRealConnectionStatus(tabId) {
   if (!tabId || state._failedTabs[tabId]) return;
 
-  const session = getTabSession(tabId);
-  chrome.tabs.sendMessage(tabId, { type: 'SF_PING', data: {} }, (response) => {
-    if (chrome.runtime.lastError) {
+  var session = getTabSession(tabId);
+  browserAPI.tabs.sendMessage(tabId, { type: 'SF_PING', data: {} }, function(response) {
+    if (browserAPI.runtime.lastError) {
       session.injected = false;
       session.connected = false;
       delete state._injectedTabs[tabId];
       if (session.shouldReconnect) {
-        setTimeout(() => {
+        setTimeout(function() {
           injectScriptDirectly(tabId);
-          setTimeout(() => sendMessageToInject(tabId, 'SF_CONNECT'), 1000);
+          setTimeout(function() { sendMessageToInject(tabId, 'SF_CONNECT'); }, 1000);
         }, 500);
       }
       return;
     }
 
-    session.injected = !!response?.ready;
-    session.connected = !!response?.active;
+    session.injected = !!(response && response.ready);
+    session.connected = !!(response && response.active);
     session.lastSeen = Date.now();
     session.lastStatus = session.connected ? 'connected' : 'disconnected';
     if (session.injected) markTabInjected(tabId);
@@ -1160,11 +1231,15 @@ function checkRealConnectionStatus(tabId) {
   });
 }
 
-chrome.webNavigation.onCompleted.addListener((details) => {
+// ============================================
+//  NAVIGATION EVENTS (FIREFOX 153 OPTIMIZED)
+// ============================================
+
+browserAPI.webNavigation.onCompleted.addListener(function(details) {
   if (details.frameId === 0 && details.url) {
     console.log('🌐 Сайт загружен:', details.url);
-    const session = getTabSession(details.tabId);
-    const shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
+    var session = getTabSession(details.tabId);
+    var shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
     invalidateTabRuntime(details.tabId, 'navigation');
     session.shouldReconnect = shouldReconnect;
     session.lastUrl = details.url;
@@ -1174,15 +1249,15 @@ chrome.webNavigation.onCompleted.addListener((details) => {
       return;
     }
     
-    const currentSite = getSiteDomain(details.url);
-    const previousSite = state._lastSiteByTab[details.tabId] || null;
-    const siteChanged = !!(currentSite && previousSite && previousSite !== currentSite);
+    var currentSite = getSiteDomain(details.url);
+    var previousSite = state._lastSiteByTab[details.tabId] || null;
+    var siteChanged = !!(currentSite && previousSite && previousSite !== currentSite);
 
     state._lastSiteByTab[details.tabId] = currentSite;
     state._lastSite = currentSite;
-    chrome.storage.local.set({ lastSite: currentSite }, () => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка сохранения lastSite:', chrome.runtime.lastError);
+    browserAPI.storage.local.set({ lastSite: currentSite }, function() {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка сохранения lastSite:', browserAPI.runtime.lastError);
       }
     });
     
@@ -1191,20 +1266,20 @@ chrome.webNavigation.onCompleted.addListener((details) => {
       delete state._failureTimestamps[details.tabId];
     }
 
-    loadSiteSettings(details.url).then((settings) => {
+    loadSiteSettings(details.url).then(function(settings) {
       if (settings) {
         if (settings.gains) sendMessageToInject(details.tabId, 'SF_UPDATE_EQ', { gains: settings.gains, instant: true });
         if (settings.volume !== undefined) sendMessageToInject(details.tabId, 'SF_SET_VOLUME', { value: settings.volume });
         if (settings.bass !== undefined) sendMessageToInject(details.tabId, 'SF_SET_BASS', { value: settings.bass });
         if (settings.preset) {
-          const payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
+          var payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
           if (payload) sendMessageToInject(details.tabId, 'SF_APPLY_PRESET', payload);
         }
       }
 
-      chrome.storage.local.get(['autoDisableOnSiteChange'], (result) => {
-        const autoDisable = chrome.runtime.lastError ? true : result.autoDisableOnSiteChange !== false;
-        const tabSession = getTabSession(details.tabId);
+      browserAPI.storage.local.get(['autoDisableOnSiteChange'], function(result) {
+        var autoDisable = browserAPI.runtime.lastError ? true : result.autoDisableOnSiteChange !== false;
+        var tabSession = getTabSession(details.tabId);
         if (siteChanged && autoDisable && shouldReconnect) {
           tabSession.shouldReconnect = false;
           tabSession.connected = false;
@@ -1221,9 +1296,9 @@ chrome.webNavigation.onCompleted.addListener((details) => {
 
         if (shouldReconnect && (!siteChanged || !autoDisable)) {
           tabSession.shouldReconnect = true;
-          setTimeout(() => {
+          setTimeout(function() {
             injectScriptDirectly(details.tabId);
-            setTimeout(() => {
+            setTimeout(function() {
               sendMessageToInject(details.tabId, 'SF_CONNECT');
             }, 1000);
           }, 1000);
@@ -1231,17 +1306,17 @@ chrome.webNavigation.onCompleted.addListener((details) => {
       });
     });
     
-    setTimeout(() => {
+    setTimeout(function() {
       checkRealConnectionStatus(details.tabId);
     }, 2000);
   }
 });
 
-chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
+browserAPI.webNavigation.onHistoryStateUpdated.addListener(function(details) {
   if (details.frameId === 0 && details.url) {
     console.log('🔄 SPA навигация:', details.url);
-    const session = getTabSession(details.tabId);
-    const shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
+    var session = getTabSession(details.tabId);
+    var shouldReconnect = !!(session.connected || session.shouldReconnect || (state.currentTabId === details.tabId && state.isConnected));
     invalidateTabRuntime(details.tabId, 'history_navigation');
     session.shouldReconnect = shouldReconnect;
     state._lastUrl = details.url;
@@ -1254,9 +1329,9 @@ chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
     }
     
     if (shouldReconnect) {
-      setTimeout(() => {
+      setTimeout(function() {
         injectScriptDirectly(details.tabId);
-        setTimeout(() => {
+        setTimeout(function() {
           sendMessageToInject(details.tabId, 'SF_RECONNECT');
         }, 1000);
       }, 1000);
@@ -1264,35 +1339,35 @@ chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
   }
 });
 
-chrome.tabs.onActivated.addListener((activeInfo) => {
-  chrome.tabs.get(activeInfo.tabId, (tab) => {
-    if (chrome.runtime.lastError) return;
+browserAPI.tabs.onActivated.addListener(function(activeInfo) {
+  browserAPI.tabs.get(activeInfo.tabId, function(tab) {
+    if (browserAPI.runtime.lastError) return;
     if (tab && tab.url) {
       console.log('🌐 Вкладка активирована:', tab.url);
       state.currentTabId = tab.id;
-      const session = getTabSession(tab.id);
-      state.isConnected = !!session.connected;
+      var session = getTabSession(tab.id);
+      state.isConnected = !!(session && session.connected);
       state._lastUrl = tab.url;
       
       if (isSystemUrl(tab.url)) return;
       
-      if (session.shouldReconnect) {
-        setTimeout(() => {
+      if (session && session.shouldReconnect) {
+        setTimeout(function() {
           injectScriptDirectly(tab.id);
-          setTimeout(() => {
+          setTimeout(function() {
             sendMessageToInject(tab.id, 'SF_CONNECT');
           }, 1000);
         }, 500);
       }
       
-      setTimeout(() => {
+      setTimeout(function() {
         checkRealConnectionStatus(tab.id);
       }, 1000);
     }
   });
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+browserAPI.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
   if (changeInfo.status === 'loading') invalidateTabRuntime(tabId, 'tab_loading');
   if (changeInfo.url) {
     console.log('🔄 URL изменен:', changeInfo.url);
@@ -1305,11 +1380,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       delete state._failureTimestamps[tabId];
     }
     
-    const session = getTabSession(tabId);
-    if (session.shouldReconnect) {
-      setTimeout(() => {
+    var session = getTabSession(tabId);
+    if (session && session.shouldReconnect) {
+      setTimeout(function() {
         injectScriptDirectly(tabId);
-        setTimeout(() => {
+        setTimeout(function() {
           sendMessageToInject(tabId, 'SF_CONNECT');
         }, 1000);
       }, 1000);
@@ -1317,11 +1392,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+browserAPI.tabs.onRemoved.addListener(function(tabId) {
   delete state._tabSessions[tabId];
   delete state._documentTokens[tabId];
   delete state._lastSiteByTab[tabId];
-  delete state._tabMuteStates[String(tabId)];
+  delete state._tabMuteStates[tabId];
+  delete state._tabMuteOps[tabId];
   if (tabId === state.currentTabId) {
     console.log('🔴 Вкладка закрыта');
     state.currentTabId = null;
@@ -1335,14 +1411,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 //  СОХРАНЕНИЕ ID ОКНА
 // ============================================
 
-chrome.windows.onCreated.addListener((window) => {
+browserAPI.windows.onCreated.addListener(function(window) {
   if (window.type === 'popup' && window.url && window.url.includes('window.html')) {
     state._windowId = window.id;
     console.log('🪟 Окно открыто, ID:', window.id);
   }
 });
 
-chrome.windows.onRemoved.addListener((windowId) => {
+browserAPI.windows.onRemoved.addListener(function(windowId) {
   if (windowId === state._windowId) {
     state._windowId = null;
     console.log('🪟 Окно закрыто');
@@ -1350,11 +1426,11 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 
 // ============================================
-//  ГОРЯЧИЕ КЛАВИШИ (4 команды)
+//  ГОРЯЧИЕ КЛАВИШИ (4 команды) (FIREFOX 153 OPTIMIZED)
 // ============================================
 
-chrome.commands.onCommand.addListener((command) => {
-  console.log(`⌨️ Горячая клавиша: ${command}`);
+browserAPI.commands.onCommand.addListener(function(command) {
+  console.log('⌨️ Горячая клавиша:', command);
   
   switch (command) {
     case 'toggle_eq':
@@ -1367,19 +1443,19 @@ chrome.commands.onCommand.addListener((command) => {
       resetAllSettings();
       break;
     default:
-      console.log(`⚠️ Неизвестная команда: ${command}`);
+      console.log('⚠️ Неизвестная команда:', command);
   }
 });
 
 function toggleEqualizer() {
-  findActiveTabWithAudio((tab) => {
+  findActiveTabWithAudio(function(tab) {
     if (!tab) {
       console.log('⛔ Нет доступной вкладки с аудио');
       return;
     }
-    const tabId = tab.id;
+    var tabId = tab.id;
     
-    const session = getTabSession(tabId);
+    var session = getTabSession(tabId);
     if (session.connected) {
       session.connected = false;
       session.shouldReconnect = false;
@@ -1405,7 +1481,7 @@ function toggleEqualizer() {
       saveConnectedState(true);
       updateIcon(false);
       injectScriptDirectly(tabId);
-      setTimeout(() => {
+      setTimeout(function() {
         sendMessageToInject(tabId, 'SF_CONNECT');
       }, 1000);
       safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
@@ -1416,12 +1492,12 @@ function toggleEqualizer() {
 }
 
 function resetAllSettings() {
-  chrome.runtime.sendMessage({ action: 'reset', fullReset: true });
+  browserAPI.runtime.sendMessage({ action: 'reset', fullReset: true });
 
-  const currentSession = state.currentTabId ? getTabSession(state.currentTabId) : null;
-  const wasConnected = !!currentSession?.connected;
+  var currentSession = state.currentTabId ? getTabSession(state.currentTabId) : null;
+  var wasConnected = !!(currentSession && currentSession.connected);
 
-  const resetData = {
+  var resetData = {
     eqSettings: {
       31: 0, 62: 0, 125: 0, 250: 0, 500: 0,
       1000: 0, 2000: 0, 4000: 0, 8000: 0, 16000: 0
@@ -1450,7 +1526,7 @@ function resetAllSettings() {
   };
 
   enqueueStoragePatch('appSettingsReset', resetData)
-    .then(() => {
+    .then(function() {
       state.isConnected = wasConnected;
       state._autoConnectEnabled = wasConnected;
       state._nightMode = false;
@@ -1462,7 +1538,7 @@ function resetAllSettings() {
       notifyWindows({ action: 'settingsReset' });
       showNotification('🔄 SoundForge', 'Настройки сброшены без удаления пользовательских данных', 'warning');
     })
-    .catch((error) => {
+    .catch(function(error) {
       console.warn('⚠️ Ошибка сброса настроек:', error);
     });
 }
@@ -1471,31 +1547,32 @@ function resetAllSettings() {
 //  ИСТОРИЯ
 // ============================================
 
-function addHistoryEntry(action, data, metadata = {}) {
-  const entry = {
+function addHistoryEntry(action, data, metadata) {
+  metadata = metadata || {};
+  var entry = {
     id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: Date.now(),
-    action,
-    data,
-    metadata,
+    action: action,
+    data: data || {},
+    metadata: metadata,
     url: metadata.url || '',
     site: metadata.site || state._lastSite || ''
   };
-  return enqueueStorageMutation('settingsHistory', (existing) => {
-    const history = Array.isArray(existing) ? existing.slice() : [];
+  return enqueueStorageMutation('settingsHistory', function(existing) {
+    var history = Array.isArray(existing) ? existing.slice() : [];
     history.push(entry);
     return history.slice(-1000);
-  }).then((history) => {
+  }).then(function(history) {
     state._history = history;
     return history;
   });
 }
 
 function getHistory() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['settingsHistory'], (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка получения settingsHistory:', chrome.runtime.lastError);
+  return new Promise(function(resolve) {
+    browserAPI.storage.local.get(['settingsHistory'], function(result) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения settingsHistory:', browserAPI.runtime.lastError);
         resolve([]);
         return;
       }
@@ -1506,11 +1583,11 @@ function getHistory() {
 
 function clearHistory() {
   enqueueStoragePatch('settingsHistory', { settingsHistory: [] })
-    .then(() => {
+    .then(function() {
       state._history = [];
       console.log('🗑️ История очищена');
     })
-    .catch((error) => console.warn('⚠️ Ошибка очистки истории:', error));
+    .catch(function(error) { console.warn('⚠️ Ошибка очистки истории:', error); });
 }
 
 // ============================================
@@ -1519,7 +1596,7 @@ function clearHistory() {
 
 function toggleNightMode() {
   state._nightMode = !state._nightMode;
-  enqueueStoragePatch('globalModes', { nightMode: state._nightMode, sf_nightMode: state._nightMode }).catch((error) => console.warn('⚠️ Ошибка сохранения nightMode:', error));
+  enqueueStoragePatch('globalModes', { nightMode: state._nightMode, sf_nightMode: state._nightMode }).catch(function(error) { console.warn('⚠️ Ошибка сохранения nightMode:', error); });
   
   if (state._nightMode) {
     state._nightModeStartTime = Date.now();
@@ -1531,7 +1608,7 @@ function toggleNightMode() {
     showNotification('☀️ SoundForge', 'Ночной режим выключен', 'info');
   }
   
-  findActiveTabWithAudio((tab) => {
+  findActiveTabWithAudio(function(tab) {
     if (tab) {
       sendMessageToInject(tab.id, 'SF_SET_NIGHT_MODE', { enabled: state._nightMode });
     }
@@ -1552,7 +1629,7 @@ function getNightMode() {
 
 function togglePowerSave() {
   state._powerSaveMode = !state._powerSaveMode;
-  enqueueStoragePatch('globalModes', { powerSaveMode: state._powerSaveMode, sf_powerSaveMode: state._powerSaveMode }).catch((error) => console.warn('⚠️ Ошибка сохранения powerSaveMode:', error));
+  enqueueStoragePatch('globalModes', { powerSaveMode: state._powerSaveMode, sf_powerSaveMode: state._powerSaveMode }).catch(function(error) { console.warn('⚠️ Ошибка сохранения powerSaveMode:', error); });
   
   if (state._powerSaveMode) {
     console.log('⚡ Режим энергосбережения включен');
@@ -1562,9 +1639,9 @@ function togglePowerSave() {
     showNotification('⚡ SoundForge', 'Режим энергосбережения выключен', 'info');
   }
   
-  findActiveTabWithAudio((tab) => {
+  findActiveTabWithAudio(function(tab) {
     if (tab) {
-      const interval = state._powerSaveMode ? 5000 : 80;
+      var interval = state._powerSaveMode ? 5000 : 80;
       sendMessageToInject(tab.id, 'SF_SET_POWER_SAVE', { 
         enabled: state._powerSaveMode,
         interval: interval 
@@ -1582,30 +1659,23 @@ function getPowerSave() {
 }
 
 // ============================================
-//  УВЕДОМЛЕНИЯ
+//  УВЕДОМЛЕНИЯ (FIREFOX 153 OPTIMIZED)
 // ============================================
 
-function showNotification(title, message, type = 'info') {
+function showNotification(title, message, type) {
+  type = type || 'info';
   try {
-    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') !== -1;
-    const options = {
+    browserAPI.notifications.create({
       type: 'basic',
-      iconUrl: 'icons/SoundForge.png',
+      iconUrl: 'icons/SoundForge_128x128.png',
       title: title,
       message: message,
       priority: 1
-    };
-    
-    // Firefox не поддерживает buttons
-    if (!isFirefox) {
-      options.buttons = [{ title: 'OK' }];
-    }
-    
-    chrome.notifications.create(options, (notificationId) => {
-      if (chrome.runtime.lastError) {}
+    }, function(notificationId) {
+      if (browserAPI.runtime.lastError) {}
     });
   } catch (e) {
-    console.log(`📢 ${title}: ${message}`);
+    console.log('📢', title, ':', message);
   }
 }
 
@@ -1614,18 +1684,18 @@ function showNotification(title, message, type = 'info') {
 // ============================================
 
 function checkNightModeAuto() {
-  const now = new Date();
-  const hours = now.getHours();
-  const isNight = hours >= 22 || hours < 7;
+  var now = new Date();
+  var hours = now.getHours();
+  var isNight = hours >= 22 || hours < 7;
   
   try {
-    chrome.storage.local.get(['nightModeAuto'], (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка получения nightModeAuto:', chrome.runtime.lastError);
+    browserAPI.storage.local.get(['nightModeAuto'], function(result) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка получения nightModeAuto:', browserAPI.runtime.lastError);
         return;
       }
       
-      const autoMode = result.nightModeAuto !== false;
+      var autoMode = result.nightModeAuto !== false;
       
       if (autoMode) {
         if (isNight && !state._nightMode) {
@@ -1643,30 +1713,74 @@ function checkNightModeAuto() {
 }
 
 // ============================================
-//  ОБРАБОТЧИК СООБЩЕНИЙ
+//  ОБРАБОТЧИК СООБЩЕНИЙ (FIREFOX 153 OPTIMIZED)
 // ============================================
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('📨 Получено сообщение:', request.action);
+browserAPI.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  if (request.action !== 'spectrumData') {
+    console.log('📨 Получено сообщение:', request.action);
+  }
+
+  if (request.action === 'registerSpectrumListener') {
+    var clientId = String(request.clientId || request.source || 'ui');
+    state._spectrumClients.add(clientId);
+    if (state.currentTabId) sendMessageToInject(state.currentTabId, 'SF_SET_SPECTRUM_ACTIVE', { enabled: true });
+    sendResponse({ status: 'ok', listeners: state._spectrumClients.size });
+    return true;
+  }
+
+  if (request.action === 'unregisterSpectrumListener') {
+    var clientId = String(request.clientId || request.source || 'ui');
+    state._spectrumClients.delete(clientId);
+    if (state._spectrumClients.size === 0 && state.currentTabId) {
+      sendMessageToInject(state.currentTabId, 'SF_SET_SPECTRUM_ACTIVE', { enabled: false });
+    }
+    sendResponse({ status: 'ok', listeners: state._spectrumClients.size });
+    return true;
+  }
+
+  // ============================================
+  //  0% = MUTE ВСЕЙ ВКЛАДКИ
+  // ============================================
+  if (request.action === 'setTabVolumeMute') {
+    var tabId = (sender && sender.tab && sender.tab.id) || request.tabId || state.currentTabId;
+    setTabVolumeMute(tabId, request.muted === true);
+    sendResponse({ status: 'ok', tabId: tabId || null, muted: request.muted === true });
+    return true;
+  }
+
+  // ============================================
+  //  EFFECT SYNC: POPUP <-> WINDOW
+  // ============================================
+  if (request.action === 'effectChanged' && ['spectrum', 'waves', 'fire', 'neon'].includes(request.effect)) {
+    state._currentEffect = request.effect;
+    notifyWindows({
+      action: 'effectChanged',
+      effect: request.effect,
+      source: request.source || 'extension'
+    });
+    sendResponse({ status: 'ok', effect: request.effect });
+    return true;
+  }
 
   // ============================================
   //  FULLSCREEN: RESIZE WINDOW (Firefox)
   // ============================================
   if (request.action === 'resize_window') {
     console.log('🪟 Resizing window:', request.width, 'x', request.height);
-    chrome.windows.getCurrent({}, (win) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+    browserAPI.windows.getCurrent({}, function(win) {
+      if (browserAPI.runtime.lastError) {
+        sendResponse({ status: 'error', message: browserAPI.runtime.lastError.message });
         return;
       }
-      chrome.windows.update(win.id, {
+      browserAPI.windows.update(win.id, {
         width: request.width,
         height: request.height,
         left: request.left || 0,
         top: request.top || 0
-      }, () => {
-        if (chrome.runtime.lastError) {
-          sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+      }, function() {
+        if (browserAPI.runtime.lastError) {
+          sendResponse({ status: 'error', message: browserAPI.runtime.lastError.message });
         } else {
           sendResponse({ status: 'ok' });
         }
@@ -1677,16 +1791,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'open_window') {
     console.log('🪟 Открываем окно эквалайзера');
-    chrome.windows.create({
-      url: chrome.runtime.getURL('window.html'),
+    browserAPI.windows.create({
+      url: browserAPI.runtime.getURL('window.html'),
       type: 'popup',
-      width: 500,
-      height: 750,
-      top: 100,
-      left: 100
-    }, (window) => {
-      if (chrome.runtime.lastError) {
-        console.warn('⚠️ Ошибка открытия окна:', chrome.runtime.lastError);
+      width: 560,
+      height: 820,
+      focused: true
+    }, function(window) {
+      if (browserAPI.runtime.lastError) {
+        console.warn('⚠️ Ошибка открытия окна:', browserAPI.runtime.lastError);
       } else {
         console.log('🪟 Окно эквалайзера открыто');
         state._windowId = window.id;
@@ -1698,7 +1811,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'toggleNightMode') {
     console.log('🌙 Переключение ночного режима');
-    const enabled = toggleNightMode();
+    var enabled = toggleNightMode();
     sendResponse({ status: 'ok', enabled: enabled });
     return true;
   }
@@ -1710,7 +1823,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'togglePowerSave') {
     console.log('⚡ Переключение энергосбережения');
-    const enabled = togglePowerSave();
+    var enabled = togglePowerSave();
     sendResponse({ status: 'ok', enabled: enabled });
     return true;
   }
@@ -1721,7 +1834,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'getHistory') {
-    getHistory().then((history) => {
+    getHistory().then(function(history) {
       sendResponse({ status: 'ok', history: history });
     });
     return true;
@@ -1734,12 +1847,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'getStats') {
-    getHistory().then((history) => {
-      const stats = {
+    getHistory().then(function(history) {
+      var stats = {
         total: history.length,
         actions: {}
       };
-      history.forEach((h) => {
+      history.forEach(function(h) {
         stats.actions[h.action] = (stats.actions[h.action] || 0) + 1;
       });
       sendResponse({ status: 'ok', stats: stats });
@@ -1747,15 +1860,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
-  // ============================================
-  //  СТАТУС - ИСПРАВЛЕНО
-  // ============================================
   if (request.action === 'statusUpdate') {
-    console.log('🔄 Статус обновлен:', request.status, 'от вкладки:', sender?.tab?.id);
-    const senderTabId = sender?.tab?.id || null;
-    const session = senderTabId ? getTabSession(senderTabId) : null;
-    const isCurrentTab = !!senderTabId && senderTabId === state.currentTabId;
-    const isActiveSender = sender?.tab?.active === true;
+    console.log('🔄 Статус обновлен:', request.status);
+    var senderTabId = (sender && sender.tab && sender.tab.id) || null;
+    var session = senderTabId ? getTabSession(senderTabId) : null;
+    var isCurrentTab = !!senderTabId && senderTabId === state.currentTabId;
+    var isActiveSender = !!(sender && sender.tab && sender.tab.active === true);
 
     if (request.status === 'connecting') {
       if (session) {
@@ -1769,14 +1879,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         state._isConnecting = true;
         updateIcon(false);
       }
-      
-      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
-      safeSendMessage({
-        action: 'statusUpdate',
-        status: 'connecting',
-        tabId: senderTabId
-      });
-      
       sendResponse({ status: 'received' });
       return true;
     }
@@ -1788,8 +1890,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         session.shouldReconnect = true;
         session.lastStatus = 'connected';
         session.lastSeen = Date.now();
-        session.lastUrl = sender.tab.url || session.lastUrl;
-        markTabInjected(senderTabId, sender.tab.url);
+        session.lastUrl = (sender && sender.tab && sender.tab.url) || session.lastUrl;
+        markTabInjected(senderTabId, sender && sender.tab && sender.tab.url);
         delete state._failedTabs[senderTabId];
         delete state._failureTimestamps[senderTabId];
       }
@@ -1805,44 +1907,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         updateIcon(true);
         addHistoryEntry('eq_enabled', {}, { source: 'manual' });
       }
-      
-      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
-      const statusToSend = (isCurrentTab || isActiveSender || state.currentTabId === null) ? 'connected' : 'disconnected';
-      safeSendMessage({
-        action: 'statusUpdate',
-        status: statusToSend,
-        tabId: senderTabId
-      });
-      
-      // ✅ ДОПОЛНИТЕЛЬНО: глобальный статус
-      if (isCurrentTab || isActiveSender || state.currentTabId === null) {
-        safeSendMessage({
-          action: 'statusUpdate',
-          status: 'connected'
-        });
-      }
-      
     } else if (request.status === 'disconnected') {
-      // Firefox/YouTube can emit a transient disconnected status from inject.js
-      // while SF_CONNECT is still being processed. Do not cancel the handshake.
-      if (session?.connecting) {
-        session.lastSeen = Date.now();
-        session.lastStatus = 'connecting';
-        if (isCurrentTab || isActiveSender || state.currentTabId === null) {
-          state._isConnecting = true;
-          state.isConnected = false;
-          state.active = false;
-          updateIcon(false);
-        }
-        safeSendMessage({
-          action: 'statusUpdate',
-          status: 'connecting',
-          tabId: senderTabId
-        });
-        sendResponse({ status: 'received_transient_disconnected' });
-        return true;
-      }
-
       if (session) {
         session.connected = false;
         session.connecting = false;
@@ -1856,20 +1921,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         saveConnectedState(false);
         updateIcon(false);
       }
-      
-      safeSendMessage({
-        action: 'statusUpdate',
-        status: 'disconnected',
-        tabId: senderTabId
-      });
-      
-      if (isCurrentTab || isActiveSender) {
-        safeSendMessage({
-          action: 'statusUpdate',
-          status: 'disconnected'
-        });
-      }
-      
     } else if (request.status === 'error') {
       if (session) {
         session.connected = false;
@@ -1885,13 +1936,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         state.active = false;
         updateIcon(false);
       }
-      
-      // ✅ ОТПРАВЛЯЕМ СТАТУС ВО ВСЕ ОКНА
-      safeSendMessage({
-        action: 'statusUpdate',
-        status: 'disconnected',
-        tabId: senderTabId
-      });
     }
     sendResponse({ status: 'received' });
     return true;
@@ -1921,47 +1965,47 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'getInjectSettings') {
-    const url = typeof request.url === 'string' && request.url ? request.url : sender?.tab?.url;
-    loadInjectSettings(url).then((payload) => {
-      sendResponse({ status: 'ok', ...payload });
-    }).catch((error) => {
-      sendResponse({ status: 'error', message: error?.message || 'settings_load_failed', settings: {} });
+    var url = typeof request.url === 'string' && request.url ? request.url : (sender && sender.tab && sender.tab.url);
+    loadInjectSettings(url).then(function(payload) {
+      sendResponse({ status: 'ok', settings: payload.settings, hasSiteSettings: payload.hasSiteSettings });
+    }).catch(function(error) {
+      sendResponse({ status: 'error', message: error && error.message ? error.message : 'settings_load_failed', settings: {} });
     });
     return true;
   }
 
   if (request.action === 'saveInjectSettings') {
-    const url = typeof request.url === 'string' && request.url ? request.url : sender?.tab?.url;
-    const settings = sanitizeSiteSettings(request.settings);
-    saveSiteSettings(url, settings).then((ok) => {
+    var url = typeof request.url === 'string' && request.url ? request.url : (sender && sender.tab && sender.tab.url);
+    var settings = sanitizeSiteSettings(request.settings);
+    saveSiteSettings(url, settings).then(function(ok) {
       sendResponse({ status: ok ? 'ok' : 'error' });
-    }).catch((error) => {
-      sendResponse({ status: 'error', message: error?.message || 'settings_save_failed' });
+    }).catch(function(error) {
+      sendResponse({ status: 'error', message: error && error.message ? error.message : 'settings_save_failed' });
     });
     return true;
   }
 
   if (request.action === 'getUserPresets') {
-    chrome.storage.local.get(['sf_userPresets', 'userPresets'], (result) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ status: 'error', message: chrome.runtime.lastError.message, presets: {} });
+    browserAPI.storage.local.get(['sf_userPresets', 'userPresets'], function(result) {
+      if (browserAPI.runtime.lastError) {
+        sendResponse({ status: 'error', message: browserAPI.runtime.lastError.message, presets: {} });
         return;
       }
-      const presets = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
+      var presets = (result.sf_userPresets && typeof result.sf_userPresets === 'object')
         ? result.sf_userPresets
         : ((result.userPresets && typeof result.userPresets === 'object') ? result.userPresets : {});
-      sendResponse({ status: 'ok', presets });
+      sendResponse({ status: 'ok', presets: presets });
     });
     return true;
   }
 
   if (request.action === 'exportSettings') {
-    chrome.storage.local.get(null, (data) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ status: 'error', message: chrome.runtime.lastError.message });
+    browserAPI.storage.local.get(null, function(data) {
+      if (browserAPI.runtime.lastError) {
+        sendResponse({ status: 'error', message: browserAPI.runtime.lastError.message });
         return;
       }
-      const exportData = {
+      var exportData = {
         version: '3.22.8',
         timestamp: Date.now(),
         settings: data
@@ -1973,37 +2017,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'importSettings') {
     try {
-      if (typeof request.data !== 'string' || request.data.length > 2_000_000) {
+      if (typeof request.data !== 'string' || request.data.length > 2000000) {
         throw new Error('Файл настроек слишком большой или некорректный');
       }
-      const importData = JSON.parse(request.data);
+      var importData = JSON.parse(request.data);
       if (!importData || typeof importData !== 'object' || !importData.settings || typeof importData.settings !== 'object') {
         throw new Error('Неверный формат данных');
       }
 
-      const safeSettings = sanitizeImportedSettings(importData.settings);
+      var safeSettings = sanitizeImportedSettings(importData.settings);
       if (importData.userPresets && typeof importData.userPresets === 'object') {
-        const presets = sanitizeUserPresets(importData.userPresets);
+        var presets = sanitizeUserPresets(importData.userPresets);
         safeSettings.userPresets = presets;
         safeSettings.sf_userPresets = presets;
       }
 
-      const importedPresets = safeSettings.userPresets ?? safeSettings.sf_userPresets;
-      const settingsOnly = { ...safeSettings };
+      var importedPresets = safeSettings.userPresets || safeSettings.sf_userPresets;
+      var settingsOnly = Object.assign({}, safeSettings);
       delete settingsOnly.userPresets;
       delete settingsOnly.sf_userPresets;
 
-      const writes = [enqueueStoragePatch('importSettings', settingsOnly)];
+      var writes = [enqueueStoragePatch('importSettings', settingsOnly)];
       if (importedPresets && typeof importedPresets === 'object') {
-        writes.push(enqueueUserPresetsMutation(() => importedPresets));
+        writes.push(enqueueUserPresetsMutation(function() { return importedPresets; }));
       }
 
       Promise.all(writes)
-        .then(() => {
+        .then(function() {
           loadSavedState();
           sendResponse({ status: 'ok' });
         })
-        .catch((error) => sendResponse({ status: 'error', message: error.message }));
+        .catch(function(error) { sendResponse({ status: 'error', message: error.message }); });
     } catch(e) {
       sendResponse({ status: 'error', message: e.message });
     }
@@ -2011,15 +2055,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'settingsSnapshot' && request.settings) {
-    let incoming;
+    var incoming;
     try {
       incoming = sanitizeImportedSettings(request.settings);
     } catch (error) {
       sendResponse({ status: 'error', message: error.message });
       return true;
     }
-    const data = {};
-    const map = {
+    var data = {};
+    var map = {
       eqSettings: ['eqSettings', 'sf_eqSettings'],
       sf_eqSettings: ['eqSettings', 'sf_eqSettings'],
       volumeBoost: ['volumeBoost', 'sf_volumeBoost'],
@@ -2045,183 +2089,148 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       autoDisableOnSiteChange: ['autoDisableOnSiteChange'],
       soundforgeAutoConnect: ['soundforgeAutoConnect']
     };
-    for (const [sourceKey, targets] of Object.entries(map)) {
-      if (incoming[sourceKey] !== undefined) {
-        for (const targetKey of targets) data[targetKey] = incoming[sourceKey];
+    for (var mapKey in map) {
+      if (Object.prototype.hasOwnProperty.call(map, mapKey)) {
+        var targets = map[mapKey];
+        if (incoming[mapKey] !== undefined) {
+          for (var t = 0; t < targets.length; t++) {
+            data[targets[t]] = incoming[mapKey];
+          }
+        }
       }
     }
 
-    const writeSettings = enqueueStoragePatch('globalSettings', data);
-    const writePresets = incoming.userPresets
-      ? enqueueUserPresetsMutation(() => incoming.userPresets)
+    var writeSettings = enqueueStoragePatch('globalSettings', data);
+    var writePresets = incoming.userPresets
+      ? enqueueUserPresetsMutation(function() { return incoming.userPresets; })
       : Promise.resolve();
 
     Promise.all([writeSettings, writePresets])
-      .then(() => sendResponse({ status: 'ok' }))
-      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+      .then(function() { sendResponse({ status: 'ok' }); })
+      .catch(function(error) { sendResponse({ status: 'error', message: error.message }); });
     return true;
   }
 
   if (request.action === 'replaceUserPresets' && request.presets && typeof request.presets === 'object') {
-    const sanitizedPresets = sanitizeUserPresets(request.presets);
-    enqueueUserPresetsMutation(() => sanitizedPresets)
-      .then(() => sendResponse({ status: 'ok' }))
-      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+    var sanitizedPresets = sanitizeUserPresets(request.presets);
+    enqueueUserPresetsMutation(function() { return sanitizedPresets; })
+      .then(function() { sendResponse({ status: 'ok' }); })
+      .catch(function(error) { sendResponse({ status: 'error', message: error.message }); });
     return true;
   }
 
   if (request.action === 'saveUserPreset' && typeof request.name === 'string' && request.name.length <= 100 && request.preset) {
-    const sanitizedPreset = sanitizeUserPresets({ [request.name]: request.preset })[request.name];
+    var sanitizedPreset = sanitizeUserPresets({ [request.name]: request.preset })[request.name];
     if (!sanitizedPreset) {
       sendResponse({ status: 'error', message: 'Некорректный пресет' });
       return true;
     }
-    enqueueUserPresetsMutation((existing) => {
+    enqueueUserPresetsMutation(function(existing) {
       existing[request.name] = sanitizedPreset;
       return existing;
     })
-      .then(() => sendResponse({ status: 'ok' }))
-      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+      .then(function() { sendResponse({ status: 'ok' }); })
+      .catch(function(error) { sendResponse({ status: 'error', message: error.message }); });
     return true;
   }
 
   if (request.action === 'deleteUserPreset' && request.name) {
-    enqueueUserPresetsMutation((existing) => {
+    enqueueUserPresetsMutation(function(existing) {
       delete existing[request.name];
       return existing;
     })
-      .then(() => sendResponse({ status: 'ok' }))
-      .catch((error) => sendResponse({ status: 'error', message: error.message }));
+      .then(function() { sendResponse({ status: 'ok' }); })
+      .catch(function(error) { sendResponse({ status: 'error', message: error.message }); });
     return true;
   }
 
   if (request.action === 'getStatus') {
-    const requestedTabId = Number.isInteger(request.targetTabId)
-      ? request.targetTabId
+    var hasExplicitTabId = request.targetTabId !== null && request.targetTabId !== undefined && request.targetTabId !== '';
+    var explicitTabId = hasExplicitTabId && Number.isInteger(Number(request.targetTabId)) && Number(request.targetTabId) > 0
+      ? Number(request.targetTabId)
       : null;
+    var senderUrlForStatus = (sender && sender.url) || (sender && sender.tab && sender.tab.url) || '';
+    var senderIsExtensionPage = senderUrlForStatus.startsWith('moz-extension://') ||
+      senderUrlForStatus.startsWith('moz-extension://');
+    var senderTabId = !senderIsExtensionPage && sender && sender.tab && sender.tab.id ? sender.tab.id : null;
 
-    if (requestedTabId) {
-      const session = getTabSession(requestedTabId);
+    function respondForTab(tabId) {
+      var session = tabId ? getTabSession(tabId) : null;
+      if (tabId) state.currentTabId = tabId;
+      if (session) state.isConnected = !!session.connected;
       sendResponse({
-        status: session?.connected ? 'connected' : (session?.connecting ? 'connecting' : 'disconnected'),
-        tabId: requestedTabId
+        status: session && session.connected ? 'connected' : (session && session.connecting ? 'connecting' : 'disconnected'),
+        autoConnect: state._autoConnectEnabled,
+        nightMode: state._nightMode,
+        powerSave: state._powerSaveMode,
+        currentPreset: state._currentPreset,
+        tabId: tabId || null
       });
-      return true;
     }
 
-    findActiveTabWithAudio((tab) => {
-      if (!tab) {
-        sendResponse({ status: 'disconnected', tabId: null });
-        return;
-      }
-      const session = getTabSession(tab.id);
-      sendResponse({
-        status: session?.connected ? 'connected' : (session?.connecting ? 'connecting' : 'disconnected'),
-        tabId: tab.id
+    function fallbackToAudioTab() {
+      findActiveTabWithAudio(function(tab) { respondForTab(tab && tab.id ? tab.id : null); });
+    }
+
+    var knownTabId = explicitTabId || senderTabId || state.currentTabId || null;
+    if (!knownTabId) {
+      fallbackToAudioTab();
+    } else {
+      browserAPI.tabs.get(knownTabId, function(tab) {
+        if (browserAPI.runtime.lastError || !tab || !tab.url || !canSendMessage(tab.url) || isSystemUrl(tab.url) ||
+            tab.url.startsWith('moz-extension://')) {
+          if (state.currentTabId === knownTabId) state.currentTabId = null;
+          fallbackToAudioTab();
+          return;
+        }
+        respondForTab(knownTabId);
       });
-    });
+    }
     return true;
   }
 
   if (request.action === 'applyPreset') {
     if (request.preset) {
       state._currentPreset = request.preset;
-
-      const payload = request.presetData
-        ? {
-            preset: request.preset,
-            presetData: request.presetData,
-            source: request.source || 'background'
-          }
+      var payload = request.presetData
+        ? { preset: request.preset, presetData: request.presetData, source: request.source || 'background' }
         : normalizePresetPayload(request.preset, request.source || 'background');
+      enqueueStoragePatch('globalSettings', { selectedPreset: request.preset, sf_selectedPreset: request.preset }).catch(function() {});
 
-      enqueueStoragePatch('globalSettings', {
-        selectedPreset: request.preset,
-        sf_selectedPreset: request.preset
-      }).catch(() => {});
+      var explicitTabId = Number.isFinite(Number(request.targetTabId)) ? Number(request.targetTabId) : null;
+      var senderTabId = (sender && sender.tab && sender.tab.id) || null;
+      var targetTabId = explicitTabId || senderTabId;
 
-      const targetTabId = Number.isInteger(request.targetTabId)
-        ? request.targetTabId
-        : (sender?.tab?.id || null);
+      function applyToTab(tabId) {
+        if (!tabId || !payload) {
+          sendResponse({ status: 'disconnected', message: 'No target audio tab' });
+          return;
+        }
 
-      const notifyPresetChanged = (tabId) => {
-        notifyWindows({
-          action: 'presetChanged',
-          preset: request.preset,
-          presetData: request.presetData || null,
-          source: request.source || 'background',
-          tabId: tabId || null,
-          uiOnly: true
-        });
-      };
-
-      if (targetTabId && payload) {
-        sendMessageToInject(targetTabId, 'SF_APPLY_PRESET', payload);
-        notifyPresetChanged(targetTabId);
-      } else {
-        findActiveTabWithAudio((tab) => {
-          if (tab && payload) {
-            sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
-            notifyPresetChanged(tab.id);
-          } else {
-            notifyPresetChanged(null);
-          }
-        });
+        var session = getTabSession(tabId);
+        sendMessageToInject(tabId, 'SF_APPLY_PRESET', payload);
+        notifyWindows({ action: 'presetChanged', preset: request.preset, source: request.source || 'background', tabId: tabId, uiOnly: true });
+        addHistoryEntry('preset_applied', { preset: request.preset }, { source: request.source || 'background' });
+        sendResponse({ status: session && session.connected ? 'connected' : 'ok', tabId: tabId });
       }
 
-      addHistoryEntry(
-        'preset_applied',
-        { preset: request.preset },
-        { source: request.source || 'background' }
-      );
+      if (targetTabId) {
+        applyToTab(targetTabId);
+      } else {
+        findActiveTabWithAudio(function(tab) {
+          if (tab) applyToTab(tab.id);
+          else sendResponse({ status: 'disconnected', message: 'No active audio tab' });
+        });
+      }
+    } else {
+      sendResponse({ status: 'error', message: 'Missing preset' });
     }
-
-    sendResponse({ status: 'ok' });
-    return true;
-  }
-
-  if (request.action === 'effectChanged') {
-    const effect = ['spectrum', 'waves', 'fire', 'neon'].includes(request.effect)
-      ? request.effect
-      : 'spectrum';
-
-    chrome.storage.local.set({ soundforge_effect: effect }).catch(() => {});
-
-    notifyWindows({
-      action: 'effectChanged',
-      effect,
-      source: request.source || 'background',
-      tabId: Number.isInteger(request.targetTabId) ? request.targetTabId : null,
-      uiOnly: true
-    });
-
-    sendResponse({ status: 'ok', effect });
-    return true;
-  }
-
-  if (request.action === 'setTabVolumeMute') {
-    const targetTabId = Number.isInteger(request.targetTabId)
-      ? request.targetTabId
-      : (sender?.tab?.id || null);
-
-    if (!targetTabId) {
-      sendResponse({ status: 'no_tab' });
-      return true;
-    }
-
-    setTabVolumeMute(targetTabId, !!request.muted).then((ok) => {
-      sendResponse({
-        status: ok ? 'ok' : 'error',
-        tabId: targetTabId,
-        muted: !!request.muted
-      });
-    });
     return true;
   }
 
   if (request.action === 'applySiteSettings' && request.settings) {
-    const settings = request.settings;
-    findActiveTabWithAudio((tab) => {
+    var settings = request.settings;
+    findActiveTabWithAudio(function(tab) {
       if (tab) {
         if (settings.gains) {
           sendMessageToInject(tab.id, 'SF_UPDATE_EQ', { gains: settings.gains, instant: true });
@@ -2233,7 +2242,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendMessageToInject(tab.id, 'SF_SET_BASS', { value: settings.bass });
         }
         if (settings.preset) {
-          const payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
+          var payload = settings.presetData ? { preset: settings.preset, presetData: settings.presetData } : normalizePresetPayload(settings.preset, 'site');
           if (payload) sendMessageToInject(tab.id, 'SF_APPLY_PRESET', payload);
         }
       }
@@ -2243,7 +2252,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'saveSiteSettings') {
-    findActiveTabWithAudio((tab) => {
+    findActiveTabWithAudio(function(tab) {
       if (tab && tab.url) {
         saveSiteSettings(tab.url, request.settings);
       }
@@ -2253,9 +2262,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'getSiteSettings') {
-    findActiveTabWithAudio((tab) => {
+    findActiveTabWithAudio(function(tab) {
       if (tab && tab.url) {
-        loadSiteSettings(tab.url).then((settings) => {
+        loadSiteSettings(tab.url).then(function(settings) {
           sendResponse({ settings: settings });
         });
       } else {
@@ -2269,50 +2278,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   //  ALLOWED ACTIONS
   // ============================================
 
-  const allowedActions = ['connect', 'disconnect', 'updateEQ', 'reset', 'setVolume', 'setBass', 'reconnect'];
+  var allowedActions = ['connect', 'disconnect', 'updateEQ', 'reset', 'setVolume', 'setBass', 'reconnect'];
 
   if (allowedActions.includes(request.action)) {
-    const explicitTargetTabId = Number.isInteger(request.targetTabId)
-      ? request.targetTabId
+    var senderUrl = (sender && sender.url) || (sender && sender.tab && sender.tab.url) || '';
+    var isFromExtension = senderUrl.startsWith('moz-extension://');
+    var hasExplicitTargetTabId = request.targetTabId !== null && request.targetTabId !== undefined && request.targetTabId !== '';
+    var explicitTargetTabId = hasExplicitTargetTabId && Number.isInteger(Number(request.targetTabId)) && Number(request.targetTabId) > 0
+      ? Number(request.targetTabId)
       : null;
 
+    // Standalone window must keep using the audio tab it was bound to.
+    // Do not resolve the active tab inside the extension window itself.
     if (explicitTargetTabId) {
-      chrome.tabs.get(explicitTargetTabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) {
-          sendResponse({ status: 'no_tab', tabId: explicitTargetTabId });
+      browserAPI.tabs.get(explicitTargetTabId, function(tab) {
+        var invalidTarget = browserAPI.runtime.lastError || !tab || !tab.url || !canSendMessage(tab.url) || isSystemUrl(tab.url) ||
+          tab.url.startsWith('moz-extension://');
+        if (invalidTarget) {
+          // A standalone window can retain a stale id after its audio tab was closed,
+          // or an older build could have stored the id of window.html itself.
+          // Recover by resolving a real audio/content tab instead of permanently failing.
+          if (isFromExtension) {
+            findActiveTabWithAudio(function(fallbackTab) {
+              if (!fallbackTab || !fallbackTab.id) {
+                sendResponse({ status: 'no_tab', tabId: null });
+                return;
+              }
+              handleTabAction(request, fallbackTab.id, sendResponse);
+            });
+          } else {
+            sendResponse({ status: 'no_tab', tabId: null });
+          }
           return;
         }
-
-        if (tab.url && isSystemUrl(tab.url)) {
-          sendResponse({ status: 'system_page', tabId: explicitTargetTabId });
-          return;
-        }
-
-        if (tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
-          sendResponse({ status: 'extension_page', tabId: explicitTargetTabId });
-          return;
-        }
-
         handleTabAction(request, explicitTargetTabId, sendResponse);
       });
       return true;
     }
-
-    const isFromExtension = sender && sender.tab && sender.tab.url && 
-      (sender.tab.url.startsWith('chrome-extension://') || sender.tab.url.startsWith('moz-extension://'));
     
     if (isFromExtension) {
-      console.log(`🔄 Перенаправляем ${request.action} из окна в активную вкладку с аудио`);
+      console.log('🔄 Перенаправляем', request.action, 'из окна в активную вкладку с аудио');
       
-      if (request.action === 'connect') {
-        safeSendMessage({
-          action: 'statusUpdate',
-          status: 'connecting',
-          tabId: sender?.tab?.id || null
-        });
-      }
-      
-      findActiveTabWithAudio((tab) => {
+      findActiveTabWithAudio(function(tab) {
         if (!tab) {
           console.log('⛔ Нет доступной вкладки с аудио');
           sendResponse({ status: 'no_tab' });
@@ -2320,36 +2327,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             safeSendMessage({
               action: 'statusUpdate',
               status: 'disconnected',
-              tabId: sender?.tab?.id || null
+              tabId: null
             });
           }
           return;
         }
         
-        const tabId = tab.id;
-        console.log(`✅ Найдена вкладка: ${tab.url}`);
+        var tabId = tab.id;
+        console.log('✅ Найдена вкладка:', tab.url);
         
         if (tab.url && isSystemUrl(tab.url)) {
-          console.log(`⛔ Пропускаем действие на системной странице: ${tab.url}`);
+          console.log('⛔ Пропускаем действие на системной странице:', tab.url);
           sendResponse({ status: 'system_page' });
           if (request.action === 'connect') {
             safeSendMessage({
               action: 'statusUpdate',
               status: 'disconnected',
-              tabId: sender?.tab?.id || null
+              tabId: null
             });
           }
           return;
         }
         
-        if (tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
-          console.log(`⛔ Активная вкладка - страница расширения, пропускаем`);
+        if (tab.url && tab.url.startsWith('moz-extension://')) {
+          console.log('⛔ Активная вкладка - страница расширения, пропускаем');
           sendResponse({ status: 'extension_page' });
           if (request.action === 'connect') {
             safeSendMessage({
               action: 'statusUpdate',
               status: 'disconnected',
-              tabId: sender?.tab?.id || null
+              tabId: null
             });
           }
           return;
@@ -2360,28 +2367,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     }
     
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
+    browserAPI.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (browserAPI.runtime.lastError || !tabs || tabs.length === 0) {
         sendResponse({ status: 'no_tab' });
         return;
       }
 
-      const tabId = tabs[0].id;
+      var tabId = tabs[0].id;
       
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError) {
+      browserAPI.tabs.get(tabId, function(tab) {
+        if (browserAPI.runtime.lastError) {
           sendResponse({ status: 'error' });
           return;
         }
         
         if (tab && tab.url && isSystemUrl(tab.url)) {
-          console.log(`⛔ Пропускаем действие на системной странице: ${tab.url}`);
+          console.log('⛔ Пропускаем действие на системной странице:', tab.url);
           sendResponse({ status: 'system_page' });
           return;
         }
         
-        if (tab && tab.url && (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('moz-extension://'))) {
-          console.log(`⛔ Активная вкладка - страница расширения, пропускаем`);
+        if (tab && tab.url && tab.url.startsWith('moz-extension://')) {
+          console.log('⛔ Активная вкладка - страница расширения, пропускаем');
           sendResponse({ status: 'extension_page' });
           return;
         }
@@ -2396,65 +2403,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ============================================
-//  НАДЁЖНОЕ ОЖИДАНИЕ ПОДКЛЮЧЕНИЯ ВКЛАДКИ
+//  ОБРАБОТКА ДЕЙСТВИЙ С ВКЛАДКАМИ
 // ============================================
-
-function watchConnectionHandshake(tabId, maxAttempts = 20, intervalMs = 500) {
-  if (!tabId) return;
-
-  if (state._connectWatchTimers[tabId]) {
-    clearInterval(state._connectWatchTimers[tabId]);
-    delete state._connectWatchTimers[tabId];
-  }
-
-  let attempts = 0;
-  const timer = setInterval(() => {
-    attempts++;
-    const session = getTabSession(tabId);
-
-    if (session?.connected) {
-      clearInterval(timer);
-      delete state._connectWatchTimers[tabId];
-      session.connecting = false;
-      session.lastStatus = 'connected';
-      session.lastSeen = Date.now();
-      console.log(`✅ Handshake завершён: tab ${tabId} подключён за ~${attempts * intervalMs}мс`);
-      safeSendMessage({ action: 'statusUpdate', status: 'connected', tabId });
-      return;
-    }
-
-    if (session?.lastStatus === 'error' || state._failedTabs[tabId]) {
-      clearInterval(timer);
-      delete state._connectWatchTimers[tabId];
-      session.connecting = false;
-      console.warn(`❌ Handshake завершён ошибкой: tab ${tabId}`);
-      safeSendMessage({ action: 'statusUpdate', status: 'disconnected', tabId });
-      return;
-    }
-
-    if (attempts >= maxAttempts) {
-      clearInterval(timer);
-      delete state._connectWatchTimers[tabId];
-      session.connecting = false;
-      session.lastStatus = 'error';
-      console.warn(`❌ Handshake timeout: tab ${tabId} не подтвердил подключение за ${maxAttempts * intervalMs}мс`);
-      safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
-      return;
-    }
-
-    // Пока inject.js может ещё внедряться или AudioContext ещё создаётся,
-    // не переводим вкладку в disconnected преждевременно.
-    session.connecting = true;
-    session.lastStatus = 'connecting';
-  }, intervalMs);
-
-  state._connectWatchTimers[tabId] = timer;
-}
 
 function handleTabAction(request, tabId, sendResponse) {
   if (request.action === 'reconnect') {
     console.log('🔄 Переподключение');
-    const session = getTabSession(tabId);
+    var session = getTabSession(tabId);
     session.connected = false;
     session.connecting = true;
     session.shouldReconnect = true;
@@ -2468,21 +2423,17 @@ function handleTabAction(request, tabId, sendResponse) {
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
     injectScriptDirectly(tabId);
-    setTimeout(() => {
+    setTimeout(function() {
       sendMessageToInject(tabId, 'SF_RECONNECT');
     }, 1000);
-    setTimeout(() => sendMessageToInject(tabId, 'SF_GET_STATUS'), 2000);
-    sendResponse({ status: 'reconnecting', tabId });
+    setTimeout(function() { sendMessageToInject(tabId, 'SF_GET_STATUS'); }, 2000);
+    sendResponse({ status: 'reconnecting' });
     return;
   }
 
   if (request.action === 'disconnect') {
     console.log('⏹ ОТКЛЮЧЕНИЕ');
-    if (state._connectWatchTimers[tabId]) {
-      clearInterval(state._connectWatchTimers[tabId]);
-      delete state._connectWatchTimers[tabId];
-    }
-    const session = getTabSession(tabId);
+    var session = getTabSession(tabId);
     session.connected = false;
     session.connecting = false;
     session.shouldReconnect = false;
@@ -2493,6 +2444,7 @@ function handleTabAction(request, tabId, sendResponse) {
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
     sendMessageToInject(tabId, 'SF_DISCONNECT');
+    suppressAutoConnectForTab(tabId);
     if (state.currentTabId === tabId) {
       state.isConnected = false;
       state._autoConnectEnabled = false;
@@ -2506,18 +2458,18 @@ function handleTabAction(request, tabId, sendResponse) {
       tabId: tabId
     });
     addHistoryEntry('eq_disabled', {}, { source: 'manual' });
-    sendResponse({ status: 'disconnected', tabId });
+    sendResponse({ status: 'disconnected', tabId: tabId });
     return;
   }
 
   if (request.action === 'connect') {
-    const session = getTabSession(tabId);
+    var session = getTabSession(tabId);
     if (session.connecting) {
-      sendResponse({ status: 'connecting', tabId });
+      sendResponse({ status: 'connecting', tabId: tabId });
       return;
     }
     if (session.connected) {
-      sendResponse({ status: 'connected', tabId });
+      sendResponse({ status: 'connected', tabId: tabId });
       return;
     }
 
@@ -2534,8 +2486,8 @@ function handleTabAction(request, tabId, sendResponse) {
     state._isProcessingChange = false;
     delete state._failedTabs[tabId];
     delete state._failureTimestamps[tabId];
+    clearAutoConnectSuppressionForTab(tabId);
 
-    // ✅ ОТПРАВЛЯЕМ СТАТУС CONNECTING В ОКНО
     safeSendMessage({
       action: 'statusUpdate',
       status: 'connecting',
@@ -2544,62 +2496,38 @@ function handleTabAction(request, tabId, sendResponse) {
 
     injectScriptDirectly(tabId);
     
-    setTimeout(() => {
-      sendMessageToInject(tabId, 'SF_CONNECT', {}, (response, error) => {
-        const currentSession = getTabSession(tabId);
-
-        if (response && response.status === 'connected') {
-          currentSession.connected = true;
-          currentSession.connecting = false;
-          currentSession.shouldReconnect = true;
-          currentSession.lastStatus = 'connected';
-          currentSession.lastSeen = Date.now();
-          state.currentTabId = tabId;
-          state.isConnected = true;
-          state.active = true;
-          state._isConnecting = false;
-          state._autoConnectEnabled = true;
-          saveConnectedState(true);
-          updateIcon(true);
-          safeSendMessage({ action: 'statusUpdate', status: 'connected', tabId });
-          console.log(`✅ Direct SF_CONNECT подтверждён: tab ${tabId}`);
-          return;
-        }
-
-        if (response && response.status === 'error') {
-          currentSession.connected = false;
-          currentSession.connecting = false;
-          currentSession.lastStatus = 'error';
-          state._isConnecting = false;
-          state._failedTabs[tabId] = true;
-          state._failureTimestamps[tabId] = Date.now();
-          console.warn(`❌ SF_CONNECT отклонён inject.js для tab ${tabId}:`, response.error || 'connect_failed');
-          safeSendMessage({ action: 'statusUpdate', status: 'error', tabId });
-          return;
-        }
-
-        if (error) {
-          console.warn(`⚠️ SF_CONNECT не получил прямой ответ для tab ${tabId}:`, error.message || error);
-        }
-      });
+    setTimeout(function() {
+      sendMessageToInject(tabId, 'SF_CONNECT');
     }, 1500);
     
-    // Наблюдаем за statusUpdate как fallback, но прямой ответ SF_CONNECT
-    // теперь является дополнительным надёжным подтверждением.
-    watchConnectionHandshake(tabId, 40, 500);
-
-    sendResponse({ status: 'connecting', tabId });
+    setTimeout(function() {
+      // Ask for status first, then allow the inject -> runtime statusUpdate round-trip
+      // to complete before declaring the attempt disconnected.
+      sendMessageToInject(tabId, 'SF_GET_STATUS');
+      setTimeout(function() {
+        var currentSession = getTabSession(tabId);
+        currentSession.connecting = false;
+        state._isConnecting = false;
+        safeSendMessage({
+          action: 'statusUpdate',
+          status: currentSession.connected ? 'connected' : 'disconnected',
+          tabId: tabId
+        });
+      }, 500);
+    }, 3000);
+    
+    sendResponse({ status: 'connecting', tabId: tabId });
     return;
   }
 
-  const actionMap = {
+  var actionMap = {
     'updateEQ': 'SF_UPDATE_EQ',
     'reset': 'SF_RESET',
     'setVolume': 'SF_SET_VOLUME',
     'setBass': 'SF_SET_BASS'
   };
 
-  const type = actionMap[request.action];
+  var type = actionMap[request.action];
   if (type) {
     sendMessageToInject(tabId, type, request);
     sendResponse({ status: 'ok' });
@@ -2624,31 +2552,31 @@ function startPeriodicChecks() {
     state._activeTabInterval = null;
   }
   
-  const interval = state._powerSaveMode ? 5000 : 3000;
+  var interval = state._powerSaveMode ? 5000 : 3000;
   
-  state._statusCheckInterval = setInterval(() => {
+  state._statusCheckInterval = setInterval(function() {
     if (state.currentTabId && state.isConnected && !state._isConnecting) {
-      const session = getTabSession(state.currentTabId);
-      if (session?.injected && !state._failedTabs[state.currentTabId]) {
+      var session = getTabSession(state.currentTabId);
+      if (session && session.injected && !state._failedTabs[state.currentTabId]) {
         sendMessageToInject(state.currentTabId, 'SF_GET_STATUS');
       }
     }
   }, 10000);
   
-  state._activeTabInterval = setInterval(() => {
-    findActiveTabWithAudio((tab) => {
+  state._activeTabInterval = setInterval(function() {
+    findActiveTabWithAudio(function(tab) {
       if (!tab || !tab.id) return;
-      const tabId = tab.id;
+      var tabId = tab.id;
       
       if (state._failedTabs[tabId]) {
         return;
       }
       
-      const session = getTabSession(tabId);
-      if (session.shouldReconnect) {
+      var session = getTabSession(tabId);
+      if (session && session.shouldReconnect) {
         injectScriptDirectly(tabId);
         if (!session.injected) {
-          setTimeout(() => {
+          setTimeout(function() {
             sendMessageToInject(tabId, 'SF_CONNECT');
           }, 1000);
         }
@@ -2659,10 +2587,6 @@ function startPeriodicChecks() {
 
 function cleanupAll() {
   console.log('🧹 Очистка всех ресурсов background');
-  Object.keys(state._connectWatchTimers || {}).forEach((tabId) => {
-    try { clearInterval(state._connectWatchTimers[tabId]); } catch {}
-  });
-  state._connectWatchTimers = {};
   
   if (state._statusCheckInterval) {
     clearInterval(state._statusCheckInterval);
@@ -2684,14 +2608,13 @@ function cleanupAll() {
     state._cleanupTimer = null;
   }
   
-  Object.keys(state._injectAttempts).forEach(key => delete state._injectAttempts[key]);
-  Object.keys(state._injectedTabs).forEach(key => delete state._injectedTabs[key]);
-  Object.keys(state._failedTabs).forEach(key => delete state._failedTabs[key]);
-  Object.keys(state._failureTimestamps).forEach(key => delete state._failureTimestamps[key]);
-  Object.keys(state._tabSessions).forEach(key => delete state._tabSessions[key]);
-  Object.keys(state._documentTokens).forEach(key => delete state._documentTokens[key]);
-  Object.keys(state._lastSiteByTab).forEach(key => delete state._lastSiteByTab[key]);
-  Object.keys(state._tabMuteStates).forEach(key => delete state._tabMuteStates[key]);
+  Object.keys(state._injectAttempts).forEach(function(key) { delete state._injectAttempts[key]; });
+  Object.keys(state._injectedTabs).forEach(function(key) { delete state._injectedTabs[key]; });
+  Object.keys(state._failedTabs).forEach(function(key) { delete state._failedTabs[key]; });
+  Object.keys(state._failureTimestamps).forEach(function(key) { delete state._failureTimestamps[key]; });
+  Object.keys(state._tabSessions).forEach(function(key) { delete state._tabSessions[key]; });
+  Object.keys(state._documentTokens).forEach(function(key) { delete state._documentTokens[key]; });
+  Object.keys(state._lastSiteByTab).forEach(function(key) { delete state._lastSiteByTab[key]; });
 }
 
 startPeriodicChecks();
@@ -2700,15 +2623,15 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', cleanupAll);
 }
 
-if (chrome.alarms?.create) {
-  chrome.alarms.create('soundforge-night-mode', { periodInMinutes: 10 });
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm?.name === 'soundforge-night-mode') checkNightModeAuto();
+if (browserAPI.alarms && browserAPI.alarms.create) {
+  browserAPI.alarms.create('soundforge-night-mode', { periodInMinutes: 10 });
+  browserAPI.alarms.onAlarm.addListener(function(alarm) {
+    if (alarm && alarm.name === 'soundforge-night-mode') checkNightModeAuto();
   });
 }
 setTimeout(checkNightModeAuto, 5000);
 
-console.log('✅ SoundForge Background v3.22.8 готов (Firefox)!');
+console.log('✅ SoundForge Background v3.22.8 Firefox 153 готов!');
 console.log('⌨️ Горячие клавиши:');
 console.log('   Ctrl+Shift+U - активация расширения');
 console.log('   Ctrl+Shift+E - включить/выключить эквалайзер');

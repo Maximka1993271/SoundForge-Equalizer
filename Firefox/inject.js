@@ -1,13 +1,18 @@
 // ============================================
-//  INJECT.JS - v3.22.8 (Firefox)
-//  ИСПРАВЛЕНО: автоподключение
-//  ИСПРАВЛЕНО: обработка ошибок
+//  INJECT.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
+//  АВТОМАТИЧЕСКОЕ ПОДКЛЮЧЕНИЕ
+//  ЖЕСТКОЕ ОТКЛЮЧЕНИЕ ЗВУКА ПРИ 0%
+//  ПОДДЕРЖКА ГРОМКОСТИ ДО 800%
+//  FIREFOX 153 OPTIMIZED: без firefox.* прямых вызовов
+//  FIREFOX 153 OPTIMIZED: файловая инъекция через SF_PING
 // ============================================
 
 (function() {
   'use strict';
 
-  // Проверяем, не загружен ли уже SoundForge
+  const browserAPI = globalThis.browser;
+
   if (window._soundforge_loaded && window.SoundForgeInject) {
     if (window._soundforge_pending && window._soundforge_pending.length > 0) {
       const pending = window._soundforge_pending.slice();
@@ -20,11 +25,7 @@
   }
 
   window._soundforge_loaded = true;
-  console.log('🎵 SoundForge v3.22.8 загружен (Firefox)');
-
-  // ============================================
-  //  FREQUENCIES
-  // ============================================
+  console.log('🎵 SoundForge v3.22.8 Firefox 153 загружен');
 
   const FREQUENCIES = [
     { key: '31', freq: 31, Q: 1.0 },
@@ -39,10 +40,6 @@
     { key: '16000', freq: 16000, Q: 1.0 }
   ];
 
-  // ============================================
-  //  STATE
-  // ============================================
-
   const state = {
     context: null,
     source: null,
@@ -56,7 +53,7 @@
     currentElement: null,
     isYouTube: false,
     isEnabled: false,
-    autoConnect: true, // ✅ ИСПРАВЛЕНО: true по умолчанию
+    autoConnect: false,
     settings: { gains: {}, volume: 1.0, bass: 0 },
     _initialized: false,
     reconnectAttempts: 0,
@@ -91,6 +88,8 @@
     _reconnectTimer: null,
     _contextRestoreAttempts: 0,
     _maxContextRestoreAttempts: 5,
+    _workletNode: null,
+    _workletLoaded: false,
     _fadeGain: null,
     _isFading: false,
     _userPresets: {},
@@ -111,6 +110,11 @@
     _contextCheckInterval: null,
     _isRecreating: false,
     _chainValid: false,
+    _registeredObjects: [],
+    _browser: 'firefox153',
+    _isFirefox: false,
+    _isSafari: false,
+    _isFirefox: true,
     _hardMute: false,
     _lastVolumeValue: 1.0,
     _rafId: null,
@@ -125,16 +129,14 @@
     _settingsReady: false,
     _settingsReadyPromise: null,
     _pendingConnectUntilSettingsReady: false,
+    _pendingConnectIsAutomatic: false,
+    _autoConnectSuppressed: false,
     _tabHardMuteRequested: false,
-    _autoConnectAttempted: false, // ✅ ДОБАВЛЕНО: флаг попытки автоподключения
-    _connectPromise: null
+    _spectrumRequested: false,
+    _firefoxResumeArmed: false
   };
 
   FREQUENCIES.forEach((item) => { state.settings.gains[item.key] = 0; });
-
-  // ============================================
-  //  LOGGER
-  // ============================================
 
   function log(message, level = 'info', data = null) {
     const levels = { error: '❌', warn: '⚠️', info: 'ℹ️', debug: '🐛', trace: '🔍' };
@@ -146,24 +148,130 @@
     }
   }
 
-  // ============================================
-  //  SAFE SEND MESSAGE
-  // ============================================
-
   function safeSendMessage(message) {
     try {
-      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) return;
-
-      const result = chrome.runtime.sendMessage(message);
-      if (result && typeof result.catch === 'function') {
-        result.catch(() => {});
+      if (browserAPI && browserAPI.runtime && browserAPI.runtime.sendMessage) {
+        browserAPI.runtime.sendMessage(message).catch(() => {});
       }
     } catch {}
   }
 
-  // ============================================
-  //  FIND AUDIO ELEMENTS
-  // ============================================
+  function applyLoadedSettings(parsed) {
+    if (!parsed || typeof parsed !== 'object') return;
+    if (parsed.gains && typeof parsed.gains === 'object') {
+      Object.keys(parsed.gains).forEach((key) => {
+        if (state.settings.gains[key] !== undefined) state.settings.gains[key] = Math.max(-12, Math.min(12, Number(parsed.gains[key]) || 0));
+      });
+    }
+    if (parsed.volume !== undefined) state.settings.volume = Math.max(0, Math.min(8, Number(parsed.volume) || 0));
+    if (parsed.bass !== undefined) state.settings.bass = Math.max(-12, Math.min(12, Number(parsed.bass) || 0));
+    if (parsed.isEnabled !== undefined) state.isEnabled = !!parsed.isEnabled;
+    if (parsed.autoConnect !== undefined) {
+      state.autoConnect = !!parsed.autoConnect;
+      state._autoConnectSuppressed = (parsed.autoConnect === false);
+    }
+    if (parsed.userPresets && typeof parsed.userPresets === 'object') state._userPresets = parsed.userPresets;
+    if (parsed.debugMode !== undefined) state._debugMode = !!parsed.debugMode;
+    if (parsed.nightMode !== undefined) state._nightMode = !!parsed.nightMode;
+    if (parsed.powerSaveMode !== undefined) state._powerSaveMode = !!parsed.powerSaveMode;
+    state._settingsRestored = true;
+    state._lastVolumeValue = state.settings.volume;
+  }
+
+  function requestRuntimeMessage(message) {
+    return new Promise((resolve) => {
+      try {
+        if (typeof browserAPI === 'undefined' || !browserAPI.runtime?.sendMessage) {
+          resolve(null);
+          return;
+        }
+        browserAPI.runtime.sendMessage(message, (response) => {
+          if (browserAPI.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          resolve(response || null);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  function buildPersistedSettings() {
+    return {
+      gains: { ...state.settings.gains },
+      volume: state.settings.volume,
+      bass: state.settings.bass,
+      isEnabled: state.isEnabled,
+      autoConnect: state.autoConnect,
+      debugMode: state._debugMode,
+      nightMode: state._nightMode,
+      powerSaveMode: state._powerSaveMode
+    };
+  }
+
+  function saveSettings() {
+    const settings = buildPersistedSettings();
+    requestRuntimeMessage({
+      action: 'saveInjectSettings',
+      url: location.href,
+      settings
+    }).then((response) => {
+      if (response?.status === 'error') {
+        log('Ошибка сохранения настроек сайта', 'warn', response.message || response.status);
+      }
+    }).catch(() => {});
+  }
+
+  async function loadSettings() {
+    state._settingsReadyPromise = (async () => {
+      let loaded = false;
+
+      try {
+        const response = await requestRuntimeMessage({
+          action: 'getInjectSettings',
+          url: location.href
+        });
+        if (response?.status === 'ok' && response.settings) {
+          applyLoadedSettings(response.settings);
+          loaded = true;
+        }
+      } catch (error) {
+        log('Ошибка загрузки настроек через background', 'warn', error);
+      }
+
+      if (!loaded) {
+        try {
+          const saved = localStorage.getItem(state._storageKey);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            applyLoadedSettings(parsed || {});
+            if (parsed && Object.keys(parsed).length) {
+              saveSettings();
+            }
+            loaded = true;
+          }
+        } catch (error) {
+          log('Ошибка миграции старых настроек', 'debug', error);
+        }
+      }
+
+      if (!loaded) {
+        applyLoadedSettings({});
+      }
+
+      state._settingsReady = true;
+      if (state._pendingConnectUntilSettingsReady) {
+        state._pendingConnectUntilSettingsReady = false;
+        handleConnect(state._pendingConnectIsAutomatic);
+      }
+    })();
+
+    return state._settingsReadyPromise;
+  }
+
+  loadSettings();
 
   function findAudioElements() {
     try {
@@ -237,8 +345,29 @@
   }
 
   // ============================================
-  //  CREATE AUDIO CONTEXT
+  //  AUDIOCONTEXT ДЛЯ FIREFOX 153 AUTOPLAY POLICY
   // ============================================
+
+  function ensureAudioContextRunning() {
+    const context = state.context;
+    if (!context || context.state === 'closed') return Promise.resolve(false);
+    if (context.state === 'running') return Promise.resolve(true);
+
+    return context.resume().then(() => context.state === 'running').catch(() => {
+      if (!state._firefoxResumeArmed) {
+        state._firefoxResumeArmed = true;
+        const resumeFromGesture = () => {
+          state._firefoxResumeArmed = false;
+          const active = state.context;
+          if (active && active.state === 'suspended') active.resume().catch(() => {});
+        };
+        document.addEventListener('pointerdown', resumeFromGesture, { once: true, capture: true });
+        document.addEventListener('keydown', resumeFromGesture, { once: true, capture: true });
+        document.addEventListener('touchstart', resumeFromGesture, { once: true, capture: true, passive: true });
+      }
+      return false;
+    });
+  }
 
   function createAudioContext() {
     try {
@@ -261,11 +390,8 @@
         latencyHint: 'interactive'
       });
       
-      if (context.state === 'suspended') {
-        context.resume().catch(() => {});
-      }
-      
       state.context = context;
+      ensureAudioContextRunning();
       state._chainValid = false;
       return context;
     } catch (e) {
@@ -275,7 +401,8 @@
   }
 
   // ============================================
-  //  CONNECT AUDIO (ОСНОВНАЯ ФУНКЦИЯ)
+  //  НОВАЯ DSP-ЦЕПОЧКА С MASTER GAIN И SAFETY LIMITER
+  //  Media Source → Bass Boost → 10× EQ → Compressor → Master Gain → Hard Mute → Safety Limiter → Fade Gain → Analyser → Output
   // ============================================
 
   function connectAudio(element) {
@@ -288,13 +415,8 @@
     
     try {
       if (!element || !element.captureStream) {
-        // Firefox: пробуем mozCaptureStream
-        if (element && typeof element.mozCaptureStream === 'function') {
-          log('Используем mozCaptureStream для Firefox', 'info');
-        } else {
-          state._mutexLock = false;
-          return false;
-        }
+        state._mutexLock = false;
+        return false;
       }
 
       state._isConnecting = true;
@@ -306,12 +428,7 @@
 
       let stream = null;
       try {
-        // Firefox: пробуем captureStream
-        if (typeof element.captureStream === 'function') {
-          stream = element.captureStream();
-        } else if (typeof element.mozCaptureStream === 'function') {
-          stream = element.mozCaptureStream();
-        }
+        stream = element.captureStream();
         if (!stream || stream.getAudioTracks().length === 0) {
           throw new Error('Нет аудио дорожек');
         }
@@ -319,7 +436,6 @@
         element.muted = state._originalMuted;
         state._isConnecting = false;
         state._mutexLock = false;
-        log('Ошибка получения потока', 'error', e);
         return false;
       }
 
@@ -343,6 +459,7 @@
       state.analyser = analyser;
       state._timeDomainData = new Float32Array(analyser.fftSize);
 
+      // DSP chain: Source → Bass → 10-band EQ → Compressor → Master Gain → Hard Mute → Safety Limiter → Fade → Analyser → Output
       const bassNode = context.createBiquadFilter();
       bassNode.type = 'lowshelf';
       bassNode.frequency.value = 100;
@@ -356,13 +473,14 @@
         filter.type = 'peaking';
         filter.frequency.value = item.freq;
         filter.Q.value = item.Q;
-        filter.gain.value = state.settings.gains[item.key] || 0;
+        filter.gain.value = Math.max(-12, Math.min(12, state.settings.gains[item.key] || 0));
         previousNode.connect(filter);
         previousNode = filter;
         filters[item.key] = filter;
       });
       state.filters = filters;
 
+      // Dynamics Compressor for dynamic control
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = -24;
       compressor.knee.value = 30;
@@ -371,6 +489,7 @@
       compressor.release.value = 0.25;
       state.compressor = compressor;
 
+      // Master gain is AFTER compressor so 0–800% changes final loudness
       const gainNode = context.createGain();
       let volumeValue = Math.max(0, Math.min(8.0, state.settings.volume));
       if (state._nightMode) {
@@ -383,19 +502,20 @@
       hardMuteNode.gain.value = volumeValue === 0 ? 0 : 1.0;
       state._hardMuteNode = hardMuteNode;
 
+      // Safety Limiter after master gain (true peak protection)
       const limiter = context.createDynamicsCompressor();
       limiter.threshold.value = -1;
       limiter.knee.value = 0;
       limiter.ratio.value = 20;
       limiter.attack.value = 0.001;
-      limiter.release.value = 0.1;
+      limiter.release.value = 0.12;
       state.limiter = limiter;
 
       const fadeGain = context.createGain();
       fadeGain.gain.value = 1.0;
       state.fadeGain = fadeGain;
 
-      // ЦЕПОЧКА: Source → Bass → EQ → Compressor → Master Gain → HardMute → Limiter → Fade → Analyser → Destination
+      // Connect the full chain
       source.connect(bassNode);
       previousNode.connect(compressor);
       compressor.connect(gainNode);
@@ -422,8 +542,10 @@
       state._findElementAttempts = 0;
       state._chainValid = true;
       state._mutexLock = false;
-      state._autoConnectAttempted = true; // ✅ Флаг успешного подключения
       observeChanges();
+
+      // Apply master volume settings immediately
+      applySettingsInternal();
 
       if (state.settings.volume === 0) {
         state._hardMute = true;
@@ -482,245 +604,241 @@
   }
 
   // ============================================
-  //  HANDLE CONNECT (АВТОПОДКЛЮЧЕНИЕ)
+  //  ПРИМЕНЕНИЕ НАСТРОЕК
   // ============================================
 
-  function handleConnect() {
-    log('🔗 ПОДКЛЮЧЕНИЕ (авто/ручное)', 'info');
-
-    if (state.isActive && state._isConnected) {
-      safeSendMessage({ action: 'statusUpdate', status: 'connected' });
-      return Promise.resolve({ status: 'connected', active: true });
+  function applySettings(instant) {
+    if (!state.isActive) return;
+    try {
+      applySettingsInternal();
+      saveSettings();
+    } catch (e) {
+      log('Ошибка применения настроек', 'error', e);
     }
+  }
 
-    // Reuse an in-flight connection attempt instead of starting a second one.
-    if (state._connectPromise) {
-      return state._connectPromise;
+  function applySettingsInternal() {
+    try {
+      Object.keys(state.settings.gains).forEach((key) => {
+        if (state.filters[key]) {
+          state.filters[key].gain.value = Math.max(-12, Math.min(12, Number(state.settings.gains[key]) || 0));
+        }
+      });
+      
+      if (state.bassNode) {
+        const bassValue = Math.max(-12, Math.min(12, state.settings.bass));
+        state.bassNode.gain.value = bassValue;
+      }
+      
+      let volumeValue = Math.max(0, Math.min(8.0, state.settings.volume));
+      if (state._nightMode) {
+        volumeValue = volumeValue * 0.3;
+      }
+      state._lastVolumeValue = volumeValue;
+      
+      if (state.gainNode) {
+        state.gainNode.gain.value = volumeValue;
+      }
+      
+      const isMute = volumeValue === 0;
+      if (state._hardMuteNode) {
+        state._hardMuteNode.gain.value = isMute ? 0 : 1.0;
+      }
+      if (state.fadeGain) {
+        state.fadeGain.gain.value = isMute ? 0 : 1.0;
+      }
+      
+      if (isMute) {
+        state._hardMute = true;
+        state._isMuted = true;
+        if (!state._tabHardMuteRequested) {
+          state._tabHardMuteRequested = true;
+          safeSendMessage({ action: 'setTabVolumeMute', muted: true });
+        }
+        if (state.currentElement) {
+          state.currentElement.muted = true;
+        }
+        if (state._audioElement) {
+          state._audioElement.muted = true;
+        }
+        log('🔇 ЖЕСТКОЕ ОТКЛЮЧЕНИЕ: все узлы обнулены (0%)', 'info');
+      } else {
+        state._hardMute = false;
+        state._isMuted = false;
+        if (state._tabHardMuteRequested) {
+          state._tabHardMuteRequested = false;
+          safeSendMessage({ action: 'setTabVolumeMute', muted: false });
+        }
+        // Keep native media muted while Web Audio graph is active
+        if (state.currentElement) {
+          state.currentElement.muted = true;
+        }
+        if (state._audioElement) {
+          state._audioElement.muted = true;
+        }
+        
+        log('🔊 Звук восстановлен:', (volumeValue * 100).toFixed(0) + '%', 'debug');
+      }
+      
+    } catch (e) {
+      log('Ошибка в applySettingsInternal', 'error', e);
+      throw e;
     }
-
-    state.isEnabled = true;
-    state.autoConnect = true;
-    state.reconnectAttempts = 0;
-    state._isConnected = false;
-    state._isConnecting = false;
-    state._statusSent = false;
-    state._connectAttempts = 0;
-    state._isVideoChange = false;
-    state._isProcessingChange = false;
-    state._savedGains = null;
-    state._savedVolume = null;
-    state._savedBass = null;
-    state._lastElementId = null;
-    state._settingsRestored = false;
-    state._contextRestoreAttempts = 0;
-    state._retryCount = 0;
-    state._isRetrying = false;
-    state._manualConnectRequested = true;
-    state._lifecycleToken++;
-    state._findElementAttempts = 0;
-    state._isMuted = false;
-    state._chainValid = false;
-    state._hardMute = false;
-    state._mutexLock = false;
-    state._tabHardMuteRequested = false;
-    state._autoConnectAttempted = false;
-
-    const token = state._lifecycleToken;
-    const maxAttempts = Math.max(12, state._maxFindElementAttempts || 10);
-    const retryDelay = 500;
-    let attempts = 0;
-
-    state._connectPromise = new Promise((resolve, reject) => {
-      const fail = (message) => {
-        state._isConnecting = false;
-        state._mutexLock = false;
-        state._findElementAttempts = 0;
-        log(message, 'error');
-        safeSendMessage({ action: 'statusUpdate', status: 'error' });
-        reject(new Error(message));
-      };
-
-      const attempt = () => {
-        if (token !== state._lifecycleToken || !state._manualConnectRequested) {
-          reject(new Error('connect_cancelled'));
-          return;
-        }
-
-        if (state.isActive && state._isConnected) {
-          resolve({ status: 'connected', active: true });
-          return;
-        }
-
-        attempts++;
-        state._findElementAttempts = attempts;
-
-        const elements = findAudioElements();
-        if (!elements || elements.length === 0) {
-          if (attempts < maxAttempts) {
-            setTimeout(attempt, retryDelay);
-            return;
-          }
-          fail('❌ Не удалось найти аудио-элемент для подключения');
-          return;
-        }
-
-        // Prefer the main media element, but do not fail permanently when
-        // captureStream() is not ready yet. connectAudio() can legitimately
-        // return false while the video is buffering or has no audio track yet.
-        const element = elements[0];
-        const connected = connectAudio(element);
-
-        if (connected && state.isActive && state._isConnected) {
-          resolve({ status: 'connected', active: true });
-          return;
-        }
-
-        if (attempts < maxAttempts) {
-          setTimeout(attempt, retryDelay);
-          return;
-        }
-
-        fail('❌ Не удалось установить аудио-подключение после повторных попыток');
-      };
-
-      attempt();
-    }).finally(() => {
-      state._connectPromise = null;
-      state._findElementAttempts = 0;
-    });
-
-    return state._connectPromise;
   }
 
   // ============================================
-  //  FULL CLEANUP
+  //  ВАЛИДАЦИЯ И ВОССТАНОВЛЕНИЕ АУДИО-ЦЕПОЧКИ
   // ============================================
 
-  function fullCleanup(keepSettings) {
-    log('Полная очистка', 'debug', { keepSettings });
+  function validateAudioChain() {
+    if (!state.context || state.context.state === 'closed') return false;
+    if (!state.source || !state.gainNode || !state.bassNode || !state.compressor || !state.limiter || !state.analyser) return false;
+    if (state.context.state !== 'running') return false;
+    if (!state.currentElement) return false;
+    state._chainValid = true;
+    return true;
+  }
+
+  function recreateAudioChain() {
+    if (state._isRecreating) return false;
+    state._isRecreating = true;
     
-    if (state._cleanupTimeout) {
-      clearTimeout(state._cleanupTimeout);
-      state._cleanupTimeout = null;
+    try {
+      const savedSettings = {
+        gains: { ...state.settings.gains },
+        volume: state.settings.volume,
+        bass: state.settings.bass
+      };
+      
+      fullCleanup(true);
+      
+      const elements = findAudioElements();
+      if (!elements || elements.length === 0) {
+        state._isRecreating = false;
+        return false;
+      }
+      
+      const element = elements[0];
+      state.settings.gains = savedSettings.gains;
+      state.settings.volume = savedSettings.volume;
+      state.settings.bass = savedSettings.bass;
+      
+      const result = connectAudio(element);
+      state._isRecreating = false;
+      return result;
+      
+    } catch (e) {
+      log('Ошибка пересоздания', 'error', e);
+      state._isRecreating = false;
+      return false;
     }
-    if (state._connectTimer) {
-      clearTimeout(state._connectTimer);
-      state._connectTimer = null;
+  }
+
+  function restoreAudioContext() {
+    if (state._restorationInProgress) return false;
+    
+    const now = Date.now();
+    if (now - state._lastRestoreAttempt < state._restoreCooldown) return false;
+    
+    state._lastRestoreAttempt = now;
+    state._restorationInProgress = true;
+    
+    try {
+      if (!state.context || state.context.state === 'closed') {
+        const result = recreateAudioChain();
+        state._restorationInProgress = false;
+        return result;
+      }
+      
+      if (state.context.state === 'suspended') {
+        try {
+          state.context.resume().then(() => {
+            state._contextRestoreAttempts = 0;
+            state._restorationInProgress = false;
+            if (!validateAudioChain()) recreateAudioChain();
+          }).catch(() => {
+            state._restorationInProgress = false;
+            recreateAudioChain();
+          });
+          return true;
+        } catch (e) {
+          state._restorationInProgress = false;
+          return recreateAudioChain();
+        }
+      }
+      
+      if (!validateAudioChain()) {
+        const result = recreateAudioChain();
+        state._restorationInProgress = false;
+        return result;
+      }
+      
+      try {
+        applySettingsInternal();
+      } catch (e) {
+        state._restorationInProgress = false;
+        return recreateAudioChain();
+      }
+      
+      state._contextRestoreAttempts = 0;
+      state._chainValid = true;
+      state._restorationInProgress = false;
+      return true;
+      
+    } catch (e) {
+      log('Ошибка восстановления', 'error', e);
+      state._restorationInProgress = false;
+      
+      if (state._contextRestoreAttempts < state._maxContextRestoreAttempts) {
+        state._contextRestoreAttempts++;
+        return recreateAudioChain();
+      }
+      
+      return false;
     }
-    if (state._videoChangeTimeout) {
-      clearTimeout(state._videoChangeTimeout);
-      state._videoChangeTimeout = null;
-    }
-    if (state._spectrumInterval) {
-      clearInterval(state._spectrumInterval);
-      state._spectrumInterval = null;
-    }
-    if (state._reconnectTimer) {
-      clearInterval(state._reconnectTimer);
-      state._reconnectTimer = null;
-    }
-    if (state._retryTimer) {
-      clearTimeout(state._retryTimer);
-      state._retryTimer = null;
-    }
-    if (state._memoryCleanupInterval) {
-      clearInterval(state._memoryCleanupInterval);
-      state._memoryCleanupInterval = null;
-    }
+  }
+
+  function startContextMonitoring() {
     if (state._contextCheckInterval) {
       clearInterval(state._contextCheckInterval);
       state._contextCheckInterval = null;
     }
     
-    if (state._observer) {
-      try {
-        state._observer.disconnect();
-        state._observer = null;
-        state._observerActive = false;
-      } catch {}
-    }
+    const interval = state._powerSaveMode ? 5000 : 3000;
     
-    if (state._rafId) {
-      try {
-        cancelAnimationFrame(state._rafId);
-        state._rafId = null;
-      } catch {}
-    }
-
-    try {
-      if (state.currentElement) {
-        try { state.currentElement.muted = state._originalMuted; } catch {}
-        try { state.currentElement.volume = state._originalVolume; } catch {}
-      }
-      if (state.mediaStream) {
-        try { state.mediaStream.getTracks().forEach((track) => { try { track.stop(); } catch {} }); } catch {}
-        state.mediaStream = null;
-      }
-      if (state.source) {
-        try { state.source.disconnect(); } catch {}
-        state.source = null;
-      }
-      Object.keys(state.filters).forEach((key) => {
-        try { state.filters[key].disconnect(); } catch {}
-      });
-      state.filters = {};
+    state._contextCheckInterval = setInterval(() => {
+      if (!state.isActive || !state._manualConnectRequested) return;
       
-      const nodes = ['volumeNode', 'bassNode', 'compressor', 'gainNode', 'fadeGain', '_hardMuteNode', 'limiter'];
-      nodes.forEach((name) => {
-        if (state[name]) {
-          try { state[name].disconnect(); } catch {}
-          state[name] = null;
+      if (state.context) {
+        const stateName = state.context.state;
+        if (stateName === 'closed' || stateName === 'suspended') {
+          restoreAudioContext();
+        } else if (stateName === 'running' && !state._chainValid) {
+          restoreAudioContext();
         }
-      });
-      
-      if (state.context && state.context.state !== 'closed') {
-        try { state.context.close(); } catch {}
-        state.context = null;
+      } else if (state.isActive) {
+        restoreAudioContext();
       }
+    }, interval);
+  }
 
-      if (state.analyser) {
-        try { state.analyser.disconnect(); } catch {}
-        state.analyser = null;
-      }
-
-      state.isActive = false;
-      state._isConnected = false;
-      state.currentElement = null;
-      state._audioElement = null;
-      state._originalMuted = false;
-      state._originalVolume = 1.0;
-      state._timeDomainData = null;
-      state._isConnecting = false;
-      state._statusSent = false;
-      state._isProcessingChange = false;
-      state._isRestoring = false;
-      state._contextRestoreAttempts = 0;
-      state._isFading = false;
-      state._retryCount = 0;
-      state._isRetrying = false;
-      state._findElementAttempts = 0;
-      state._isMuted = false;
-      state._chainValid = false;
-      state._restorationInProgress = false;
-      state._isRecreating = false;
-      state._hardMute = false;
-      state._hardMuteNode = null;
-      state._mutexLock = false;
-      state._observerActive = false;
-      state._lifecycleToken++;
-      state._tabHardMuteRequested = false;
-      safeSendMessage({ action: 'setTabVolumeMute', muted: false });
-
-    } catch (e) {
-      log('Ошибка при очистке', 'error', e);
+  function stopContextMonitoring() {
+    if (state._contextCheckInterval) {
+      clearInterval(state._contextCheckInterval);
+      state._contextCheckInterval = null;
     }
   }
 
   // ============================================
-  //  SPECTRUM UPDATES
+  //  СПЕКТР (DEMAND-DRIVEN)
   // ============================================
 
   function startSpectrumUpdates() {
+    if (!state._spectrumRequested) {
+      if (state._spectrumInterval) clearInterval(state._spectrumInterval);
+      state._spectrumInterval = null;
+      return;
+    }
     if (state._spectrumInterval) {
       clearInterval(state._spectrumInterval);
       state._spectrumInterval = null;
@@ -795,268 +913,292 @@
     return { rms: Math.max(0, Math.min(1, rms)), peak: Math.max(0, Math.min(1, peak)), clipping: peak >= 0.99 };
   }
 
-  // ============================================
-  //  RESTORE AUDIO CONTEXT
-  // ============================================
-
-  function restoreAudioContext() {
-    if (state._restorationInProgress) return false;
-    
-    const now = Date.now();
-    if (now - state._lastRestoreAttempt < state._restoreCooldown) return false;
-    
-    state._lastRestoreAttempt = now;
-    state._restorationInProgress = true;
-    
+  function getSpectrumData() {
+    if (!state.isActive || !state.analyser) return new Float32Array(64).fill(0);
     try {
-      if (!state.context || state.context.state === 'closed') {
-        const result = recreateAudioChain();
-        state._restorationInProgress = false;
-        return result;
+      const dataArray = new Float32Array(state.analyser.frequencyBinCount);
+      state.analyser.getFloatFrequencyData(dataArray);
+      const normalized = new Float32Array(64);
+      const minDb = state.analyser.minDecibels;
+      const maxDb = state.analyser.maxDecibels;
+      const range = Math.max(1, maxDb - minDb);
+      for (let i = 0; i < Math.min(dataArray.length, 64); i++) {
+        const db = dataArray[i];
+        normalized[i] = Number.isFinite(db) ? Math.max(0, Math.min(1, (db - minDb) / range)) : 0;
       }
-      
-      if (state.context.state === 'suspended') {
-        try {
-          state.context.resume().then(() => {
-            state._contextRestoreAttempts = 0;
-            state._restorationInProgress = false;
-            if (!validateAudioChain()) recreateAudioChain();
-          }).catch(() => {
-            state._restorationInProgress = false;
-            recreateAudioChain();
-          });
-          return true;
-        } catch (e) {
-          state._restorationInProgress = false;
-          return recreateAudioChain();
-        }
-      }
-      
-      if (!validateAudioChain()) {
-        const result = recreateAudioChain();
-        state._restorationInProgress = false;
-        return result;
-      }
-      
-      try {
-        applySettingsInternal();
-      } catch (e) {
-        state._restorationInProgress = false;
-        return recreateAudioChain();
-      }
-      
-      state._contextRestoreAttempts = 0;
-      state._chainValid = true;
-      state._restorationInProgress = false;
-      return true;
-      
-    } catch (e) {
-      log('Ошибка восстановления', 'error', e);
-      state._restorationInProgress = false;
-      
-      if (state._contextRestoreAttempts < state._maxContextRestoreAttempts) {
-        state._contextRestoreAttempts++;
-        return recreateAudioChain();
-      }
-      
-      return false;
-    }
+      return normalized;
+    } catch { return new Float32Array(64).fill(0); }
   }
 
-  function validateAudioChain() {
-    if (!state.context || state.context.state === 'closed') return false;
-    if (!state.source || !state.gainNode || !state.bassNode || !state.compressor || !state.limiter || !state.analyser) return false;
-    if (state.context.state !== 'running') return false;
-    if (!state.currentElement) return false;
-    state._chainValid = true;
-    return true;
-  }
+  // ============================================
+  //  ПОЛНАЯ ОЧИСТКА РЕСУРСОВ
+  // ============================================
 
-  function recreateAudioChain() {
-    if (state._isRecreating) return false;
-    state._isRecreating = true;
+  function fullCleanup(keepSettings) {
+    log('Полная очистка', 'debug', { keepSettings });
     
-    try {
-      const savedSettings = {
-        gains: { ...state.settings.gains },
-        volume: state.settings.volume,
-        bass: state.settings.bass
-      };
-      
-      fullCleanup(true);
-      
-      const elements = findAudioElements();
-      if (!elements || elements.length === 0) {
-        state._isRecreating = false;
-        return false;
-      }
-      
-      const element = elements[0];
-      state.settings.gains = savedSettings.gains;
-      state.settings.volume = savedSettings.volume;
-      state.settings.bass = savedSettings.bass;
-      
-      const result = connectAudio(element);
-      state._isRecreating = false;
-      return result;
-      
-    } catch (e) {
-      log('Ошибка пересоздания', 'error', e);
-      state._isRecreating = false;
-      return false;
+    if (state._cleanupTimeout) {
+      clearTimeout(state._cleanupTimeout);
+      state._cleanupTimeout = null;
     }
-  }
-
-  // ============================================
-  //  APPLY SETTINGS
-  // ============================================
-
-  function applySettingsInternal() {
-    try {
-      Object.keys(state.settings.gains).forEach((key) => {
-        if (state.filters[key]) {
-          state.filters[key].gain.value = state.settings.gains[key];
-        }
-      });
-      
-      if (state.bassNode) {
-        const bassValue = Math.max(-12, Math.min(12, state.settings.bass));
-        state.bassNode.gain.value = bassValue;
-      }
-      
-      let volumeValue = Math.max(0, Math.min(8.0, state.settings.volume));
-      if (state._nightMode) {
-        volumeValue = volumeValue * 0.3;
-      }
-      state._lastVolumeValue = volumeValue;
-      
-      if (state.gainNode) {
-        state.gainNode.gain.value = volumeValue;
-      }
-      
-      const isMute = volumeValue === 0;
-      if (state._hardMuteNode) {
-        state._hardMuteNode.gain.value = isMute ? 0 : 1.0;
-      }
-      if (state.fadeGain) {
-        state.fadeGain.gain.value = isMute ? 0 : 1.0;
-      }
-      
-      if (isMute) {
-        state._hardMute = true;
-        state._isMuted = true;
-        if (!state._tabHardMuteRequested) {
-          state._tabHardMuteRequested = true;
-          safeSendMessage({ action: 'setTabVolumeMute', muted: true });
-        }
-        if (state.currentElement) {
-          state.currentElement.muted = true;
-        }
-        if (state._audioElement) {
-          state._audioElement.muted = true;
-        }
-        log('🔇 ЖЕСТКОЕ ОТКЛЮЧЕНИЕ: все узлы обнулены (0%)', 'info');
-      } else {
-        state._hardMute = false;
-        state._isMuted = false;
-        if (state._tabHardMuteRequested) {
-          state._tabHardMuteRequested = false;
-          safeSendMessage({ action: 'setTabVolumeMute', muted: false });
-        }
-        if (state.currentElement) {
-          state.currentElement.muted = true;
-        }
-        if (state._audioElement) {
-          state._audioElement.muted = true;
-        }
-        
-        log(`🔊 Звук восстановлен: ${(volumeValue * 100).toFixed(0)}%`, 'debug');
-      }
-      
-    } catch (e) {
-      log('Ошибка в applySettingsInternal', 'error', e);
-      throw e;
+    if (state._connectTimer) {
+      clearTimeout(state._connectTimer);
+      state._connectTimer = null;
     }
-  }
-
-  function applySettings(instant) {
-    if (!state.isActive) return;
-    try {
-      applySettingsInternal();
-    } catch (e) {
-      log('Ошибка применения настроек', 'error', e);
+    if (state._videoChangeTimeout) {
+      clearTimeout(state._videoChangeTimeout);
+      state._videoChangeTimeout = null;
     }
-  }
-
-  // ============================================
-  //  CONTEXT MONITORING
-  // ============================================
-
-  function startContextMonitoring() {
+    if (state._spectrumInterval) {
+      clearInterval(state._spectrumInterval);
+      state._spectrumInterval = null;
+    }
+    if (state._reconnectTimer) {
+      clearInterval(state._reconnectTimer);
+      state._reconnectTimer = null;
+    }
+    if (state._retryTimer) {
+      clearTimeout(state._retryTimer);
+      state._retryTimer = null;
+    }
+    if (state._memoryCleanupInterval) {
+      clearInterval(state._memoryCleanupInterval);
+      state._memoryCleanupInterval = null;
+    }
     if (state._contextCheckInterval) {
       clearInterval(state._contextCheckInterval);
       state._contextCheckInterval = null;
     }
     
-    const interval = state._powerSaveMode ? 5000 : 3000;
+    if (state._observer) {
+      try {
+        state._observer.disconnect();
+        state._observer = null;
+        state._observerActive = false;
+      } catch {}
+    }
     
-    state._contextCheckInterval = setInterval(() => {
-      if (!state.isActive || !state._manualConnectRequested) return;
-      
-      if (state.context) {
-        const stateName = state.context.state;
-        if (stateName === 'closed' || stateName === 'suspended') {
-          restoreAudioContext();
-        } else if (stateName === 'running' && !state._chainValid) {
-          restoreAudioContext();
-        }
-      } else if (state.isActive) {
-        restoreAudioContext();
+    if (state._rafId) {
+      try {
+        cancelAnimationFrame(state._rafId);
+        state._rafId = null;
+      } catch {}
+    }
+
+    try {
+      if (state.currentElement) {
+        try { state.currentElement.muted = state._originalMuted; } catch {}
+        try { state.currentElement.volume = state._originalVolume; } catch {}
       }
-    }, interval);
+      if (state.mediaStream) {
+        try { state.mediaStream.getTracks().forEach((track) => { try { track.stop(); } catch {} }); } catch {}
+        state.mediaStream = null;
+      }
+      if (state.source) {
+        try { state.source.disconnect(); } catch {}
+        state.source = null;
+      }
+      Object.keys(state.filters).forEach((key) => {
+        try { state.filters[key].disconnect(); } catch {}
+      });
+      state.filters = {};
+      
+      const nodes = ['volumeNode', 'bassNode', 'compressor', 'limiter', 'gainNode', 'fadeGain', 'workletNode', '_hardMuteNode'];
+      nodes.forEach((name) => {
+        if (state[name]) {
+          try { state[name].disconnect(); } catch {}
+          state[name] = null;
+        }
+      });
+      
+      if (state.context && state.context.state !== 'closed') {
+        try { state.context.close(); } catch {}
+        state.context = null;
+      }
+
+      if (state.analyser) {
+        try { state.analyser.disconnect(); } catch {}
+        state.analyser = null;
+      }
+
+      state.isActive = false;
+      state._isConnected = false;
+      state.currentElement = null;
+      state._audioElement = null;
+      state._originalMuted = false;
+      state._originalVolume = 1.0;
+      state._timeDomainData = null;
+      state._isConnecting = false;
+      state._statusSent = false;
+      state._isProcessingChange = false;
+      state._isRestoring = false;
+      state._contextRestoreAttempts = 0;
+      state._isFading = false;
+      state._retryCount = 0;
+      state._isRetrying = false;
+      state._findElementAttempts = 0;
+      state._isMuted = false;
+      state._chainValid = false;
+      state._restorationInProgress = false;
+      state._isRecreating = false;
+      state._hardMute = false;
+      state._hardMuteNode = null;
+      state._mutexLock = false;
+      state._observerActive = false;
+      state._lifecycleToken++;
+      state._tabHardMuteRequested = false;
+      safeSendMessage({ action: 'setTabVolumeMute', muted: false });
+
+    } catch (e) {
+      log('Ошибка при очистке', 'error', e);
+    }
+  }
+
+  function saveCurrentSettings() {
+    state._savedGains = Object.assign({}, state.settings.gains);
+    state._savedVolume = state.settings.volume;
+    state._savedBass = state.settings.bass;
+  }
+
+  function restoreSettings() {
+    if (state._savedGains) {
+      Object.keys(state._savedGains).forEach((key) => {
+        if (state.settings.gains[key] !== undefined) state.settings.gains[key] = state._savedGains[key];
+      });
+    }
+    if (state._savedVolume !== undefined) state.settings.volume = state._savedVolume;
+    if (state._savedBass !== undefined) state.settings.bass = state._savedBass;
+    applySettings(true);
+    saveSettings();
   }
 
   // ============================================
-  //  OBSERVE CHANGES
+  //  ПОДКЛЮЧЕНИЕ / ОТКЛЮЧЕНИЕ
   // ============================================
 
-  function observeChanges() {
-    if (state._observerActive) return;
-    state._observerActive = true;
+  function handleConnect(isAutomatic) {
+    if (!state._settingsReady) {
+      state._pendingConnectUntilSettingsReady = true;
+      state._pendingConnectIsAutomatic = !!isAutomatic;
+      if (state._settingsReadyPromise) state._settingsReadyPromise.catch(() => {});
+      return;
+    }
 
-    state._observer = new MutationObserver(() => {
-      if (state._processingObservation) return;
-      if (state._isProcessingChange || state._isConnecting) return;
-      if (!state.isEnabled || !state._manualConnectRequested) return;
-      if (Date.now() - state._lastChangeTime < 1000) return;
-      
-      state._processingObservation = true;
-      
-      try {
-        const elements = findAudioElements();
-        if (elements && elements.length > 0) {
-          const currentElement = elements[0];
-          const elementId = currentElement.id || currentElement.src || '';
-          
-          if (state.isActive && state._lastElementId !== null && state._lastElementId !== elementId) {
-            state._processingObservation = false;
-            if (!state._isVideoChange && state._manualConnectRequested) {
-              handleVideoChange();
-            }
-            return;
-          }
+    if (isAutomatic && state._autoConnectSuppressed) {
+      log('🔇 Автоподключение пропущено: ранее было отключено пользователем на этом сайте/глобально', 'info');
+      return;
+    }
+
+    log('🔗 РУЧНОЕ ПОДКЛЮЧЕНИЕ (Mozilla Firefox 153.1 ESR)', 'info');
+    if (state.context) ensureAudioContextRunning();
+    
+    if (state.isActive && state._isConnected) {
+      safeSendMessage({ action: 'statusUpdate', status: 'connected' });
+      return;
+    }
+    
+    state.isEnabled = true;
+    state.autoConnect = false;
+    state.reconnectAttempts = 0;
+    state._isConnected = false;
+    state._isConnecting = false;
+    state._statusSent = false;
+    state._connectAttempts = 0;
+    state._isVideoChange = false;
+    state._isProcessingChange = false;
+    state._savedGains = null;
+    state._savedVolume = null;
+    state._savedBass = null;
+    state._lastElementId = null;
+    state._settingsRestored = false;
+    state._contextRestoreAttempts = 0;
+    state._retryCount = 0;
+    state._isRetrying = false;
+    state._manualConnectRequested = true;
+    state._lifecycleToken++;
+    state._findElementAttempts = 0;
+    state._isMuted = false;
+    state._chainValid = false;
+    state._hardMute = false;
+    state._mutexLock = false;
+    state._tabHardMuteRequested = false;
+    saveSettings();
+    
+    tryConnectWithRetry();
+  }
+
+  function tryConnectWithRetry() {
+    const token = state._lifecycleToken;
+    const elements = findAudioElements();
+
+    if (elements && elements.length > 0) {
+      const element = elements[0];
+      state._findElementAttempts = 0;
+      clearTimeout(state._retryTimer);
+      state._retryTimer = setTimeout(() => {
+        if (token !== state._lifecycleToken || !state._manualConnectRequested) return;
+        if (state.isActive) {
+          fullCleanup(true);
+          state._retryTimer = setTimeout(() => {
+            if (token === state._lifecycleToken && state._manualConnectRequested) connectAudio(element);
+          }, 300);
+        } else {
+          connectAudio(element);
         }
-      } catch {}
-      
-      state._processingObservation = false;
-    });
+      }, 300);
+    } else {
+      state._findElementAttempts++;
+      if (state._findElementAttempts < state._maxFindElementAttempts) {
+        clearTimeout(state._retryTimer);
+        state._retryTimer = setTimeout(() => {
+          if (token === state._lifecycleToken && state._manualConnectRequested) tryConnectWithRetry();
+        }, 500);
+      } else {
+        safeSendMessage({ action: 'statusUpdate', status: 'error' });
+        state._isConnecting = false;
+        state._findElementAttempts = 0;
+        state._mutexLock = false;
+      }
+    }
+  }
 
-    state._observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['src', 'data-testid', 'class', 'srcset']
-    });
+  function handleDisconnect() {
+    log('⏹ РУЧНОЕ ОТКЛЮЧЕНИЕ', 'info');
+    
+    state.isEnabled = false;
+    state.autoConnect = false;
+    state.reconnectAttempts = state.maxReconnectAttempts;
+    state._isConnected = false;
+    state._isConnecting = false;
+    state._statusSent = false;
+    state._connectAttempts = 0;
+    state._isVideoChange = false;
+    state._isProcessingChange = false;
+    state._savedGains = null;
+    state._savedVolume = null;
+    state._savedBass = null;
+    state._lastElementId = null;
+    state._settingsRestored = false;
+    state._contextRestoreAttempts = 0;
+    state._retryCount = 0;
+    state._isRetrying = false;
+    state._manualConnectRequested = false;
+    state._lifecycleToken++;
+    clearTimeout(state._retryTimer);
+    state._retryTimer = null;
+    state._findElementAttempts = 0;
+    state._isMuted = false;
+    state._chainValid = false;
+    state._hardMute = false;
+    state._mutexLock = false;
+    state._tabHardMuteRequested = false;
+    safeSendMessage({ action: 'setTabVolumeMute', muted: false });
+    
+    stopContextMonitoring();
+    fullCleanup(false);
+    saveSettings();
+    safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
+    log('✅ Отключение выполнено', 'info');
   }
 
   function handleVideoChange() {
@@ -1098,60 +1240,13 @@
     }, 1500);
   }
 
-  function saveCurrentSettings() {
-    state._savedGains = Object.assign({}, state.settings.gains);
-    state._savedVolume = state.settings.volume;
-    state._savedBass = state.settings.bass;
-  }
-
   // ============================================
-  //  HANDLE DISCONNECT
-  // ============================================
-
-  function handleDisconnect() {
-    log('⏹ РУЧНОЕ ОТКЛЮЧЕНИЕ', 'info');
-    
-    state.isEnabled = false;
-    state.autoConnect = false;
-    state.reconnectAttempts = state.maxReconnectAttempts;
-    state._isConnected = false;
-    state._isConnecting = false;
-    state._statusSent = false;
-    state._connectAttempts = 0;
-    state._isVideoChange = false;
-    state._isProcessingChange = false;
-    state._savedGains = null;
-    state._savedVolume = null;
-    state._savedBass = null;
-    state._lastElementId = null;
-    state._settingsRestored = false;
-    state._contextRestoreAttempts = 0;
-    state._retryCount = 0;
-    state._isRetrying = false;
-    state._manualConnectRequested = false;
-    state._lifecycleToken++;
-    clearTimeout(state._retryTimer);
-    state._retryTimer = null;
-    state._findElementAttempts = 0;
-    state._isMuted = false;
-    state._chainValid = false;
-    state._hardMute = false;
-    state._mutexLock = false;
-    state._tabHardMuteRequested = false;
-    safeSendMessage({ action: 'setTabVolumeMute', muted: false });
-    
-    stopContextMonitoring();
-    fullCleanup(false);
-    safeSendMessage({ action: 'statusUpdate', status: 'disconnected' });
-    log('✅ Отключение выполнено', 'info');
-  }
-
-  // ============================================
-  //  NIGHT MODE
+  //  НОЧНОЙ РЕЖИМ
   // ============================================
 
   function setNightMode(enabled) {
     state._nightMode = enabled;
+    saveSettings();
     
     if (enabled) {
       log('🌙 Ночной режим включен (громкость снижена на 70%)', 'info');
@@ -1167,12 +1262,18 @@
     });
   }
 
+  function toggleNightMode() {
+    setNightMode(!state._nightMode);
+    return state._nightMode;
+  }
+
   // ============================================
-  //  POWER SAVE MODE
+  //  ЭНЕРГОСБЕРЕЖЕНИЕ
   // ============================================
 
   function setPowerSaveMode(enabled) {
     state._powerSaveMode = enabled;
+    saveSettings();
     
     if (enabled) {
       log('⚡ Режим энергосбережения ВКЛЮЧЕН', 'info');
@@ -1212,25 +1313,24 @@
     });
   }
 
+  function togglePowerSave() {
+    setPowerSaveMode(!state._powerSaveMode);
+    return state._powerSaveMode;
+  }
+
   // ============================================
-  //  MESSAGE HANDLER
+  //  ОБРАБОТЧИК СООБЩЕНИЙ
   // ============================================
 
   function handleMessage(type, data) {
     switch (type) {
-      case 'SF_CONNECT':
-        return handleConnect().then((result) => ({
-          status: 'connected',
-          active: true,
-          tabReady: true
-        })).catch((error) => ({
-          status: 'error',
-          active: false,
-          error: error?.message || 'connect_failed'
-        }));
-      case 'SF_DISCONNECT': 
-        handleDisconnect(); 
+      case 'SF_SET_SPECTRUM_ACTIVE':
+        state._spectrumRequested = data?.enabled === true;
+        if (state._spectrumRequested && state.isActive) startSpectrumUpdates();
+        else if (state._spectrumInterval) { clearInterval(state._spectrumInterval); state._spectrumInterval = null; }
         break;
+      case 'SF_CONNECT': handleConnect(); break;
+      case 'SF_DISCONNECT': handleDisconnect(); break;
       case 'SF_RECONNECT':
         if (state._manualConnectRequested) {
           if (state.isActive) { saveCurrentSettings(); fullCleanup(true); }
@@ -1255,11 +1355,27 @@
           state._lifecycleToken++;
           observeChanges();
           const reconnectToken = state._lifecycleToken;
-          setTimeout(() => { 
-            if (reconnectToken === state._lifecycleToken && state._manualConnectRequested) {
-              handleConnect(); 
-            }
-          }, 500);
+          setTimeout(() => { if (reconnectToken === state._lifecycleToken && state._manualConnectRequested) handleConnect(); }, 500);
+        }
+        break;
+      case 'SF_SYNC_SETTINGS':
+        if (data) {
+          if (data.gains) Object.keys(data.gains).forEach((key) => { if (state.settings.gains[key] !== undefined) state.settings.gains[key] = Number(data.gains[key]) || 0; });
+          if (data.volume !== undefined) state.settings.volume = Math.max(0, Math.min(8, Number(data.volume) || 0));
+          if (data.bass !== undefined) state.settings.bass = Math.max(-12, Math.min(12, Number(data.bass) || 0));
+          if (data.userPresets) state._userPresets = data.userPresets;
+          if (data.nightMode !== undefined) state._nightMode = !!data.nightMode;
+          if (data.powerSaveMode !== undefined) state._powerSaveMode = !!data.powerSaveMode;
+          if (data.debugMode !== undefined) state._debugMode = !!data.debugMode;
+          if (state.isActive) applySettings(true);
+        }
+        break;
+      case 'SF_APPLY_SITE_SETTINGS':
+        if (data) {
+          if (data.gains) Object.keys(data.gains).forEach((key) => { if (state.settings.gains[key] !== undefined) state.settings.gains[key] = Number(data.gains[key]) || 0; });
+          if (data.volume !== undefined) state.settings.volume = Math.max(0, Math.min(8, Number(data.volume) || 0));
+          if (data.bass !== undefined) state.settings.bass = Math.max(-12, Math.min(12, Number(data.bass) || 0));
+          if (state.isActive) applySettings(true);
         }
         break;
       case 'SF_UPDATE_EQ':
@@ -1268,6 +1384,7 @@
             if (state.settings.gains[key] !== undefined) state.settings.gains[key] = data.gains[key];
           });
           applySettings(data.instant || false);
+          saveSettings();
         }
         break;
       case 'SF_RESET':
@@ -1275,6 +1392,7 @@
         state.settings.volume = 1.0;
         state.settings.bass = 0;
         applySettings(true);
+        saveSettings();
         break;
       case 'SF_SET_VOLUME':
         if (data && data.value !== undefined) {
@@ -1284,6 +1402,7 @@
           if (state.isActive) {
             applySettingsInternal();
           }
+          saveSettings();
         }
         break;
       case 'SF_SET_BASS':
@@ -1292,6 +1411,7 @@
           if (state.bassNode) {
             state.bassNode.gain.value = state.settings.bass;
           }
+          saveSettings();
         }
         break;
       case 'SF_GET_STATUS':
@@ -1300,8 +1420,38 @@
       case 'SF_GET_SPECTRUM':
         updateSpectrumData();
         break;
+      case 'SF_SAVE_USER_PRESET':
+        if (data && data.name) {
+          state._userPresets[data.name] = {
+            gains: Object.assign({}, state.settings.gains),
+            volume: state.settings.volume,
+            bass: state.settings.bass,
+            timestamp: Date.now()
+          };
+          saveSettings();
+          safeSendMessage({ action: 'userPresetsUpdated', presets: state._userPresets });
+        }
+        break;
+      case 'SF_DELETE_USER_PRESET':
+        if (data && data.name && state._userPresets[data.name]) {
+          delete state._userPresets[data.name];
+          saveSettings();
+          safeSendMessage({ action: 'userPresetsUpdated', presets: state._userPresets });
+        }
+        break;
+      case 'SF_GET_USER_PRESETS':
+        safeSendMessage({ action: 'userPresetsUpdated', presets: state._userPresets });
+        break;
+      case 'SF_TOGGLE_DEBUG':
+        state._debugMode = !state._debugMode;
+        saveSettings();
+        log('🐛 Режим отладки:', state._debugMode ? 'ВКЛ' : 'ВЫКЛ', 'info');
+        break;
       case 'SF_APPLY_PRESET':
         if (data && data.preset) {
+          const wasActive = state.isActive;
+          const wasConnected = state._isConnected;
+          const activeContext = state.context;
           const preset = data.settings || data.presetData;
           if (preset && preset.gains) {
             Object.keys(state.settings.gains).forEach((key) => {
@@ -1312,9 +1462,16 @@
             state._hardMute = state.settings.volume === 0;
             state._isMuted = state._hardMute;
             applySettings(true);
+            saveSettings();
+          }
+          if (wasActive) state.isActive = true;
+          if (wasConnected) state._isConnected = true;
+          if (activeContext && state.context !== activeContext) {
+            log('⚠️ AudioContext changed unexpectedly during preset apply', 'warn');
           }
           state._userPresets = data.userPresets || state._userPresets;
-          log(`🎵 Применён пресет: ${data.preset}`, 'info');
+          state.currentPreset = data.preset;
+          log('🎵 Применён пресет без отключения:', data.preset, 'info');
           safeSendMessage({ action: 'presetApplied', preset: data.preset });
         }
         break;
@@ -1323,25 +1480,39 @@
           setNightMode(data.enabled);
         }
         break;
+      case 'SF_TOGGLE_NIGHT_MODE':
+        toggleNightMode();
+        break;
+      case 'SF_GET_NIGHT_MODE':
+        safeSendMessage({ 
+          action: 'nightModeStatus', 
+          enabled: state._nightMode 
+        });
+        break;
       case 'SF_SET_POWER_SAVE':
         if (data && data.enabled !== undefined) {
           setPowerSaveMode(data.enabled);
         }
         break;
-      case 'SF_PING':
-        // Ответ на ping
+      case 'SF_TOGGLE_POWER_SAVE':
+        togglePowerSave();
         break;
-      default: 
+      case 'SF_GET_POWER_SAVE':
+        safeSendMessage({ 
+          action: 'powerSaveStatus', 
+          enabled: state._powerSaveMode 
+        });
         break;
+      default: break;
     }
   }
 
   // ============================================
-  //  CHROME RUNTIME MESSAGE LISTENER
+  //  RUNTIME MESSAGE LISTENER (FIREFOX 153 OPTIMIZED)
   // ============================================
 
-  if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (typeof browserAPI !== 'undefined' && browserAPI.runtime?.onMessage) {
+    browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         if (!message) return;
         if (message.type === 'SF_PING') {
@@ -1364,26 +1535,18 @@
           return;
         }
         if (message.type) {
-          const result = handleMessage(message.type, message.data || {});
-          if (result && typeof result.then === 'function') {
-            result.then((value) => {
-              sendResponse(value || { ok: true });
-            }).catch((error) => {
-              sendResponse({ ok: false, status: 'error', error: error?.message || 'message_failed' });
-            });
-            return true;
-          }
-          sendResponse(result || { ok: true });
+          handleMessage(message.type, message.data || {});
+          sendResponse({ ok: true });
         }
       } catch (error) {
-        sendResponse({ ok: false, status: 'error', error: error?.message || 'message_failed' });
+        sendResponse({ ok: false, error: error?.message || 'message_failed' });
       }
       return true;
     });
   }
 
   // ============================================
-  //  EXPOSE SOUNDFORGE INJECT
+  //  ПУБЛИЧНЫЙ API
   // ============================================
 
   window.SoundForgeInject = {
@@ -1400,16 +1563,18 @@
         _chainValid: state._chainValid,
         _hardMute: state._hardMute,
         _nightMode: state._nightMode,
-        _powerSaveMode: state._powerSaveMode
+        _powerSaveMode: state._powerSaveMode,
+        rms: calculateTimeDomainMetrics(state._timeDomainData || new Float32Array(0)).rms,
+        peak: calculateTimeDomainMetrics(state._timeDomainData || new Float32Array(0)).peak
       };
     },
-    getSpectrumData: function() {
-      return state._spectrumData;
-    },
+    getSpectrumData: getSpectrumData,
     restoreContext: restoreAudioContext,
     validateChain: validateAudioChain,
     setNightMode: setNightMode,
+    toggleNightMode: toggleNightMode,
     setPowerSave: setPowerSaveMode,
+    togglePowerSave: togglePowerSave,
     _initialized: true,
     _version: '3.22.8'
   };
@@ -1423,14 +1588,57 @@
   }
 
   // ============================================
-  //  INIT
+  //  MUTATION OBSERVER ДЛЯ ОТСЛЕЖИВАНИЯ ИЗМЕНЕНИЙ
+  // ============================================
+
+  function observeChanges() {
+    if (state._observerActive) return;
+    state._observerActive = true;
+
+    state._observer = new MutationObserver(() => {
+      if (state._processingObservation) return;
+      if (state._isProcessingChange || state._isConnecting) return;
+      if (!state.isEnabled || !state._manualConnectRequested) return;
+      if (Date.now() - state._lastChangeTime < 1000) return;
+      
+      state._processingObservation = true;
+      
+      try {
+        const elements = findAudioElements();
+        if (elements && elements.length > 0) {
+          const currentElement = elements[0];
+          const elementId = currentElement.id || currentElement.src || '';
+          
+          if (state.isActive && state._lastElementId !== null && state._lastElementId !== elementId) {
+            state._processingObservation = false;
+            if (!state._isVideoChange && state._manualConnectRequested) {
+              handleVideoChange();
+            }
+            return;
+          }
+        }
+      } catch {}
+      
+      state._processingObservation = false;
+    });
+
+    state._observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src', 'data-testid', 'class', 'srcset']
+    });
+  }
+
+  // ============================================
+  //  ИНИЦИАЛИЗАЦИЯ
   // ============================================
 
   function init() {
     if (state._initDone) return;
     state._initDone = true;
     
-    log('✅ SoundForge v3.22.8 инициализирован', 'info');
+    log('✅ SoundForge v3.22.8 Firefox 153 инициализирован', 'info');
     observeChanges();
     
     safeSendMessage({ 
@@ -1444,10 +1652,9 @@
     log('🔇 0% = ПОЛНАЯ ТИШИНА, 800% = МАКСИМУМ', 'info');
     log('🌐 РАБОТАЕТ НА ВСЕХ САЙТАХ', 'info');
     
-    // ✅ АВТОПОДКЛЮЧЕНИЕ ВСЕГДА
     setTimeout(() => {
       log('🔄 АВТОПОДКЛЮЧЕНИЕ...', 'info');
-      handleConnect();
+      handleConnect(true);
     }, 1000);
   }
 
@@ -1457,6 +1664,6 @@
     window.addEventListener('load', () => { setTimeout(init, 500); }, { once: true });
   }
 
-  log('✅✅✅ SoundForge v3.22.8 загружен ✅✅✅', 'info');
+  log('✅✅✅ SoundForge v3.22.8 Firefox 153 загружен ✅✅✅', 'info');
 
 })();

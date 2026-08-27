@@ -1,20 +1,31 @@
+import {
+  initEffects as initSharedEffects,
+  renderEffect as renderSharedEffect,
+  setCurrentEffect as setSharedEffect,
+  getCurrentEffect as getSharedEffect,
+  loadSavedEffect as loadSharedEffect,
+  getEffectName as getSharedEffectName
+} from './modules/visualization-effects.js';
+import { state as sharedAppState } from './modules/state.js';
+
 // ============================================
-//  WINDOW.JS - v3.22.8 (Firefox/Chrome)
+//  WINDOW.JS - SoundForge v3.22.8 Firefox 153
+//  Mozilla Firefox 153.1.0 ESR | Windows 11 25H2
 //  Standalone Window
 //  FULL LOCALIZATION: RU, UA, EN
 //  HOTKEYS: Ctrl+Shift+E, Ctrl+Shift+Y, Ctrl+Shift+X
 //  ЭФФЕКТЫ ВИЗУАЛИЗАЦИИ: СПЕКТР | ВОЛНЫ | ОГОНЬ | НЕОН
-//  ИСПРАВЛЕНО: безопасная инициализация модулей
-//  ИСПРАВЛЕНО: обработка ошибок stats
-//  ИСПРАВЛЕНО: Firefox совместимость
-//  ИСПРАВЛЕНО: обработка statusUpdate
-//  ИСПРАВЛЕНО: подключение к аудио
+//  FIREFOX 153 OPTIMIZED: безопасная отправка сообщений
+//  FIREFOX 153 OPTIMIZED: подключение к аудио (доверяем background)
+//  FIREFOX 153 OPTIMIZED: кнопка эффектов
+//  ИСПРАВЛЕНО: защита connection state
+//  ИСПРАВЛЕНО: панель не дергается при смене эффекта/пресета
 // ============================================
 
 (function() {
   'use strict';
 
-  console.log('🪟 SoundForge Window v3.22.8 (Firefox/Chrome)');
+  console.log('🪟 SoundForge Window v3.22.8 Firefox 153');
 
   // ============================================
   //  ПОЛИФИЛЛЫ
@@ -51,54 +62,52 @@
   }
 
   // ============================================
-  //  API DETECTION И БЕЗОПАСНАЯ ОТПРАВКА
+  //  API DETECTION (FIREFOX 153 OPTIMIZED)
   // ============================================
 
-  var api = (typeof chrome !== 'undefined' && chrome.runtime) ? chrome : 
-            (typeof browser !== 'undefined' && browser.runtime) ? browser : null;
+  var api = (typeof browser !== 'undefined' && browser.runtime) ? browser : null;
 
   if (!api) {
     console.warn('⚠️ Extension API not available');
   }
 
+  // ============================================
+  //  CONNECTION STATE GUARD (ЗАЩИТА)
+  // ============================================
+
+  var CONNECTION_STATES = ['connected', 'connecting', 'disconnected', 'error'];
+
+  function isConnectionState(status) {
+    return CONNECTION_STATES.indexOf(status) !== -1;
+  }
+
+  // ============================================
+  //  БЕЗОПАСНАЯ ОТПРАВКА СООБЩЕНИЙ
+  // ============================================
+
   function safeSendMessage(message, callback) {
-    var done = false;
-    function finish(response) {
-      if (done) return;
-      done = true;
-      if (typeof callback === 'function') {
-        try { callback(response); } catch (e) {}
-      }
-    }
-
     try {
-      // Firefox: prefer Promise-based browser API when available.
-      if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
-        browser.runtime.sendMessage(message)
-          .then(finish)
-          .catch(function() { finish(null); });
-        return;
-      }
-
-      // Chrome/Firefox compatibility callback API.
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage(message, function(response) {
-          try {
-            if (chrome.runtime && chrome.runtime.lastError) {
-              finish(null);
-              return;
-            }
-          } catch (e) {}
-          finish(response);
+      if (api && api.runtime && api.runtime.sendMessage) {
+        api.runtime.sendMessage(message, function(response) {
+          if (api.runtime && api.runtime.lastError) {
+            // Игнорируем ошибки отправки
+          }
+          if (typeof callback === 'function') {
+            try {
+              callback(response);
+            } catch (e) {}
+          }
         });
-        return;
+      } else {
+        if (typeof callback === 'function') {
+          try { callback(null); } catch (e) {}
+        }
       }
     } catch (e) {
-      finish(null);
-      return;
+      if (typeof callback === 'function') {
+        try { callback(null); } catch (e) {}
+      }
     }
-
-    finish(null);
   }
 
   var CANONICAL_STORAGE_KEYS = {
@@ -191,7 +200,7 @@
   }
 
   // ============================================
-  //  50 PRESETS
+  //  50 PRESETS (CANONICAL ORDER)
   // ============================================
 
   var PRESETS = {
@@ -217,25 +226,24 @@
     piano: { gains: { 31: -1.0, 62: -0.5, 125: 0, 250: 1.0, 500: 2.0, 1000: 3.0, 2000: 3.5, 4000: 2.5, 8000: 2.0, 16000: 1.5 }, volume: 100, bass: -0.5 },
     orchestra: { gains: { 31: 0.5, 62: 1.0, 125: 1.0, 250: 1.5, 500: 1.5, 1000: 2.0, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 1.0 },
     classical: { gains: { 31: 0, 62: 0.5, 125: 0.5, 250: 0.5, 500: 1.0, 1000: 1.5, 2000: 1.5, 4000: 1.0, 8000: 0.5, 16000: 0.5 }, volume: 100, bass: 0.5 },
+    jazz: { gains: { 31: 1.0, 62: 1.5, 125: 2.0, 250: 1.5, 500: 1.0, 1000: 1.5, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 1.5 },
     headphones: { gains: { 31: 1.0, 62: 1.5, 125: 1.5, 250: 1.0, 500: 0.5, 1000: 0.5, 2000: 1.0, 4000: 1.5, 8000: 2.0, 16000: 1.5 }, volume: 100, bass: 1.5 },
     car: { gains: { 31: 3.5, 62: 4.5, 125: 3.5, 250: 1.5, 500: 0, 1000: 0.5, 2000: 1.5, 4000: 2.0, 8000: 3.0, 16000: 2.5 }, volume: 100, bass: 4.5 },
     night: { gains: { 31: -1.0, 62: -0.5, 125: 0, 250: 0.5, 500: 1.0, 1000: 0.5, 2000: 0, 4000: -0.5, 8000: -1.0, 16000: -1.5 }, volume: 100, bass: -0.5 },
     bassboost: { gains: { 31: 6.0, 62: 7.0, 125: 5.0, 250: 2.5, 500: 0, 1000: 0.5, 2000: 0.5, 4000: 0.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 7.0 },
-    jazz: { gains: { 31: 1.0, 62: 1.5, 125: 2.0, 250: 1.5, 500: 1.0, 1000: 1.5, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 1.5 },
-    hiphop: { gains: { 31: 4.5, 62: 5.5, 125: 4.0, 250: 2.0, 500: -0.5, 1000: 1.0, 2000: 2.0, 4000: 2.5, 8000: 3.5, 16000: 3.0 }, volume: 100, bass: 5.5 },
-    soul: { gains: { 31: 2.5, 62: 3.0, 125: 2.5, 250: 2.0, 500: 1.5, 1000: 2.0, 2000: 1.5, 4000: 1.0, 8000: 0.5, 16000: 0 }, volume: 100, bass: 3.0 },
-    blues: { gains: { 31: 1.5, 62: 2.0, 125: 2.0, 250: 1.5, 500: 1.0, 1000: 1.5, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 2.0 },
-    reggae: { gains: { 31: 3.5, 62: 4.0, 125: 3.5, 250: 2.0, 500: 0.5, 1000: 1.0, 2000: 1.5, 4000: 2.0, 8000: 2.5, 16000: 2.0 }, volume: 100, bass: 4.0 },
-    sunset: { gains: { 31: 0.5, 62: 1.0, 125: 1.0, 250: 0.5, 500: 0, 1000: 0.5, 2000: 0.5, 4000: 0.5, 8000: 0, 16000: -0.5 }, volume: 100, bass: 1.0 },
-    chill: { gains: { 31: 1.0, 62: 1.5, 125: 1.5, 250: 1.0, 500: 0.5, 1000: 0.5, 2000: 1.0, 4000: 1.0, 8000: 0.5, 16000: 0 }, volume: 100, bass: 1.5 },
-    lofi: { gains: { 31: 1.0, 62: 1.5, 125: 1.0, 250: 0.5, 500: 0, 1000: -0.5, 2000: -1.5, 4000: -2.5, 8000: -3.5, 16000: -4.5 }, volume: 100, bass: 1.5 },
     pop: { gains: { 31: 1.0, 62: 1.5, 125: 1.5, 250: 1.0, 500: 1.5, 1000: 2.5, 2000: 3.0, 4000: 2.5, 8000: 2.0, 16000: 1.5 }, volume: 100, bass: 1.5 },
     kpop: { gains: { 31: 2.5, 62: 3.0, 125: 2.5, 250: 1.5, 500: 1.0, 1000: 2.0, 2000: 3.0, 4000: 3.5, 8000: 4.0, 16000: 3.5 }, volume: 100, bass: 3.0 },
     world: { gains: { 31: 1.5, 62: 2.0, 125: 2.0, 250: 1.5, 500: 1.0, 1000: 2.0, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 2.0 },
     ambient: { gains: { 31: 0.5, 62: 1.0, 125: 1.5, 250: 1.5, 500: 1.5, 1000: 2.0, 2000: 2.5, 4000: 2.5, 8000: 3.0, 16000: 2.5 }, volume: 100, bass: 1.0 },
-    clarity: { gains: { 31: -1.5, 62: -0.5, 125: 0, 250: 0.5, 500: 1.0, 1000: 2.5, 2000: 4.0, 4000: 4.5, 8000: 3.5, 16000: 2.5 }, volume: 100, bass: -0.5 },
     wave: { gains: { 31: 5.5, 62: 6.5, 125: 4.5, 250: 1.5, 500: -1.5, 1000: -0.5, 2000: 0.5, 4000: 2.0, 8000: 3.5, 16000: 4.0 }, volume: 100, bass: 6.5 },
     phonk: { gains: { 31: 7.0, 62: 8.0, 125: 5.5, 250: 2.0, 500: -2.5, 1000: -1.5, 2000: 0, 4000: 2.0, 8000: 4.5, 16000: 5.0 }, volume: 100, bass: 8.0 },
+    hiphop: { gains: { 31: 4.5, 62: 5.5, 125: 4.0, 250: 2.0, 500: -0.5, 1000: 1.0, 2000: 2.0, 4000: 2.5, 8000: 3.5, 16000: 3.0 }, volume: 100, bass: 5.5 },
+    soul: { gains: { 31: 2.5, 62: 3.0, 125: 2.5, 250: 2.0, 500: 1.5, 1000: 2.0, 2000: 1.5, 4000: 1.0, 8000: 0.5, 16000: 0 }, volume: 100, bass: 3.0 },
+    blues: { gains: { 31: 1.5, 62: 2.0, 125: 2.0, 250: 1.5, 500: 1.0, 1000: 1.5, 2000: 2.0, 4000: 1.5, 8000: 1.0, 16000: 0.5 }, volume: 100, bass: 2.0 },
+    reggae: { gains: { 31: 3.5, 62: 4.0, 125: 3.5, 250: 2.0, 500: 0.5, 1000: 1.0, 2000: 1.5, 4000: 2.0, 8000: 2.5, 16000: 2.0 }, volume: 100, bass: 4.0 },
+    chill: { gains: { 31: 1.0, 62: 1.5, 125: 1.5, 250: 1.0, 500: 0.5, 1000: 0.5, 2000: 1.0, 4000: 1.0, 8000: 0.5, 16000: 0 }, volume: 100, bass: 1.5 },
+    lofi: { gains: { 31: 1.0, 62: 1.5, 125: 1.0, 250: 0.5, 500: 0, 1000: -0.5, 2000: -1.5, 4000: -2.5, 8000: -3.5, 16000: -4.5 }, volume: 100, bass: 1.5 },
+    sunset: { gains: { 31: 0.5, 62: 1.0, 125: 1.0, 250: 0.5, 500: 0, 1000: 0.5, 2000: 0.5, 4000: 0.5, 8000: 0, 16000: -0.5 }, volume: 100, bass: 1.0 },
     logitech: { gains: { 31: 3.0, 62: 3.5, 125: 2.5, 250: 1.5, 500: 0.5, 1000: 1.0, 2000: 2.0, 4000: 2.5, 8000: 3.0, 16000: 2.5 }, volume: 100, bass: 3.5 },
     maxboost: { gains: { 31: 4.0, 62: 5.0, 125: 3.5, 250: 2.0, 500: 1.0, 1000: 1.0, 2000: 2.0, 4000: 2.5, 8000: 3.0, 16000: 2.5 }, volume: 100, bass: 5.0 },
     gaming: { gains: { 31: 2.0, 62: 2.5, 125: 2.0, 250: 1.0, 500: 0.5, 1000: 1.5, 2000: 3.0, 4000: 4.0, 8000: 4.5, 16000: 3.5 }, volume: 100, bass: 2.5 },
@@ -244,8 +252,13 @@
     hifi: { gains: { 31: 0.5, 62: 1.0, 125: 1.0, 250: 0.5, 500: 0.5, 1000: 0.5, 2000: 1.0, 4000: 1.5, 8000: 2.0, 16000: 1.5 }, volume: 100, bass: 1.0 },
     studio: { gains: { 31: 0, 62: 0.5, 125: 0.5, 250: 0.5, 500: 0.5, 1000: 0.5, 2000: 0.5, 4000: 0.5, 8000: 0.5, 16000: 0.5 }, volume: 100, bass: 0.5 },
     premium: { gains: { 31: 1.5, 62: 2.0, 125: 1.5, 250: 1.0, 500: 0.5, 1000: 1.0, 2000: 1.5, 4000: 2.0, 8000: 2.5, 16000: 2.0 }, volume: 100, bass: 2.0 },
-    master: { gains: { 31: 1.0, 62: 1.5, 125: 1.0, 250: 0.5, 500: 0.5, 1000: 1.0, 2000: 1.5, 4000: 2.0, 8000: 2.5, 16000: 2.0 }, volume: 100, bass: 1.5 }
+    master: { gains: { 31: 1.0, 62: 1.5, 125: 1.0, 250: 0.5, 500: 0.5, 1000: 1.0, 2000: 1.5, 4000: 2.0, 8000: 2.5, 16000: 2.0 }, volume: 100, bass: 1.5 },
+    clarity: { gains: { 31: -1.5, 62: -0.5, 125: 0, 250: 0.5, 500: 1.0, 1000: 2.5, 2000: 4.0, 4000: 4.5, 8000: 3.5, 16000: 2.5 }, volume: 100, bass: -0.5 }
   };
+
+  var PRESET_ORDER = [
+    'flat', 'natural', 'universal', 'balanced', 'club', 'dance', 'edm', 'synthwave', 'deephouse', 'festival', 'rock', 'metal', 'hardrock', 'grunge', 'vocal', 'podcast', 'speech', 'rap', 'acoustic', 'piano', 'orchestra', 'classical', 'jazz', 'headphones', 'car', 'night', 'bassboost', 'pop', 'kpop', 'world', 'ambient', 'wave', 'phonk', 'hiphop', 'soul', 'blues', 'reggae', 'chill', 'lofi', 'sunset', 'logitech', 'maxboost', 'gaming', 'movie', 'fps', 'hifi', 'studio', 'premium', 'master', 'clarity'
+  ];
 
   // ============================================
   //  PRESET INFO
@@ -274,25 +287,24 @@
     piano: { icon: '🎹', desc_ru: 'Фортепиано', desc_en: 'Piano', desc_uk: 'Фортепіано' },
     orchestra: { icon: '🎻', desc_ru: 'Оркестр', desc_en: 'Orchestra', desc_uk: 'Оркестр' },
     classical: { icon: '🎻', desc_ru: 'Классика', desc_en: 'Classical', desc_uk: 'Класика' },
+    jazz: { icon: '🎷', desc_ru: 'Джаз', desc_en: 'Jazz', desc_uk: 'Джаз' },
     headphones: { icon: '🎧', desc_ru: 'Наушники', desc_en: 'Headphones', desc_uk: 'Навушники' },
     car: { icon: '🚗', desc_ru: 'Авто', desc_en: 'Car', desc_uk: 'Авто' },
     night: { icon: '🌙', desc_ru: 'Ночной', desc_en: 'Night', desc_uk: 'Нічний' },
     bassboost: { icon: '🔊', desc_ru: 'Макс. Бас', desc_en: 'Max Bass', desc_uk: 'Макс. Бас' },
-    jazz: { icon: '🎷', desc_ru: 'Джаз', desc_en: 'Jazz', desc_uk: 'Джаз' },
-    hiphop: { icon: '🎤', desc_ru: 'Хип-хоп', desc_en: 'Hip-Hop', desc_uk: 'Хіп-хоп' },
-    soul: { icon: '🎵', desc_ru: 'Соул', desc_en: 'Soul', desc_uk: 'Соул' },
-    blues: { icon: '🎸', desc_ru: 'Блюз', desc_en: 'Blues', desc_uk: 'Блюз' },
-    reggae: { icon: '🌴', desc_ru: 'Регги', desc_en: 'Reggae', desc_uk: 'Реггі' },
-    sunset: { icon: '🌅', desc_ru: 'Закат', desc_en: 'Sunset', desc_uk: 'Захід' },
-    chill: { icon: '☁️', desc_ru: 'Чилл', desc_en: 'Chill', desc_uk: 'Чілл' },
-    lofi: { icon: '🎧', desc_ru: 'Lo-Fi', desc_en: 'Lo-Fi', desc_uk: 'Lo-Fi' },
     pop: { icon: '🎵', desc_ru: 'Поп', desc_en: 'Pop', desc_uk: 'Поп' },
     kpop: { icon: '🎵', desc_ru: 'K-Pop', desc_en: 'K-Pop', desc_uk: 'K-Pop' },
     world: { icon: '🌍', desc_ru: 'World', desc_en: 'World', desc_uk: 'World' },
     ambient: { icon: '🕊️', desc_ru: 'Эмбиент', desc_en: 'Ambient', desc_uk: 'Ембієнт' },
-    clarity: { icon: '🎯', desc_ru: 'Четкость', desc_en: 'Clarity', desc_uk: 'Чіткість' },
     wave: { icon: '🌊', desc_ru: 'Wave', desc_en: 'Wave', desc_uk: 'Wave' },
     phonk: { icon: '🔥', desc_ru: 'Phonk', desc_en: 'Phonk', desc_uk: 'Phonk' },
+    hiphop: { icon: '🎤', desc_ru: 'Хип-хоп', desc_en: 'Hip-Hop', desc_uk: 'Хіп-хоп' },
+    soul: { icon: '🎵', desc_ru: 'Соул', desc_en: 'Soul', desc_uk: 'Соул' },
+    blues: { icon: '🎸', desc_ru: 'Блюз', desc_en: 'Blues', desc_uk: 'Блюз' },
+    reggae: { icon: '🌴', desc_ru: 'Регги', desc_en: 'Reggae', desc_uk: 'Реггі' },
+    chill: { icon: '☁️', desc_ru: 'Чилл', desc_en: 'Chill', desc_uk: 'Чілл' },
+    lofi: { icon: '🎧', desc_ru: 'Lo-Fi', desc_en: 'Lo-Fi', desc_uk: 'Lo-Fi' },
+    sunset: { icon: '🌅', desc_ru: 'Закат', desc_en: 'Sunset', desc_uk: 'Захід' },
     logitech: { icon: '🎧', desc_ru: 'Logitech G321', desc_en: 'Logitech G321', desc_uk: 'Logitech G321' },
     maxboost: { icon: '⚡', desc_ru: 'MAX BOOST', desc_en: 'MAX BOOST', desc_uk: 'MAX BOOST' },
     gaming: { icon: '🎮', desc_ru: 'Игры', desc_en: 'Gaming', desc_uk: 'Ігри' },
@@ -301,7 +313,8 @@
     hifi: { icon: '✨', desc_ru: 'Hi-Fi', desc_en: 'Hi-Fi', desc_uk: 'Hi-Fi' },
     studio: { icon: '💎', desc_ru: 'Студия', desc_en: 'Studio', desc_uk: 'Студія' },
     premium: { icon: '🌟', desc_ru: 'Премиум', desc_en: 'Premium', desc_uk: 'Преміум' },
-    master: { icon: '🎵', desc_ru: 'Мастер', desc_en: 'Master', desc_uk: 'Майстер' }
+    master: { icon: '🎵', desc_ru: 'Мастер', desc_en: 'Master', desc_uk: 'Майстер' },
+    clarity: { icon: '🎯', desc_ru: 'Четкость', desc_en: 'Clarity', desc_uk: 'Чіткість' }
   };
 
   var PRESET_CATEGORIES = {
@@ -615,13 +628,18 @@
   var _neonGlow = 0;
 
   function getEffectNameLocal(effectId) {
-    var names = {
-      spectrum: t('spectrum') || '📊 Спектр',
-      waves: t('waves') || '🌊 Волны',
-      fire: t('fire') || '🔥 Огонь',
-      neon: t('neon') || '💜 Неон'
-    };
-    return names[effectId] || effectId;
+    // Effect labels must follow the standalone window's current language.
+    // The shared visualization module does not own window.js's currentLang,
+    // so using getSharedEffectName() here could leave the button in Russian
+    // after switching the standalone window to English/Ukrainian.
+    var key = String(effectId || 'spectrum');
+    var translated = t(key);
+    if (translated && translated !== key) return translated;
+    try {
+      return getSharedEffectName(key);
+    } catch (e) {
+      return key;
+    }
   }
 
   function initEffectParticles() {
@@ -925,23 +943,22 @@
 
   function cycleEffectInWindow() {
     var effects = ['spectrum', 'waves', 'fire', 'neon'];
-    var currentIndex = effects.indexOf(_currentEffect);
-    var nextIndex = (currentIndex + 1) % effects.length;
-    var nextEffect = effects[nextIndex];
-    
+    var current = getSharedEffect() || _currentEffect || 'spectrum';
+    var currentIndex = effects.indexOf(current);
+    var nextEffect = effects[(currentIndex + 1) % effects.length];
+
+    setSharedEffect(nextEffect);
     _currentEffect = nextEffect;
-    
-    try {
-      localStorage.setItem('soundforge_window_effect', nextEffect);
-    } catch (e) {}
-    
+
     updateEffectButtonLabelInWindow();
-    
+    try { updateSpectrumWindow(); } catch (e) { console.warn('⚠️ Effect redraw failed:', e); }
+
     safeSendMessage({
       action: 'effectChanged',
-      effect: nextEffect
+      effect: nextEffect,
+      source: 'window'
     });
-    
+
     var name = getEffectNameLocal(nextEffect);
     setStatus('ready', '🎨 ' + name);
     console.log('🎨 Эффект изменен в окне: ' + name);
@@ -950,18 +967,23 @@
   function updateEffectButtonLabelInWindow() {
     var btn = document.getElementById('effectBtn');
     if (!btn) return;
+    _currentEffect = getSharedEffect() || _currentEffect || 'spectrum';
     var name = getEffectNameLocal(_currentEffect);
     btn.textContent = '🎨 ' + name;
+    btn.dataset.effect = _currentEffect;
+    btn.setAttribute('aria-label', 'Visualization effect: ' + name);
   }
 
   function loadWindowEffect() {
     try {
-      var saved = localStorage.getItem('soundforge_window_effect');
-      if (saved && ['spectrum', 'waves', 'fire', 'neon'].indexOf(saved) !== -1) {
-        _currentEffect = saved;
-      }
-    } catch (e) {}
+      loadSharedEffect();
+      _currentEffect = getSharedEffect() || 'spectrum';
+    } catch (e) {
+      _currentEffect = 'spectrum';
+      setSharedEffect(_currentEffect);
+    }
   }
+
 
   // ============================================
   //  STATE
@@ -983,13 +1005,11 @@
     hasAudio: false,
     rmsValue: 0,
     peakValue: 0,
-    animationFrameId: null,
     abPresetA: null,
     abPresetB: null,
     abMode: false,
-    abActive: 'A',
-    targetTabId: null,
-    connectPollTimer: null
+    abActive: null,
+    targetTabId: null
   };
   var _lastWindowSettingsSnapshot = null;
 
@@ -1052,31 +1072,55 @@
   }
 
   // ============================================
-  //  UI FUNCTIONS
+  //  UI FUNCTIONS (С ЗАЩИТОЙ CONNECTION STATE)
   // ============================================
 
   function setStatus(status, text) {
-    windowState.currentStatus = status;
+    // Защита: информационные сообщения (ready) не должны менять состояние подключения
+    var isCurrentConnection = isConnectionState(windowState.currentStatus);
+    
+    // Если пришло информационное сообщение (ready) и текущий статус - состояние подключения
+    // - НЕ МЕНЯЕМ состояние, только текст
+    if (status === 'ready' && isCurrentConnection) {
+      var txt = dom.statusText;
+      if (txt) {
+        txt.textContent = text || '✅ ' + windowState.currentStatus;
+      }
+      return;
+    }
+    
+    // Для реальных состояний - обновляем
+    if (isConnectionState(status)) {
+      windowState.currentStatus = status;
+    } else {
+      windowState.currentStatus = status;
+    }
+    
     var dot = dom.statusDot;
     var txt = dom.statusText;
 
     if (dot) {
       dot.className = 'status-dot';
-      if (status === 'connected') dot.classList.add('active');
-      else if (status === 'connecting') dot.classList.add('connecting');
-      else if (status === 'disconnected') dot.classList.add('inactive');
-      else if (status === 'reset') dot.classList.add('reset');
+      if (windowState.currentStatus === 'connected') dot.classList.add('active');
+      else if (windowState.currentStatus === 'connecting') dot.classList.add('connecting');
+      else if (windowState.currentStatus === 'disconnected') dot.classList.add('inactive');
+      else if (windowState.currentStatus === 'reset') dot.classList.add('reset');
     }
     if (txt) {
       txt.className = 'status-text';
       txt.textContent = text || t('status_ready');
     }
-    updateConnectButton(status);
+    updateConnectButton(windowState.currentStatus);
   }
 
   function updateConnectButton(status) {
     var btn = dom.connectBtn;
     if (!btn) return;
+    
+    // НЕ МЕНЯЕМ КНОПКУ ДЛЯ ИНФОРМАЦИОННЫХ СООБЩЕНИЙ
+    if (!isConnectionState(status)) {
+      return;
+    }
     
     if (status === 'connected') {
       btn.textContent = t('disconnect');
@@ -1162,7 +1206,7 @@
           
           for (var i = 0; i < allTabs.length; i++) {
             var tab = allTabs[i];
-            if (tab.audible === true && tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('chrome://') && !tab.url.startsWith('about:') && !tab.url.startsWith('moz-extension://')) {
+            if (tab.audible === true && tab.url && !tab.url.startsWith('moz-extension://') && !tab.url.startsWith('about:')) {
               try {
                 var url = new URL(tab.url);
                 var hostname = url.hostname.replace('www.', '');
@@ -1174,7 +1218,7 @@
           
           for (var j = 0; j < allTabs.length; j++) {
             var tab2 = allTabs[j];
-            if (tab2.active && tab2.url && !tab2.url.startsWith('chrome-extension://') && !tab2.url.startsWith('chrome://') && !tab2.url.startsWith('about:') && !tab2.url.startsWith('moz-extension://')) {
+            if (tab2.active && tab2.url && !tab2.url.startsWith('moz-extension://') && !tab2.url.startsWith('about:')) {
               try {
                 var url2 = new URL(tab2.url);
                 var hostname2 = url2.hostname.replace('www.', '');
@@ -1186,7 +1230,7 @@
           
           for (var k = 0; k < allTabs.length; k++) {
             var tab3 = allTabs[k];
-            if (tab3.url && !tab3.url.startsWith('chrome-extension://') && !tab3.url.startsWith('chrome://') && !tab3.url.startsWith('about:') && !tab3.url.startsWith('moz-extension://')) {
+            if (tab3.url && !tab3.url.startsWith('moz-extension://') && !tab3.url.startsWith('about:')) {
               try {
                 var url3 = new URL(tab3.url);
                 var hostname3 = url3.hostname.replace('www.', '');
@@ -1281,7 +1325,8 @@
       windowState.isClipping = false;
     }
     
-    renderEffectInWindow(ctx, width, height, isDark, processedData);
+    sharedAppState.currentTheme = windowState.currentTheme;
+    renderSharedEffect(processedData);
     
     var maxVal = 0;
     for (var m = 0; m < Math.min(processedData.length, 32); m++) {
@@ -1525,8 +1570,6 @@
   //  AUDIO FUNCTIONS
   // ============================================
 
-  var PRESET_ORDER = ["flat", "natural", "universal", "balanced", "club", "dance", "edm", "synthwave", "deephouse", "festival", "rock", "metal", "hardrock", "grunge", "vocal", "podcast", "speech", "rap", "acoustic", "piano", "orchestra", "classical", "jazz", "headphones", "car", "night", "bassboost", "pop", "kpop", "world", "ambient", "wave", "phonk", "hiphop", "soul", "blues", "reggae", "chill", "lofi", "sunset", "logitech", "maxboost", "gaming", "movie", "fps", "hifi", "studio", "premium", "master", "clarity"];
-
   function getSliderGains() {
     var gains = {};
     if (dom.eqSliders) {
@@ -1538,8 +1581,8 @@
     return gains;
   }
 
-  function syncPresetUIInWindow(name, presetOverride) {
-    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
+  function syncPresetUIInWindow(name) {
+    var preset = PRESETS[name];
     if (!preset) return false;
 
     windowState.currentPreset = name;
@@ -1548,7 +1591,6 @@
 
     var sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
     var gains = preset.gains || {};
-
     sliders.forEach(function(slider) {
       var freq = slider.dataset.freq;
       if (gains[freq] !== undefined) {
@@ -1562,17 +1604,15 @@
       }
     });
 
-    var vol = preset.volume !== undefined ? Number(preset.volume) : 100;
-    vol = Math.min(800, Math.max(0, vol));
     if (dom.volumeSlider && dom.volumeDisplay) {
+      var vol = Number.isFinite(Number(preset.volume)) ? Math.min(800, Math.max(0, Number(preset.volume))) : 100;
       dom.volumeSlider.value = vol;
       dom.volumeDisplay.textContent = vol + '%';
       updateVolumeStatus(vol);
     }
 
-    var bass = preset.bass !== undefined ? Number(preset.bass) : 0;
-    bass = Math.max(-12, Math.min(12, bass));
     if (dom.bassSlider && dom.bassDisplay) {
+      var bass = Number.isFinite(Number(preset.bass)) ? Math.max(-12, Math.min(12, Number(preset.bass))) : 0;
       dom.bassSlider.value = bass;
       dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
     }
@@ -1581,106 +1621,29 @@
     return true;
   }
 
-  function applyPreset(name, presetOverride) {
-    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
+  function applyPreset(name) {
+    resetABCompareInWindow();
+    var preset = PRESETS[name];
     if (!preset) return;
 
-    console.log('🎵 Applying preset atomically in window: ' + name);
+    console.log('🎵 Applying preset in window: ' + name);
+    if (!syncPresetUIInWindow(name)) return;
 
-    resetABCompareStateWindow();
-    syncPresetUIInWindow(name, preset);
-
-    if (api) {
-      safeSendMessage({
-        action: 'applyPreset',
-        targetTabId: windowState.targetTabId,
-        preset: name,
-        presetData: {
-          gains: getSliderGains(),
-          volume: parseFloat(dom.volumeSlider ? dom.volumeSlider.value : 100),
-          bass: parseFloat(dom.bassSlider ? dom.bassSlider.value : 0)
-        },
-        source: 'window'
-      });
-    }
+    var gainsData = getSliderGains();
+    safeSendMessage({
+      action: 'applyPreset',
+      preset: name,
+      presetData: {
+        gains: gainsData,
+        volume: Number.isFinite(Number(preset.volume)) ? Number(preset.volume) : 100,
+        bass: Number.isFinite(Number(preset.bass)) ? Number(preset.bass) : 0
+      },
+      source: 'window',
+      targetTabId: windowState.targetTabId || null
+    });
 
     saveAllSettings();
     setStatus('ready', t('preset_applied') + getPresetDesc(name));
-  }
-
-  function syncPresetUIOnlyWindow(name, presetOverride) {
-    var preset = presetOverride || PRESETS[name] || windowState.userPresets[name];
-    if (preset) syncPresetUIInWindow(name, preset);
-  }
-
-  function resetABCompareStateWindow() {
-    windowState.abPresetA = null;
-    windowState.abPresetB = null;
-    windowState.abMode = false;
-    windowState.abActive = 'A';
-    updateABCompareButtonWindow();
-  }
-
-  function getCurrentPresetSnapshotWindow() {
-    return {
-      gains: getSliderGains(),
-      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) : 100,
-      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
-    };
-  }
-
-  function applyABSnapshotWindow(snapshot, label) {
-    if (!snapshot) return;
-    syncPresetUIInWindow('custom', snapshot);
-
-    safeSendMessage({
-      action: 'applyPreset',
-      targetTabId: windowState.targetTabId,
-      preset: 'custom',
-      presetData: {
-        gains: getSliderGains(),
-        volume: parseFloat(dom.volumeSlider ? dom.volumeSlider.value : snapshot.volume),
-        bass: parseFloat(dom.bassSlider ? dom.bassSlider.value : snapshot.bass)
-      },
-      source: 'window_ab'
-    });
-
-    windowState.currentPreset = 'custom';
-    saveAllSettings();
-    setStatus('ready', label || ('A/B ' + windowState.abActive));
-  }
-
-  function updateABCompareButtonWindow() {
-    if (!dom.abCompareBtn) return;
-    dom.abCompareBtn.textContent = windowState.abMode ? ('A/B: ' + windowState.abActive) : t('compare');
-  }
-
-  function toggleABCompareWindow() {
-    var current = getCurrentPresetSnapshotWindow();
-
-    if (!windowState.abMode) {
-      windowState.abPresetA = JSON.parse(JSON.stringify(current));
-      windowState.abPresetB = null;
-      windowState.abMode = true;
-      windowState.abActive = 'A';
-      updateABCompareButtonWindow();
-      setStatus('ready', 'A сохранён');
-      return;
-    }
-
-    if (windowState.abActive === 'A') {
-      windowState.abPresetB = JSON.parse(JSON.stringify(current));
-      windowState.abActive = 'B';
-      applyABSnapshotWindow(windowState.abPresetB, 'B');
-      updateABCompareButtonWindow();
-      return;
-    }
-
-    if (windowState.abPresetA) {
-      windowState.abActive = 'A';
-      applyABSnapshotWindow(windowState.abPresetA, 'A');
-      updateABCompareButtonWindow();
-    }
   }
 
   function saveAllSettings() {
@@ -1709,6 +1672,7 @@
   }
 
   function handleReset() {
+    resetABCompareInWindow();
     console.log('🔄 Reset all settings from window');
     
     applyPreset('flat');
@@ -1738,7 +1702,23 @@
     updatePresetInfo('flat');
     if (dom.presetSelect) dom.presetSelect.value = 'flat';
     
-    resetABCompareStateWindow();
+    var gainsData = getSliderGains();
+    safeSendMessage({ 
+      action: 'updateEQ', 
+      gains: gainsData, 
+      instant: true,
+      source: 'window_reset'
+    });
+    safeSendMessage({ 
+      action: 'setVolume', 
+      value: 1.0, 
+      instant: true 
+    });
+    safeSendMessage({ 
+      action: 'setBass', 
+      value: 0, 
+      instant: true 
+    });
     
     saveAllSettings();
     updateEQGraphWindow();
@@ -1763,15 +1743,8 @@
   }
 
   // ============================================
-  //  CONNECT/DISCONNECT - ИСПРАВЛЕНО
+  //  CONNECT/DISCONNECT (FIREFOX 153 OPTIMIZED)
   // ============================================
-
-  function stopConnectPolling() {
-    if (windowState.connectPollTimer) {
-      try { clearInterval(windowState.connectPollTimer); } catch (e) {}
-      windowState.connectPollTimer = null;
-    }
-  }
 
   function handleConnectDisconnect() {
     if (windowState.isLoading || windowState.isConnecting) return;
@@ -1781,16 +1754,13 @@
     }
 
     if (windowState.currentStatus === 'connected' || windowState.isConnected) {
-      stopConnectPolling();
       showLoading(true);
-      setStatus('disconnected', t('status_disconnected'));
       windowState.isConnecting = true;
 
       safeSendMessage({
         action: 'disconnect',
         targetTabId: windowState.targetTabId
       }, function(response) {
-        stopConnectPolling();
         showLoading(false);
         windowState.isConnecting = false;
         windowState.isConnected = false;
@@ -1802,12 +1772,11 @@
 
         setStatus('disconnected', t('status_disconnected'));
         safeStorageSet({ soundforgeConnected: false });
-        console.log('🔴 Окно отключено');
+        console.log('🔴 Окно отключено', windowState.targetTabId);
       });
       return;
     }
 
-    stopConnectPolling();
     showLoading(true);
     setStatus('connecting', t('status_connecting'));
     windowState.isConnecting = true;
@@ -1819,10 +1788,10 @@
     }, function(response) {
       if (response && response.tabId != null) {
         windowState.targetTabId = response.tabId;
+        console.log('🎯 Окно привязано к вкладке:', response.tabId);
       }
 
       if (response && response.status === 'connected') {
-        stopConnectPolling();
         showLoading(false);
         windowState.isConnecting = false;
         windowState.isConnected = true;
@@ -1835,65 +1804,49 @@
       }
 
       if (response && ['no_tab', 'system_page', 'extension_page', 'error'].indexOf(response.status) !== -1) {
-        stopConnectPolling();
         showLoading(false);
         windowState.isConnecting = false;
         windowState.isConnected = false;
         windowState.currentStatus = 'disconnected';
         setStatus('disconnected', t('connection_error'));
+        console.warn('❌ Окно: подключение отклонено:', response.status);
         return;
       }
 
-      console.log('⏳ Окно: connect отправлен, ждём подтверждение реального подключения');
+      console.log('⏳ Окно: connect отправлен, ждём statusUpdate');
 
-      var attempts = 0;
-      var maxAttempts = 20;
-      windowState.connectPollTimer = setInterval(function() {
-        if (!windowState.isConnecting) {
-          stopConnectPolling();
-          return;
-        }
+      setTimeout(function() {
+        if (!windowState.isConnecting) return;
 
-        attempts++;
         safeSendMessage({
           action: 'getStatus',
           targetTabId: windowState.targetTabId
         }, function(resp) {
-          if (resp && resp.tabId != null && windowState.targetTabId == null) {
+          if (resp && resp.tabId != null) {
             windowState.targetTabId = resp.tabId;
           }
 
           if (resp && resp.status === 'connected') {
-            stopConnectPolling();
-            windowState.isConnecting = false;
             windowState.isConnected = true;
             windowState.currentStatus = 'connected';
+            windowState.isConnecting = false;
             showLoading(false);
             setStatus('connected', t('status_connected'));
             applySavedSettings(false);
             safeStorageSet({ soundforgeConnected: true });
-            console.log('✅ Окно подключено (poll getStatus)');
-            return;
-          }
-
-          // A transient disconnected response is expected while inject.js is
-          // loading or creating the AudioContext. Do not fail the handshake here.
-          if (resp && resp.status === 'disconnected' && windowState.isConnecting) {
-            setStatus('connecting', t('status_connecting'));
-            return;
-          }
-
-          if (attempts >= maxAttempts) {
-            stopConnectPolling();
-            windowState.isConnecting = false;
+            console.log('✅ Окно подключено (fallback getStatus)');
+          } else if (resp && resp.status === 'connecting') {
+            console.log('⏳ Окно: background всё ещё подключается');
+          } else {
             windowState.isConnected = false;
             windowState.currentStatus = 'disconnected';
+            windowState.isConnecting = false;
             showLoading(false);
-            setStatus('disconnected', t('connection_error'));
-            console.log('❌ Окно: подтверждение подключения не получено за 10 секунд');
+            setStatus('disconnected', t('status_disconnected'));
+            console.log('❌ Окно НЕ подключено после fallback проверки');
           }
         });
-      }, 500);
+      }, 3500);
     });
   }
 
@@ -2238,14 +2191,13 @@
   }
 
   // ============================================
-  //  MESSAGE HANDLER - ИСПРАВЛЕНО
+  //  MESSAGE HANDLER (FIREFOX 153 OPTIMIZED)
   // ============================================
 
   function setupMessageListener() {
     if (!api) return;
     try {
       api.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        // Игнорируем свои же сообщения
         if (sender && sender.url && sender.url.includes('window.html')) {
           sendResponse({ status: 'ignored' });
           return true;
@@ -2273,46 +2225,30 @@
           return true;
         }
         
-        // ============================================
-        //  СТАТУС - ИСПРАВЛЕНО
-        // ============================================
         if (request.action === 'statusUpdate') {
           console.log('📨 Окно получило statusUpdate:', request.status, 'tabId:', request.tabId);
 
-          if (windowState.targetTabId == null && request.tabId != null) {
-            windowState.targetTabId = request.tabId;
-          }
+          var matchesTargetTab = (
+            request.tabId == null ||
+            windowState.targetTabId == null ||
+            Number(request.tabId) === Number(windowState.targetTabId)
+          );
 
-          var isForUs = windowState.targetTabId == null
-            ? (request.tabId == null || request.tabId === undefined)
-            : (request.tabId != null && Number(request.tabId) === Number(windowState.targetTabId));
+          if (matchesTargetTab) {
+            if (request.tabId != null) {
+              windowState.targetTabId = request.tabId;
+            }
 
-          if (isForUs) {
             if (request.status === 'connected') {
-              var wasAlreadyConnected = windowState.isConnected && windowState.currentStatus === 'connected';
-              stopConnectPolling();
               windowState.isConnected = true;
               windowState.currentStatus = 'connected';
               windowState.isConnecting = false;
               showLoading(false);
               setStatus('connected', t('status_connected'));
-              if (!wasAlreadyConnected) {
-                applySavedSettings(false);
-              }
+              applySavedSettings(false);
               safeStorageSet({ soundforgeConnected: true });
               console.log('✅ Окно подключено (через statusUpdate)');
             } else if (request.status === 'disconnected') {
-              // During an active handshake, inject.js can legitimately report
-              // a transient disconnected state before SF_CONNECT completes.
-              // Do not cancel the handshake or turn off the loading indicator.
-              if (windowState.isConnecting && windowState.currentStatus === 'connecting') {
-                setStatus('connecting', t('status_connecting'));
-                console.log('⏳ Игнорируем промежуточный disconnected во время handshake');
-                sendResponse({ status: 'ignored_transient_disconnected' });
-                return true;
-              }
-
-              stopConnectPolling();
               windowState.isConnected = false;
               windowState.currentStatus = 'disconnected';
               windowState.isConnecting = false;
@@ -2323,18 +2259,15 @@
             } else if (request.status === 'connecting') {
               windowState.currentStatus = 'connecting';
               windowState.isConnecting = true;
-              showLoading(true);
               setStatus('connecting', t('status_connecting'));
+              console.log('⏳ Окно: подключение вкладки', windowState.targetTabId);
             } else if (request.status === 'error') {
-              stopConnectPolling();
               windowState.isConnected = false;
               windowState.currentStatus = 'disconnected';
               windowState.isConnecting = false;
               showLoading(false);
               setStatus('disconnected', t('connection_error'));
-              console.warn('❌ Окно получило ошибку подключения');
-            } else if (request.status === 'ready') {
-              console.log('✅ Окно: ready');
+              console.warn('❌ Окно: ошибка подключения');
             }
           } else {
             console.log('⏳ Окно: игнорируем statusUpdate для другой вкладки:', request.tabId);
@@ -2345,14 +2278,13 @@
         }
 
         if (request.action === 'presetChanged'  && request.preset) {
-          console.log('🔄 Preset synchronized in Window: ' + request.preset);
-          if (windowState.targetTabId != null && request.tabId != null &&
-              Number(request.tabId) !== Number(windowState.targetTabId)) {
-            sendResponse({ status: 'ignored' });
-            return true;
+          console.log('🔄 Preset synchronized from background: ' + request.preset);
+          if (request.tabId != null) {
+            windowState.targetTabId = request.tabId;
           }
-          if (request.tabId != null) windowState.targetTabId = request.tabId;
-          syncPresetUIOnlyWindow(request.preset, request.presetData || null);
+          if (syncPresetUIInWindow(request.preset)) {
+            setStatus('ready', t('preset_applied') + getPresetDesc(request.preset));
+          }
           sendResponse({ status: 'ok' });
           return true;
         }
@@ -2365,17 +2297,19 @@
         }
 
         if (request.action === 'effectChanged' && request.effect) {
-          _currentEffect = request.effect;
-          try { localStorage.setItem('soundforge_window_effect', request.effect); } catch (e) {}
+          setSharedEffect(request.effect);
+          _currentEffect = getSharedEffect();
           updateEffectButtonLabelInWindow();
-          renderEffectInWindow();
+          if (dom.effectBtn) {
+            dom.effectBtn.dataset.effect = _currentEffect;
+            dom.effectBtn.setAttribute('aria-label', 'Visualization effect: ' + getEffectNameLocal(_currentEffect));
+          }
+          try { updateSpectrumWindow(); } catch (e) {}
           sendResponse({ status: 'ok' });
           return true;
         }
         
-        // Ответ по умолчанию
-        sendResponse({ status: 'ok' });
-        return true;
+        return false;
       });
     } catch(e) {
       console.warn('⚠️ Ошибка настройки слушателя:', e);
@@ -2410,6 +2344,107 @@
         window.close();
       }
     });
+  }
+
+  // ============================================
+  //  A/B COMPARE
+  // ============================================
+
+  function resetABCompareInWindow() {
+    windowState.abPresetA = null;
+    windowState.abPresetB = null;
+    windowState.abMode = false;
+    windowState.abActive = null;
+    if (dom.abCompareBtn) {
+      dom.abCompareBtn.textContent = t('compare');
+      dom.abCompareBtn.style.background = '';
+      dom.abCompareBtn.style.color = '';
+    }
+  }
+
+  function updateABCompareButtonInWindow() {
+    if (!dom.abCompareBtn) return;
+    if (!windowState.abPresetA) {
+      dom.abCompareBtn.textContent = '🔀 A/B';
+      dom.abCompareBtn.style.background = '';
+      dom.abCompareBtn.style.color = '';
+    } else if (!windowState.abPresetB) {
+      dom.abCompareBtn.textContent = '🔀 Save B';
+      dom.abCompareBtn.style.background = '#607D8B';
+      dom.abCompareBtn.style.color = '#fff';
+    } else {
+      dom.abCompareBtn.textContent = '🔀 ' + (windowState.abActive || 'A');
+      dom.abCompareBtn.style.background = windowState.abActive === 'B' ? '#2196F3' : '#4CAF50';
+      dom.abCompareBtn.style.color = '#fff';
+    }
+  }
+
+  function captureABSnapshotInWindow() {
+    return {
+      gains: getSliderGains(),
+      volume: dom.volumeSlider ? parseFloat(dom.volumeSlider.value) / 100 : 1.0,
+      bass: dom.bassSlider ? parseFloat(dom.bassSlider.value) : 0
+    };
+  }
+
+  function applyABSnapshotInWindow(snapshot, side) {
+    if (!snapshot) return;
+
+    var sliders = dom.eqSliders ? Array.from(dom.eqSliders) : [];
+    sliders.forEach(function(slider) {
+      var value = Number(snapshot.gains && snapshot.gains[slider.dataset.freq] !== undefined ? snapshot.gains[slider.dataset.freq] : 0);
+      slider.value = Number.isFinite(value) ? value : 0;
+      var valueSpan = slider.parentElement.querySelector('.gain-value');
+      if (valueSpan) {
+        valueSpan.textContent = Number(slider.value).toFixed(1);
+        valueSpan.className = 'gain-value ' + (Number(slider.value) > 0.1 ? 'positive' : Number(slider.value) < -0.1 ? 'negative' : 'zero');
+      }
+    });
+
+    var volumePercent = Math.max(0, Math.min(800, (Number.isFinite(Number(snapshot.volume)) ? Number(snapshot.volume) : 1) * 100));
+    var bass = Math.max(-12, Math.min(12, (Number.isFinite(Number(snapshot.bass)) ? Number(snapshot.bass) : 0)));
+    if (dom.volumeSlider) dom.volumeSlider.value = volumePercent;
+    if (dom.volumeDisplay) dom.volumeDisplay.textContent = volumePercent + '%';
+    if (dom.bassSlider) dom.bassSlider.value = bass;
+    if (dom.bassDisplay) dom.bassDisplay.textContent = bass.toFixed(1) + ' dB';
+
+    windowState.currentPreset = 'custom';
+    updatePresetInfo('custom');
+
+    var gains = getSliderGains();
+    safeSendMessage({ action: 'updateEQ', gains: gains, instant: true, source: 'window-ab-' + side });
+    safeSendMessage({ action: 'setVolume', value: volumePercent / 100, instant: true, source: 'window-ab-' + side });
+    safeSendMessage({ action: 'setBass', value: bass, instant: true, source: 'window-ab-' + side });
+
+    updateEQGraphWindow();
+    setStatus('ready', '🔀 A/B: ' + side);
+  }
+
+  function toggleABCompareInWindow() {
+    if (!windowState.abPresetA) {
+      windowState.abPresetA = captureABSnapshotInWindow();
+      windowState.abPresetB = null;
+      windowState.abMode = false;
+      windowState.abActive = null;
+      updateABCompareButtonInWindow();
+      setStatus('ready', '🔀 A/B: состояние A сохранено. Настройте B и нажмите ещё раз.');
+      return;
+    }
+
+    if (!windowState.abPresetB) {
+      windowState.abPresetB = captureABSnapshotInWindow();
+      windowState.abMode = true;
+      windowState.abActive = 'A';
+      updateABCompareButtonInWindow();
+      applyABSnapshotInWindow(windowState.abPresetA, 'A');
+      setStatus('ready', '🔀 A/B готов: нажимайте кнопку для переключения A ↔ B.');
+      return;
+    }
+
+    windowState.abActive = windowState.abActive === 'A' ? 'B' : 'A';
+    windowState.abMode = true;
+    updateABCompareButtonInWindow();
+    applyABSnapshotInWindow(windowState.abActive === 'A' ? windowState.abPresetA : windowState.abPresetB, windowState.abActive);
   }
 
   // ============================================
@@ -2553,7 +2588,9 @@
 
     var abBtn = dom.abCompareBtn;
     if (abBtn) {
-      abBtn.addEventListener('click', toggleABCompareWindow);
+      abBtn.onclick = function() {
+        toggleABCompareInWindow();
+      };
     }
 
     var openWindowBtn = dom.openWindowBtn;
@@ -2564,10 +2601,24 @@
     }
 
     if (dom.effectBtn) {
-      dom.effectBtn.addEventListener('click', function(e) {
-        e.preventDefault();
+      dom.effectBtn.onclick = function(e) {
+        if (e) e.preventDefault();
         cycleEffectInWindow();
-      });
+      };
+      dom.effectBtn.onkeydown = function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cycleEffectInWindow();
+        }
+      };
+      dom.effectBtn.dataset.effect = _currentEffect;
+      dom.effectBtn.setAttribute('aria-label', 'Visualization effect: ' + getEffectNameLocal(_currentEffect));
+    }
+
+    if (dom.abCompareBtn) {
+      dom.abCompareBtn.onclick = function() {
+        toggleABCompareInWindow();
+      };
     }
   }
 
@@ -2633,102 +2684,6 @@
   }
 
   // ============================================
-  //  ИНИЦИАЛИЗАЦИЯ ВСЕХ МОДУЛЕЙ (БЕЗОПАСНАЯ)
-  // ============================================
-
-  function initModules() {
-    // History
-    try {
-      import('./features/history.js').then(function(module) {
-        if (module && module.initHistoryTracking) {
-          try {
-            module.initHistoryTracking();
-            console.log('✅ History инициализирован');
-          } catch (e) {
-            console.warn('⚠️ Ошибка инициализации history:', e);
-          }
-        }
-      }).catch(function(e) {
-        console.warn('⚠️ Ошибка загрузки history:', e);
-      });
-    } catch (e) {
-      console.warn('⚠️ Ошибка инициализации history:', e);
-    }
-    
-    // Hotkeys
-    try {
-      import('./features/hotkeys.js').then(function(module) {
-        if (module && module.initHotkeys) {
-          try {
-            module.initHotkeys();
-            console.log('✅ Hotkeys инициализирован');
-          } catch (e) {
-            console.warn('⚠️ Ошибка инициализации hotkeys:', e);
-          }
-        }
-      }).catch(function(e) {
-        console.warn('⚠️ Ошибка загрузки hotkeys:', e);
-      });
-    } catch (e) {
-      console.warn('⚠️ Ошибка инициализации hotkeys:', e);
-    }
-    
-    // Site Settings
-    try {
-      import('./features/site-settings.js').then(function(module) {
-        if (module && module.initAutoDisable) {
-          try {
-            module.initAutoDisable();
-            console.log('✅ Site Settings инициализирован');
-          } catch (e) {
-            console.warn('⚠️ Ошибка инициализации site-settings:', e);
-          }
-        }
-      }).catch(function(e) {
-        console.warn('⚠️ Ошибка загрузки site-settings:', e);
-      });
-    } catch (e) {
-      console.warn('⚠️ Ошибка инициализации site-settings:', e);
-    }
-    
-    // Stats - БЕЗОПАСНАЯ ИНИЦИАЛИЗАЦИЯ
-    try {
-      import('./features/stats.js').then(function(module) {
-        if (module && module.initStats) {
-          try {
-            module.initStats();
-            console.log('✅ Stats инициализирован');
-          } catch (e) {
-            console.warn('⚠️ Ошибка инициализации stats:', e);
-          }
-        }
-      }).catch(function(e) {
-        console.warn('⚠️ Ошибка загрузки stats:', e);
-      });
-    } catch (e) {
-      console.warn('⚠️ Ошибка инициализации stats:', e);
-    }
-    
-    // Notifications
-    try {
-      import('./features/notifications.js').then(function(module) {
-        if (module && module.checkForUpdates) {
-          try {
-            setTimeout(module.checkForUpdates, 5000);
-            console.log('✅ Notifications инициализирован');
-          } catch (e) {
-            console.warn('⚠️ Ошибка инициализации notifications:', e);
-          }
-        }
-      }).catch(function(e) {
-        console.warn('⚠️ Ошибка загрузки notifications:', e);
-      });
-    } catch (e) {
-      console.warn('⚠️ Ошибка инициализации notifications:', e);
-    }
-  }
-
-  // ============================================
   //  INIT
   // ============================================
 
@@ -2739,26 +2694,12 @@
     windowState.isConnected = false;
     windowState.currentStatus = 'disconnected';
     setStatus('disconnected', t('status_disconnected'));
-
-    // Получаем именно активную вкладку браузера (а не окно расширения).
-    safeSendMessage({ action: 'getStatus' }, function(response) {
-      if (response && response.tabId != null && windowState.targetTabId == null) {
-        windowState.targetTabId = response.tabId;
-        console.log('🎯 Window targetTabId:', response.tabId);
-      }
-      if (response && response.status === 'connected') {
-        windowState.isConnected = true;
-        windowState.currentStatus = 'connected';
-        stopConnectPolling();
-        showLoading(false);
-        setStatus('connected', t('status_connected'));
-      }
-    });
     console.log('🔴 Окно: начальный статус ОТКЛЮЧЕН');
     
+    initSharedEffects();
     loadWindowEffect();
+    sharedAppState.currentTheme = windowState.currentTheme;
     updateEffectButtonLabelInWindow();
-    initEffectParticles();
     
     applySavedSettings(true);
     loadUserPresets().then(function() { populatePresetSelect(); });
@@ -2783,7 +2724,7 @@
               var preset = userPresets[userPresetName];
               var tempPreset = {
                 gains: preset.gains || {},
-                volume: preset.volume || 100,
+                volume: Number.isFinite(Number(preset.volume)) ? Number(preset.volume) : 100,
                 bass: preset.bass || 0
               };
               windowState.currentPreset = userPresetName;
@@ -2803,7 +2744,7 @@
                 }
               });
               if (dom.volumeSlider && dom.volumeDisplay) {
-                var vol3 = tempPreset.volume || 100;
+                var vol3 = Number.isFinite(Number(tempPreset.volume)) ? Number(tempPreset.volume) : 100;
                 dom.volumeSlider.value = Math.min(800, Math.max(0, vol3));
                 dom.volumeDisplay.textContent = Math.min(800, Math.max(0, vol3)) + '%';
                 updateVolumeStatus(vol3);
@@ -2814,10 +2755,17 @@
                 dom.bassDisplay.textContent = bass2.toFixed(1) + ' dB';
               }
               var gainsData2 = getSliderGains();
-              safeSendMessage({ action: 'applyPreset', preset: userPresetName, presetData: tempPreset, source: 'window-user' });
-              safeSendMessage({ action: 'updateEQ', gains: gainsData2, instant: true });
-              safeSendMessage({ action: 'setVolume', value: (tempPreset.volume || 100) / 100, instant: true });
-              safeSendMessage({ action: 'setBass', value: tempPreset.bass || 0, instant: true });
+              safeSendMessage({
+                action: 'applyPreset',
+                preset: userPresetName,
+                presetData: {
+                  gains: gainsData2,
+                  volume: Number.isFinite(Number(tempPreset.volume)) ? Number(tempPreset.volume) : 100,
+                  bass: Number.isFinite(Number(tempPreset.bass)) ? Number(tempPreset.bass) : 0
+                },
+                source: 'window-user',
+                targetTabId: windowState.targetTabId || null
+              });
               saveAllSettings();
               updateEQGraphWindow();
               setStatus('ready', t('preset_applied') + userPresetName);
@@ -2888,9 +2836,6 @@
     setupMessageListener();
     setupNewFeatureButtons();
     
-    // ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ (БЕЗОПАСНАЯ)
-    initModules();
-    
     visualizationLoopWindow();
     setupWindowHotkeys();
     
@@ -2899,8 +2844,8 @@
     }, 250);
     setInterval(updateSiteInfo, 3000);
     
-    console.log('✅ SoundForge Window ready (Firefox/Chrome)');
-    console.log('📊 Loaded ' + Object.keys(PRESETS).length + ' presets');
+    console.log('✅ SoundForge Window Firefox 153 ready');
+    console.log('📊 Loaded ' + PRESET_ORDER.length + ' presets');
     console.log('🎨 Effects: Spectrum | Waves | Fire | Neon');
     console.log('⌨️ Hotkeys in window:');
     console.log('   Ctrl+Shift+E - Toggle ON/OFF');
